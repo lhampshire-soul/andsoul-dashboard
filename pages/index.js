@@ -280,28 +280,177 @@ export default function Dashboard() {
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
+  const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
   const renewRate = (mRen+mChurn)>0 ? Math.round(mRen/(mRen+mChurn)*100) : 0;
+
+  const [pmsDebug, setPmsDebug] = useState(null);
 
   const connectPMS = useCallback(async()=>{
     if(!cid||!csec){setPmsErr("Enter both fields.");return;}
-    setPmsLoad(true);setPmsErr("");
+    setPmsLoad(true);setPmsErr("");setPmsDebug(null);
     try{
       const tok=await getRHToken(cid,csec);
-      // v3 API uses /api/v3/ paths
-      const [units,bkgs]=await Promise.all([
-        rhFetch(tok,"/api/v3/units?page_size=500").catch(()=>rhFetch(tok,"/api/units?page_size=500")),
-        rhFetch(tok,"/api/v3/bookings?status=confirmed&page_size=500").catch(()=>rhFetch(tok,"/api/bookings?status=confirmed&page_size=500")),
+
+      // Step 1: Discover which API endpoints actually work
+      setPmsErr("Discovering API endpoints...");
+      const discoverRes = await fetch(`/api/rh?action=discover`,{headers:{"x-rh-token":tok}});
+      const discoverData = await discoverRes.json();
+      const endpoints = discoverData.endpoints || {};
+
+      // Find endpoints that returned 200
+      const working = {};
+      const debugInfo = [];
+      for (const [path, info] of Object.entries(endpoints)) {
+        debugInfo.push(`${info.status} ${path}: ${(info.preview||"").slice(0,80)}`);
+        if (info.status === 200) {
+          working[path] = info;
+        }
+      }
+      setPmsDebug(debugInfo);
+
+      if (Object.keys(working).length === 0) {
+        setPmsErr("Auth OK but no API endpoints responded. See debug info below.");
+        setPmsLoad(false);
+        return;
+      }
+
+      // Step 2: Identify the best endpoints for occupancy, units, and revenue
+      const today = new Date().toISOString().slice(0,10);
+      const mthStart = today.slice(0,7) + "-01";
+      const wkStart = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+
+      // Priority order for occupancy/in-house guests
+      const occupancyPaths = [
+        "tenancies","contracts","bookings","reservations",
+        "guestStays","guest-stays","stays","occupancy",
+        "guests","leases","service-delivery","serviceDelivery"
+      ];
+      // Priority order for units/rooms
+      const unitPaths = ["units","rooms","beds","buildings","properties"];
+      // Priority order for revenue
+      const revenuePaths = [
+        "invoices","charges","payments","financials",
+        "bookings","tenancies","contracts","revenue","reservations",
+        "dashboard","stats","reports"
+      ];
+
+      // Find the first working endpoint for each category (try with and without /api/v3/ prefix)
+      const findWorking = (names) => {
+        for (const name of names) {
+          for (const prefix of ["/","/api/v3/","/api/"]) {
+            const p = prefix + name;
+            if (working[p]) return p;
+          }
+        }
+        return null;
+      };
+
+      const occPath = findWorking(occupancyPaths);
+      const unitPath = findWorking(unitPaths);
+      const revPath = findWorking(revenuePaths);
+
+      setPmsErr(`Found: occ=${occPath||"none"}, units=${unitPath||"none"}, rev=${revPath||"none"} — fetching data...`);
+
+      // Step 3: Fetch data from working endpoints
+      const safeFetch = async (path) => {
+        if (!path) return null;
+        try { return await rhFetch(tok, path + "?page_size=500"); } catch { return null; }
+      };
+      const safeFetchDate = async (path, dateFrom, dateTo) => {
+        if (!path) return null;
+        // Try multiple date param styles
+        for (const params of [
+          `from=${dateFrom}&to=${dateTo}&page_size=500`,
+          `startDate=${dateFrom}&endDate=${dateTo}&page_size=500`,
+          `date_from=${dateFrom}&date_to=${dateTo}&page_size=500`,
+          `checkin_from=${dateFrom}&checkin_to=${dateTo}&page_size=500`,
+          `page_size=500`,
+        ]) {
+          try { return await rhFetch(tok, `${path}?${params}`); } catch { continue; }
+        }
+        return null;
+      };
+
+      const [occData, unitData, revMonthData, revWeekData] = await Promise.all([
+        safeFetch(occPath),
+        safeFetch(unitPath),
+        revPath ? safeFetchDate(revPath, mthStart, today) : null,
+        revPath ? safeFetchDate(revPath, wkStart, today) : null,
       ]);
-      const unitList = units?.data ?? units?.results ?? units ?? [];
-      const bookList = bkgs?.data ?? bkgs?.results ?? bkgs ?? [];
-      const active = Array.isArray(bookList) ? bookList : [];
-      const today=new Date().toISOString().slice(0,10);
-      const occ=active.filter(b=>{const s=b.check_in_date??b.start_date??b.checkInDate,e=b.check_out_date??b.end_date??b.checkOutDate;return s<=today&&e>=today;}).length;
-      const totalUnits = Array.isArray(unitList) ? unitList.length : BEDS;
-      const mth=today.slice(0,7), rev=active.filter(b=>(b.check_in_date??b.start_date??b.checkInDate??"").startsWith(mth)).reduce((s,b)=>s+parseFloat(b.total_amount??b.gross_amount??b.totalAmount??0),0);
-      const wk=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
-      setPmsData({occupied:occ,total:totalUnits,occupancyPct:Math.round(occ/(totalUnits||BEDS)*100),revenue:rev,newThisWeek:active.filter(b=>(b.created_at??b.createdAt??"")>=wk).length,rawBookings:active.length});
+
+      // Step 4: Parse the data flexibly
+      const extractList = (raw) => {
+        if (!raw) return [];
+        if (Array.isArray(raw)) return raw;
+        if (raw.data && Array.isArray(raw.data)) return raw.data;
+        if (raw.results && Array.isArray(raw.results)) return raw.results;
+        if (raw.items && Array.isArray(raw.items)) return raw.items;
+        if (raw.records && Array.isArray(raw.records)) return raw.records;
+        if (raw.content && Array.isArray(raw.content)) return raw.content;
+        // Try to find any array in the response
+        for (const val of Object.values(raw)) {
+          if (Array.isArray(val) && val.length > 0) return val;
+        }
+        return [];
+      };
+
+      const occList = extractList(occData);
+      const unitList = extractList(unitData);
+
+      // Filter for in-house / active guests
+      const inHouse = occList.filter(g => {
+        const status = (g.status ?? g.stayStatus ?? g.state ?? g.bookingStatus ?? "").toString().toLowerCase();
+        if (["in_house","checked_in","inhouse","active","current","occupied","confirmed","staying"].includes(status)) return true;
+        // Check dates as fallback
+        const s = g.checkInDate ?? g.check_in_date ?? g.startDate ?? g.start_date ?? g.moveInDate ?? g.move_in_date ?? g.from ?? "";
+        const e = g.checkOutDate ?? g.check_out_date ?? g.endDate ?? g.end_date ?? g.moveOutDate ?? g.move_out_date ?? g.to ?? "";
+        if (s && e) return s <= today && e >= today;
+        if (s && !e) return s <= today; // Still active, no end date
+        return false;
+      });
+
+      // If no filter matched, maybe ALL records are current (API pre-filtered)
+      const inHouseCount = inHouse.length > 0 ? inHouse.length : occList.length;
+
+      const totalUnits = unitList.length || BEDS;
+
+      // Parse revenue
+      const parseRevenue = (raw) => {
+        const list = extractList(raw);
+        return list.reduce((sum, b) => {
+          // Try every possible revenue field
+          const v = parseFloat(
+            b.totalAmount ?? b.total_amount ?? b.grossAmount ?? b.gross_amount ??
+            b.netAmount ?? b.net_amount ?? b.amount ?? b.revenue ?? b.rent ??
+            b.total ?? b.value ?? b.price ?? b.charge ?? b.sum ?? 0
+          );
+          return sum + (isNaN(v) ? 0 : v);
+        }, 0);
+      };
+      const monthlyRev = parseRevenue(revMonthData);
+      const weeklyRev = parseRevenue(revWeekData);
+
+      // Store raw counts for debug
+      const debugResults = [
+        `Occupancy endpoint: ${occPath} → ${occList.length} records, ${inHouseCount} in-house`,
+        `Units endpoint: ${unitPath} → ${unitList.length} units`,
+        `Revenue endpoint: ${revPath} → month £${monthlyRev.toFixed(0)}, week £${weeklyRev.toFixed(0)}`,
+        `Raw occupancy sample: ${JSON.stringify(occList[0] || {}).slice(0,200)}`,
+        `Raw revenue sample: ${JSON.stringify(extractList(revMonthData)[0] || {}).slice(0,200)}`,
+      ];
+      setPmsDebug(prev => [...(prev||[]), "---RESULTS---", ...debugResults]);
+
+      setPmsData({
+        occupied: inHouseCount,
+        total: totalUnits,
+        occupancyPct: Math.round(inHouseCount / (totalUnits || BEDS) * 100),
+        revenue: monthlyRev,
+        weeklyRevenue: weeklyRev,
+        newThisWeek: 0,
+        rawBookings: inHouseCount,
+      });
       setPmsConn(true);
+      setPmsErr("");
     }catch(e){setPmsErr(`Failed: ${e.message}`);}
     finally{setPmsLoad(false);}
   },[cid,csec]);
@@ -559,12 +708,27 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* DEBUG PANEL — always visible when there's debug data */}
+            {pmsDebug&&pmsDebug.length>0&&(
+              <div style={{marginBottom:18,background:"#0a0c10",border:`1px solid ${C.border}`,borderRadius:8,padding:12,maxHeight:300,overflow:"auto"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em"}}>API Debug Log</p>
+                  <button onClick={()=>setPmsDebug(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:4,padding:"2px 8px",fontSize:9,cursor:"pointer"}}>Hide</button>
+                </div>
+                {pmsDebug.map((line,i)=>{
+                  const is200 = line.startsWith("200 ");
+                  const isResult = line.startsWith("---") || line.startsWith("Occupancy") || line.startsWith("Units") || line.startsWith("Revenue") || line.startsWith("Raw");
+                  return <p key={i} style={{fontSize:10,fontFamily:"DM Mono,monospace",color:is200?C.sage:isResult?C.gold:line.startsWith("404")?C.muted:C.rose,marginBottom:2,wordBreak:"break-all"}}>{line}</p>;
+                })}
+              </div>
+            )}
+
             <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
               <div style={{flex:1.5,minWidth:250,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,borderTop:`2px solid ${C.gold}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <div>
                     <p style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · Southall</p>
-                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{occupied} / {BEDS} beds {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
+                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} in-house guests` : `${occupied} / ${BEDS} beds`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
                   </div>
                   <OccRing pct={occPct}/>
                 </div>
@@ -578,10 +742,14 @@ export default function Dashboard() {
                     <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                 </>)}
-                <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <span style={{fontSize:13,color:C.muted}}>Est. monthly revenue</span>
+                <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:13,color:C.muted}}>{pmsConn ? "Revenue this month" : "Est. monthly revenue"}</span>
                   <span style={{fontSize:16,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(monthRev)}</span>
                 </div>
+                {pmsConn&&<div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <span style={{fontSize:13,color:C.muted}}>Revenue this week</span>
+                  <span style={{fontSize:16,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{fmt(weekRev)}</span>
+                </div>}
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                   <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
                   <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.round(BEDS*.95)-occupied} to go`}</span>
@@ -596,7 +764,7 @@ export default function Dashboard() {
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
                 {pmsConn&&pmsData?(
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"Active bookings",value:pmsData.rawBookings,color:C.text},{label:"New this week",value:pmsData.newThisWeek,color:C.sage},{label:"Occupied rooms",value:pmsData.occupied,color:C.gold}].map(x=>(
+                    {[{label:"In-house guests",value:pmsData.occupied,color:C.gold},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
                       <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
                         <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
                         <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
