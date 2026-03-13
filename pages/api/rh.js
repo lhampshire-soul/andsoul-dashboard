@@ -11,7 +11,7 @@ export default async function handler(req, res) {
       if (!client_id || !client_secret) {
         return res.status(400).json({ error: "Missing client_id or client_secret" });
       }
-      const tokenRes = await fetch("https://auth.rerumapp.uk/oauth/token", {
+      const tokenRes = await fetch("https://auth.rerumapp.uk/oauth2/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -35,7 +35,7 @@ export default async function handler(req, res) {
       if (!token || !path) {
         return res.status(400).json({ error: "Missing token or path" });
       }
-      const apiRes = await fetch(`https://api.rerumapp.uk/southallandsoul${path}`, {
+      const apiRes = await fetch(`https://apiv3.rerumapp.uk${path}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await apiRes.text();

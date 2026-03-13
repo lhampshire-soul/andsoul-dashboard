@@ -287,12 +287,20 @@ export default function Dashboard() {
     setPmsLoad(true);setPmsErr("");
     try{
       const tok=await getRHToken(cid,csec);
-      const [units,bkgs]=await Promise.all([rhFetch(tok,"/api/units?page_size=500"),rhFetch(tok,"/api/bookings?status=confirmed&page_size=500")]);
-      const active=bkgs?.data??[], today=new Date().toISOString().slice(0,10);
-      const occ=active.filter(b=>{const s=b.check_in_date??b.start_date,e=b.check_out_date??b.end_date;return s<=today&&e>=today;}).length;
-      const mth=today.slice(0,7), rev=active.filter(b=>(b.check_in_date??b.start_date??"").startsWith(mth)).reduce((s,b)=>s+parseFloat(b.total_amount??b.gross_amount??0),0);
+      // v3 API uses /api/v3/ paths
+      const [units,bkgs]=await Promise.all([
+        rhFetch(tok,"/api/v3/units?page_size=500").catch(()=>rhFetch(tok,"/api/units?page_size=500")),
+        rhFetch(tok,"/api/v3/bookings?status=confirmed&page_size=500").catch(()=>rhFetch(tok,"/api/bookings?status=confirmed&page_size=500")),
+      ]);
+      const unitList = units?.data ?? units?.results ?? units ?? [];
+      const bookList = bkgs?.data ?? bkgs?.results ?? bkgs ?? [];
+      const active = Array.isArray(bookList) ? bookList : [];
+      const today=new Date().toISOString().slice(0,10);
+      const occ=active.filter(b=>{const s=b.check_in_date??b.start_date??b.checkInDate,e=b.check_out_date??b.end_date??b.checkOutDate;return s<=today&&e>=today;}).length;
+      const totalUnits = Array.isArray(unitList) ? unitList.length : BEDS;
+      const mth=today.slice(0,7), rev=active.filter(b=>(b.check_in_date??b.start_date??b.checkInDate??"").startsWith(mth)).reduce((s,b)=>s+parseFloat(b.total_amount??b.gross_amount??b.totalAmount??0),0);
       const wk=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
-      setPmsData({occupied:occ,total:units?.data?.length??BEDS,occupancyPct:Math.round(occ/(units?.data?.length??BEDS)*100),revenue:rev,newThisWeek:active.filter(b=>(b.created_at??"")>=wk).length,rawBookings:active.length});
+      setPmsData({occupied:occ,total:totalUnits,occupancyPct:Math.round(occ/(totalUnits||BEDS)*100),revenue:rev,newThisWeek:active.filter(b=>(b.created_at??b.createdAt??"")>=wk).length,rawBookings:active.length});
       setPmsConn(true);
     }catch(e){setPmsErr(`Failed: ${e.message}`);}
     finally{setPmsLoad(false);}
