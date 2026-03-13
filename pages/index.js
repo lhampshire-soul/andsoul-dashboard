@@ -83,10 +83,12 @@ async function ghlGet(path) {
   const res = await fetch(`/api/ghl?path=${encodeURIComponent(path)}`);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const msg  = data?.error ?? data?.message ?? `HTTP ${res.status}`;
+    // Build a detailed error message for debugging
+    const msg  = data?.error ?? data?.message ?? data?.msg ?? JSON.stringify(data).slice(0,200) ?? `HTTP ${res.status}`;
     if (res.status === 401) throw new Error("GHL 401: Invalid API key — check your environment variable.");
     if (res.status === 403) throw new Error("GHL 403: Forbidden — key may not have access to this location.");
-    throw new Error("GHL error: " + msg);
+    if (res.status === 422) throw new Error(`GHL 422: ${msg} — Path: ${path}`);
+    throw new Error(`GHL ${res.status}: ${msg}`);
   }
   return res.json();
 }
@@ -113,7 +115,17 @@ async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
 }
 
 async function loadGHL(dateFrom, dateTo) {
-  const pRes = await ghlGet(`/opportunities/pipelines?locationId=${GHL_LOCATION}`);
+  // Try locationId first, fall back to location_id if 422
+  let pRes;
+  try {
+    pRes = await ghlGet(`/opportunities/pipelines?locationId=${GHL_LOCATION}`);
+  } catch (e) {
+    if (e.message.includes("422")) {
+      pRes = await ghlGet(`/opportunities/pipelines?location_id=${GHL_LOCATION}`);
+    } else {
+      throw e;
+    }
+  }
   const pipelines = pRes?.pipelines ?? pRes?.data ?? [];
 
   const pipeline = pipelines.find(p => p.name?.trim() === GHL_PIPELINE)

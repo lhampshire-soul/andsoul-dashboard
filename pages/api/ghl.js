@@ -7,7 +7,6 @@ const GHL_API_KEY  = process.env.GHL_API_KEY  || "pit-da675da7-68cd-4c4e-8693-c4
 const GHL_BASE     = "https://services.leadconnectorhq.com";
 
 export default async function handler(req, res) {
-  // Allow requests from same origin only
   const { path } = req.query;
 
   if (!path) {
@@ -22,17 +21,23 @@ export default async function handler(req, res) {
       headers: {
         Authorization: `Bearer ${GHL_API_KEY}`,
         "Content-Type": "application/json",
+        Accept: "application/json",
         Version: "2021-07-28",
       },
-      // Forward body for POST requests if needed in future
       ...(req.method === "POST" && req.body
         ? { body: JSON.stringify(req.body) }
         : {}),
     });
 
-    const data = await ghlRes.json().catch(() => ({}));
+    const text = await ghlRes.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { rawResponse: text }; }
 
-    // Forward the exact status code from GHL
+    // Log for debugging on Vercel
+    if (!ghlRes.ok) {
+      console.error(`GHL ${ghlRes.status} for ${path}:`, JSON.stringify(data).slice(0, 500));
+    }
+
     return res.status(ghlRes.status).json(data);
   } catch (err) {
     console.error("GHL proxy error:", err);
