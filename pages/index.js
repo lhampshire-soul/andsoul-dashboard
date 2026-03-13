@@ -185,16 +185,18 @@ async function loadGHL(dateFrom, dateTo) {
   };
 }
 
-// ─── RES HARMONICS ────────────────────────────────────────────────────────────
+// ─── RES HARMONICS — routes through /api/rh (server-side, no CORS issues) ───
 async function getRHToken(cid, sec) {
-  const r = await fetch("https://auth.rerumapp.uk/oauth/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"client_credentials",client_id:cid,client_secret:sec})});
-  if(!r.ok) throw new Error(`Auth ${r.status}`);
-  return (await r.json()).access_token;
+  const r = await fetch(`/api/rh?action=token&client_id=${encodeURIComponent(cid)}&client_secret=${encodeURIComponent(sec)}`);
+  const data = await r.json();
+  if(!r.ok) throw new Error(data?.error ?? `Auth ${r.status}`);
+  return data.access_token;
 }
 async function rhFetch(tok,path) {
-  const r=await fetch(`https://api.rerumapp.uk/southallandsoul${path}`,{headers:{Authorization:`Bearer ${tok}`}});
-  if(!r.ok) throw new Error(`${r.status}`);
-  return r.json();
+  const r = await fetch(`/api/rh?action=fetch&path=${encodeURIComponent(path)}`,{headers:{"x-rh-token":tok}});
+  const data = await r.json();
+  if(!r.ok) throw new Error(data?.error ?? `${r.status}`);
+  return data;
 }
 
 // ─── UI COMPONENTS ────────────────────────────────────────────────────────────
