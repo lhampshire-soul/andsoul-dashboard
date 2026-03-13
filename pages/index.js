@@ -138,21 +138,33 @@ async function loadGHL(dateFrom, dateTo) {
   );
 
   const stages = pipeline.stages ?? [];
+
+  // Find "Tour Booked" stage
+  const tourStage = stages.find(s => s.name?.trim().toLowerCase() === TAG_TOUR.toLowerCase())
+    ?? stages.find(s => s.name?.toLowerCase().includes("tour"));
+
+  // Find "Booking Confirmed" stage
   const bookedStage = stages.find(s => s.name?.trim().toLowerCase() === STAGE_BOOKED.toLowerCase())
+    ?? stages.find(s => s.name?.toLowerCase().includes("booking confirmed"))
     ?? stages.find(s => s.name?.toLowerCase().includes("booking"));
 
   const opps = await fetchAllOpps(pipeline.id, dateFrom, dateTo);
 
-  const tours = opps.filter(o =>
-    (o.tags??[]).some(t => t.toLowerCase().trim() === TAG_TOUR.toLowerCase())
-  );
+  // Tours = opportunities in the "Tour Booked" pipeline stage (or tagged)
+  const tours = opps.filter(o => {
+    const inTourStage = tourStage ? o.pipelineStageId === tourStage.id : false;
+    const hasTag = (o.tags??[]).some(t => t.toLowerCase().trim() === TAG_TOUR.toLowerCase());
+    return inTourStage || hasTag;
+  });
 
+  // Confirmed = opportunities in "Booking Confirmed" stage (with or without Won status)
   const confirmed = opps.filter(o => {
-    const won   = (o.status??"").toLowerCase() === "won";
-    const stage = bookedStage
+    const inBookedStage = bookedStage
       ? o.pipelineStageId === bookedStage.id
       : (o.pipelineStage?.name ?? o.stage?.name ?? "").toLowerCase().includes("booking");
-    return won && stage;
+    // Count if in the right stage — don't require Won status as some may not be marked
+    const won = (o.status??"").toLowerCase() === "won";
+    return inBookedStage || (won && inBookedStage);
   });
 
   const confirmedValue = confirmed.reduce((s,o) => {
@@ -163,6 +175,7 @@ async function loadGHL(dateFrom, dateTo) {
   return {
     pipelineName:    pipeline.name,
     stages:          stages.map(s=>({id:s.id,name:s.name})),
+    tourStageName:   tourStage?.name ?? null,
     bookedStageName: bookedStage?.name ?? null,
     toursBooked:     tours.length,
     confirmed:       confirmed.length,
@@ -432,7 +445,7 @@ export default function Dashboard() {
                 <p style={{fontSize:30,marginBottom:10}}>🔌</p>
                 <p style={{color:C.text,fontWeight:600,fontSize:15,marginBottom:6}}>Southall &Soul Pipeline</p>
                 <p style={{color:C.muted,fontSize:13,marginBottom:20}}>
-                  Pulls live tours booked (tag: <strong style={{color:C.purple}}>&ldquo;{TAG_TOUR}&rdquo;</strong>) and bookings confirmed (Won · stage: <strong style={{color:C.sage}}>&ldquo;{STAGE_BOOKED}&rdquo;</strong>) plus total pipeline value.
+                  Pulls live tours booked (stage: <strong style={{color:C.purple}}>&ldquo;Tour Booked&rdquo;</strong>) and bookings confirmed (stage: <strong style={{color:C.sage}}>&ldquo;{STAGE_BOOKED}&rdquo;</strong>) plus total pipeline value.
                 </p>
                 <button onClick={()=>runGHL(from,to)} style={{background:C.purple,color:"#fff",border:"none",borderRadius:8,padding:"11px 32px",fontWeight:700,fontSize:14,cursor:"pointer"}}>
                   Connect to Go High Level
@@ -472,7 +485,7 @@ export default function Dashboard() {
                 {ghlError&&<p style={{color:C.rose,fontSize:12,marginBottom:12}}>⚠ {ghlError}</p>}
 
                 <div style={{display:"flex",gap:14,marginBottom:20,flexWrap:"wrap"}}>
-                  <KPI label="Tours Booked"             value={ghlData.toursBooked}   sub={`Tag: "${TAG_TOUR}"`}                                       accent={C.purple} badge={rangeLabel}/>
+                  <KPI label="Tours Booked"             value={ghlData.toursBooked}   sub={`Stage: "${ghlData.tourStageName??TAG_TOUR}"`}                                       accent={C.purple} badge={rangeLabel}/>
                   <KPI label="Bookings Confirmed"       value={ghlData.confirmed}      sub={`Won · Stage: "${ghlData.bookedStageName??STAGE_BOOKED}"`} accent={C.sage}   badge={rangeLabel}/>
                   <KPI label="Confirmed Pipeline Value" value={ghlData.confirmedValue>0?fmt(ghlData.confirmedValue):"£0"} sub="Total value of Won + Booking Confirmed" accent={C.gold}/>
                   <KPI label="Tour → Booking Rate"      value={ghlData.convRate!=null?`${ghlData.convRate}%`:"—"} sub="Confirmed ÷ Tours booked"       accent={ghlData.convRate==null?C.muted:ghlData.convRate>=30?C.sage:ghlData.convRate>=15?C.gold:C.rose}/>
