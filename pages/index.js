@@ -94,6 +94,7 @@ async function ghlGet(path) {
 }
 
 async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
+  // Try minimal params first, then add dates if that works
   let all=[], startAfter, startAfterId, safety=0;
   while(safety < 20) {
     const p = new URLSearchParams({
@@ -103,8 +104,6 @@ async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
     });
     if (startAfter)   p.set("startAfter", startAfter);
     if (startAfterId) p.set("startAfterId", startAfterId);
-    if (dateFrom) p.set("date", `${dateFrom}T00:00:00.000Z`);
-    if (dateTo)   p.set("endDate", `${dateTo}T23:59:59.999Z`);
     const res = await ghlGet(`/opportunities/search?${p}`);
     const opps = res?.opportunities ?? res?.data ?? [];
     all = all.concat(opps);
@@ -115,21 +114,21 @@ async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
     if (all.length >= total || opps.length === 0 || !startAfter) break;
     safety++;
   }
+  // Filter dates client-side for reliability
+  if (dateFrom || dateTo) {
+    all = all.filter(o => {
+      const d = (o.createdAt ?? o.dateAdded ?? o.created_at ?? "").slice(0,10);
+      if (!d) return true;
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  }
   return all;
 }
 
 async function loadGHL(dateFrom, dateTo) {
-  // Try locationId first, fall back to location_id if 422
-  let pRes;
-  try {
-    pRes = await ghlGet(`/opportunities/pipelines?locationId=${GHL_LOCATION}`);
-  } catch (e) {
-    if (e.message.includes("422")) {
-      pRes = await ghlGet(`/opportunities/pipelines?location_id=${GHL_LOCATION}`);
-    } else {
-      throw e;
-    }
-  }
+  const pRes = await ghlGet(`/opportunities/pipelines?locationId=${GHL_LOCATION}`);
   const pipelines = pRes?.pipelines ?? pRes?.data ?? [];
 
   const pipeline = pipelines.find(p => p.name?.trim() === GHL_PIPELINE)
