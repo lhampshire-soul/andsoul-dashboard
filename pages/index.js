@@ -199,6 +199,25 @@ async function rhFetch(tok,path) {
   return data;
 }
 
+// Fetch ALL pages from a Spring Boot paginated endpoint
+async function rhFetchAll(tok, basePath, maxPages=50) {
+  let all = [];
+  let page = 0;
+  while (page < maxPages) {
+    const sep = basePath.includes("?") ? "&" : "?";
+    const data = await rhFetch(tok, `${basePath}${sep}page=${page}&size=100`);
+    const content = data.content ?? data.data ?? data.results ?? (Array.isArray(data) ? data : []);
+    all = all.concat(content);
+    // Check pagination info
+    const pageInfo = data.page ?? {};
+    const totalPages = pageInfo.totalPages ?? 1;
+    const totalElements = pageInfo.totalElements ?? all.length;
+    if (page + 1 >= totalPages || all.length >= totalElements) break;
+    page++;
+  }
+  return all;
+}
+
 // ─── UI COMPONENTS ────────────────────────────────────────────────────────────
 const Tip = ({active,payload,label}) => {
   if(!active||!payload?.length) return null;
@@ -290,167 +309,155 @@ export default function Dashboard() {
     setPmsLoad(true);setPmsErr("");setPmsDebug(null);
     try{
       const tok=await getRHToken(cid,csec);
-
-      // Step 1: Discover which API endpoints actually work
-      setPmsErr("Discovering API endpoints...");
-      const discoverRes = await fetch(`/api/rh?action=discover`,{headers:{"x-rh-token":tok}});
-      const discoverData = await discoverRes.json();
-      const endpoints = discoverData.endpoints || {};
-
-      // Find endpoints that returned 200
-      const working = {};
-      const debugInfo = [];
-      for (const [path, info] of Object.entries(endpoints)) {
-        debugInfo.push(`${info.status} ${path}: ${(info.preview||"").slice(0,80)}`);
-        if (info.status === 200) {
-          working[path] = info;
-        }
-      }
-      setPmsDebug(debugInfo);
-
-      if (Object.keys(working).length === 0) {
-        setPmsErr("Auth OK but no API endpoints responded. See debug info below.");
-        setPmsLoad(false);
-        return;
-      }
-
-      // Step 2: Identify the best endpoints for occupancy, units, and revenue
       const today = new Date().toISOString().slice(0,10);
       const mthStart = today.slice(0,7) + "-01";
       const wkStart = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+      const debug = [];
 
-      // Priority order for occupancy/in-house guests
-      const occupancyPaths = [
-        "tenancies","contracts","bookings","reservations",
-        "guestStays","guest-stays","stays","occupancy",
-        "guests","leases","service-delivery","serviceDelivery"
-      ];
-      // Priority order for units/rooms
-      const unitPaths = ["units","rooms","beds","buildings","properties"];
-      // Priority order for revenue
-      const revenuePaths = [
-        "invoices","charges","payments","financials",
-        "bookings","tenancies","contracts","revenue","reservations",
-        "dashboard","stats","reports"
-      ];
+      // ── 1. Fetch ALL guestStays (paginated) for in-house / check-in / confirmed ──
+      debug.push("Fetching /api/v3/guestStays (all pages)...");
+      let allGuestStays = [];
+      try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { debug.push(`guestStays error: ${e.message}`); }
+      debug.push(`guestStays: ${allGuestStays.length} total records`);
 
-      // Find the first working endpoint for each category (try with and without /api/v3/ prefix)
-      const findWorking = (names) => {
-        for (const name of names) {
-          for (const prefix of ["/","/api/v3/","/api/"]) {
-            const p = prefix + name;
-            if (working[p]) return p;
-          }
-        }
-        return null;
-      };
+      // Also fetch ALL bookings for revenue + additional occupancy data
+      debug.push("Fetching /api/v3/bookings (all pages)...");
+      let allBookings = [];
+      try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) { debug.push(`bookings error: ${e.message}`); }
+      debug.push(`bookings: ${allBookings.length} total records`);
 
-      const occPath = findWorking(occupancyPaths);
-      const unitPath = findWorking(unitPaths);
-      const revPath = findWorking(revenuePaths);
+      // Fetch units for total room/bed count
+      debug.push("Fetching /api/v3/units (all pages)...");
+      let allUnits = [];
+      try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) { debug.push(`units error: ${e.message}`); }
+      debug.push(`units: ${allUnits.length} total records`);
 
-      setPmsErr(`Found: occ=${occPath||"none"}, units=${unitPath||"none"}, rev=${revPath||"none"} — fetching data...`);
+      // Fetch financials for revenue
+      debug.push("Fetching /api/v3/financials (all pages)...");
+      let allFinancials = [];
+      try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { debug.push(`financials error: ${e.message}`); }
+      debug.push(`financials: ${allFinancials.length} total records`);
 
-      // Step 3: Fetch data from working endpoints
-      const safeFetch = async (path) => {
-        if (!path) return null;
-        try { return await rhFetch(tok, path + "?page_size=500"); } catch { return null; }
-      };
-      const safeFetchDate = async (path, dateFrom, dateTo) => {
-        if (!path) return null;
-        // Try multiple date param styles
-        for (const params of [
-          `from=${dateFrom}&to=${dateTo}&page_size=500`,
-          `startDate=${dateFrom}&endDate=${dateTo}&page_size=500`,
-          `date_from=${dateFrom}&date_to=${dateTo}&page_size=500`,
-          `checkin_from=${dateFrom}&checkin_to=${dateTo}&page_size=500`,
-          `page_size=500`,
-        ]) {
-          try { return await rhFetch(tok, `${path}?${params}`); } catch { continue; }
-        }
-        return null;
-      };
+      // ── 2. Count occupied guests from guestStays ──
+      // Log all unique status values to understand the data
+      const gsStatuses = {};
+      allGuestStays.forEach(g => {
+        const s = g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "unknown";
+        gsStatuses[s] = (gsStatuses[s]||0) + 1;
+      });
+      debug.push(`guestStay statuses: ${JSON.stringify(gsStatuses)}`);
 
-      const [occData, unitData, revMonthData, revWeekData] = await Promise.all([
-        safeFetch(occPath),
-        safeFetch(unitPath),
-        revPath ? safeFetchDate(revPath, mthStart, today) : null,
-        revPath ? safeFetchDate(revPath, wkStart, today) : null,
+      // Count check-in + confirmed + in-house from guestStays
+      const occupiedStatuses = new Set([
+        "in_house","inhouse","checked_in","checkin","check_in","check-in",
+        "confirmed","active","current","occupied","staying","arrived",
+        "IN_HOUSE","CONFIRMED","CHECKED_IN","ACTIVE","CheckedIn","Confirmed","InHouse"
       ]);
-
-      // Step 4: Parse the data flexibly
-      const extractList = (raw) => {
-        if (!raw) return [];
-        if (Array.isArray(raw)) return raw;
-        if (raw.data && Array.isArray(raw.data)) return raw.data;
-        if (raw.results && Array.isArray(raw.results)) return raw.results;
-        if (raw.items && Array.isArray(raw.items)) return raw.items;
-        if (raw.records && Array.isArray(raw.records)) return raw.records;
-        if (raw.content && Array.isArray(raw.content)) return raw.content;
-        // Try to find any array in the response
-        for (const val of Object.values(raw)) {
-          if (Array.isArray(val) && val.length > 0) return val;
-        }
-        return [];
-      };
-
-      const occList = extractList(occData);
-      const unitList = extractList(unitData);
-
-      // Filter for in-house / active guests
-      const inHouse = occList.filter(g => {
-        const status = (g.status ?? g.stayStatus ?? g.state ?? g.bookingStatus ?? "").toString().toLowerCase();
-        if (["in_house","checked_in","inhouse","active","current","occupied","confirmed","staying"].includes(status)) return true;
-        // Check dates as fallback
-        const s = g.checkInDate ?? g.check_in_date ?? g.startDate ?? g.start_date ?? g.moveInDate ?? g.move_in_date ?? g.from ?? "";
-        const e = g.checkOutDate ?? g.check_out_date ?? g.endDate ?? g.end_date ?? g.moveOutDate ?? g.move_out_date ?? g.to ?? "";
-        if (s && e) return s <= today && e >= today;
-        if (s && !e) return s <= today; // Still active, no end date
+      const occupiedGuests = allGuestStays.filter(g => {
+        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString();
+        if (occupiedStatuses.has(status) || occupiedStatuses.has(status.toLowerCase())) return true;
+        // Also check by date range — if checked in before today and not checked out
+        const ci = g.checkInDate ?? g.checkIn ?? g.arrivalDate ?? g.startDate ?? g.from ?? "";
+        const co = g.checkOutDate ?? g.checkOut ?? g.departureDate ?? g.endDate ?? g.to ?? "";
+        if (ci && ci <= today && (!co || co >= today)) return true;
         return false;
       });
+      debug.push(`guestStays occupied (status+date filter): ${occupiedGuests.length}`);
 
-      // If no filter matched, maybe ALL records are current (API pre-filtered)
-      const inHouseCount = inHouse.length > 0 ? inHouse.length : occList.length;
+      // ── 3. Also count from bookings as backup ──
+      const bkStatuses = {};
+      allBookings.forEach(b => {
+        const s = b.status ?? b.bookingStatus ?? b.state ?? "unknown";
+        bkStatuses[s] = (bkStatuses[s]||0) + 1;
+      });
+      debug.push(`booking statuses: ${JSON.stringify(bkStatuses)}`);
 
-      const totalUnits = unitList.length || BEDS;
+      const occupiedBookings = allBookings.filter(b => {
+        const status = (b.status ?? b.bookingStatus ?? b.state ?? "").toString();
+        if (occupiedStatuses.has(status) || occupiedStatuses.has(status.toLowerCase())) return true;
+        const ci = b.checkInDate ?? b.checkIn ?? b.arrivalDate ?? b.startDate ?? b.from ?? "";
+        const co = b.checkOutDate ?? b.checkOut ?? b.departureDate ?? b.endDate ?? b.to ?? "";
+        if (ci && ci <= today && (!co || co >= today)) return true;
+        return false;
+      });
+      debug.push(`bookings occupied (status+date filter): ${occupiedBookings.length}`);
 
-      // Parse revenue
-      const parseRevenue = (raw) => {
-        const list = extractList(raw);
-        return list.reduce((sum, b) => {
-          // Try every possible revenue field
+      // Use whichever gives higher count (guestStays or bookings)
+      const inHouseCount = Math.max(occupiedGuests.length, occupiedBookings.length);
+      debug.push(`Final occupied count: ${inHouseCount} (max of guestStays ${occupiedGuests.length} vs bookings ${occupiedBookings.length})`);
+
+      // ── 4. Total units ──
+      const totalUnits = allUnits.length || BEDS;
+      debug.push(`Total units: ${totalUnits}`);
+
+      // ── 5. Revenue from financials ──
+      // Log sample financial record to understand structure
+      if (allFinancials.length > 0) {
+        debug.push(`Financial sample keys: ${Object.keys(allFinancials[0]).join(", ")}`);
+        debug.push(`Financial sample: ${JSON.stringify(allFinancials[0]).slice(0,300)}`);
+      }
+
+      // Sum revenue from financials — try every possible amount field
+      const sumFinancials = (records, dateFrom, dateTo) => {
+        return records.reduce((sum, f) => {
+          // Check date range if provided
+          if (dateFrom || dateTo) {
+            const fDate = f.date ?? f.transactionDate ?? f.invoiceDate ?? f.createdDate ?? f.postingDate ?? "";
+            if (fDate) {
+              if (dateFrom && fDate < dateFrom) return sum;
+              if (dateTo && fDate > dateTo) return sum;
+            }
+          }
+          // Try every possible amount field
           const v = parseFloat(
-            b.totalAmount ?? b.total_amount ?? b.grossAmount ?? b.gross_amount ??
-            b.netAmount ?? b.net_amount ?? b.amount ?? b.revenue ?? b.rent ??
-            b.total ?? b.value ?? b.price ?? b.charge ?? b.sum ?? 0
+            f.amount ?? f.totalAmount ?? f.total ?? f.netAmount ?? f.grossAmount ??
+            f.value ?? f.revenue ?? f.charge ?? f.debit ?? f.credit ?? f.sum ?? 0
+          );
+          return sum + (isNaN(v) ? 0 : Math.abs(v));
+        }, 0);
+      };
+
+      // Also try revenue from bookings (each booking may have a total value)
+      const sumBookingRevenue = (bookings, dateFrom, dateTo) => {
+        return bookings.reduce((sum, b) => {
+          const bDate = b.checkInDate ?? b.checkIn ?? b.arrivalDate ?? b.startDate ?? b.createdDate ?? "";
+          if (dateFrom && bDate && bDate < dateFrom) return sum;
+          if (dateTo && bDate && bDate > dateTo) return sum;
+          const v = parseFloat(
+            b.totalAmount ?? b.total ?? b.totalValue ?? b.revenue ?? b.rent ??
+            b.price ?? b.grossAmount ?? b.netAmount ?? b.value ?? b.amount ?? 0
           );
           return sum + (isNaN(v) ? 0 : v);
         }, 0);
       };
-      const monthlyRev = parseRevenue(revMonthData);
-      const weeklyRev = parseRevenue(revWeekData);
 
-      // Store raw counts for debug
-      const debugResults = [
-        `Occupancy endpoint: ${occPath} → ${occList.length} records, ${inHouseCount} in-house`,
-        `Units endpoint: ${unitPath} → ${unitList.length} units`,
-        `Revenue endpoint: ${revPath} → month £${monthlyRev.toFixed(0)}, week £${weeklyRev.toFixed(0)}`,
-        `Raw occupancy sample: ${JSON.stringify(occList[0] || {}).slice(0,200)}`,
-        `Raw revenue sample: ${JSON.stringify(extractList(revMonthData)[0] || {}).slice(0,200)}`,
-      ];
-      setPmsDebug(prev => [...(prev||[]), "---RESULTS---", ...debugResults]);
+      const monthlyRevFin = sumFinancials(allFinancials, mthStart, today);
+      const weeklyRevFin = sumFinancials(allFinancials, wkStart, today);
+      const monthlyRevBkg = sumBookingRevenue(allBookings, mthStart, today);
+      const weeklyRevBkg = sumBookingRevenue(allBookings, wkStart, today);
+      const monthlyRev = Math.max(monthlyRevFin, monthlyRevBkg);
+      const weeklyRev = Math.max(weeklyRevFin, weeklyRevBkg);
 
+      debug.push(`Revenue (financials): month £${monthlyRevFin.toFixed(0)}, week £${weeklyRevFin.toFixed(0)}`);
+      debug.push(`Revenue (bookings): month £${monthlyRevBkg.toFixed(0)}, week £${weeklyRevBkg.toFixed(0)}`);
+      debug.push(`Final revenue: month £${monthlyRev.toFixed(0)}, week £${weeklyRev.toFixed(0)}`);
+
+      // Log booking sample to see revenue fields
+      if (allBookings.length > 0) {
+        debug.push(`Booking sample keys: ${Object.keys(allBookings[0]).join(", ")}`);
+      }
+
+      setPmsDebug(debug);
       setPmsData({
         occupied: inHouseCount,
         total: totalUnits,
-        occupancyPct: Math.round(inHouseCount / (totalUnits || BEDS) * 100),
+        occupancyPct: totalUnits > 0 ? Math.round(inHouseCount / totalUnits * 100) : Math.round(inHouseCount / BEDS * 100),
         revenue: monthlyRev,
         weeklyRevenue: weeklyRev,
         newThisWeek: 0,
         rawBookings: inHouseCount,
       });
       setPmsConn(true);
-      setPmsErr("");
     }catch(e){setPmsErr(`Failed: ${e.message}`);}
     finally{setPmsLoad(false);}
   },[cid,csec]);
@@ -708,18 +715,16 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* DEBUG PANEL — always visible when there's debug data */}
+            {/* DEBUG PANEL — always visible when debug data exists */}
             {pmsDebug&&pmsDebug.length>0&&(
               <div style={{marginBottom:18,background:"#0a0c10",border:`1px solid ${C.border}`,borderRadius:8,padding:12,maxHeight:300,overflow:"auto"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em"}}>API Debug Log</p>
                   <button onClick={()=>setPmsDebug(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:4,padding:"2px 8px",fontSize:9,cursor:"pointer"}}>Hide</button>
                 </div>
-                {pmsDebug.map((line,i)=>{
-                  const is200 = line.startsWith("200 ");
-                  const isResult = line.startsWith("---") || line.startsWith("Occupancy") || line.startsWith("Units") || line.startsWith("Revenue") || line.startsWith("Raw");
-                  return <p key={i} style={{fontSize:10,fontFamily:"DM Mono,monospace",color:is200?C.sage:isResult?C.gold:line.startsWith("404")?C.muted:C.rose,marginBottom:2,wordBreak:"break-all"}}>{line}</p>;
-                })}
+                {pmsDebug.map((line,i)=>(
+                  <p key={i} style={{fontSize:10,fontFamily:"DM Mono,monospace",color:line.includes("error")?C.rose:line.includes("Final")||line.includes("sample")?C.gold:C.sage,marginBottom:2,wordBreak:"break-all"}}>{line}</p>
+                ))}
               </div>
             )}
 
@@ -728,7 +733,7 @@ export default function Dashboard() {
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <div>
                     <p style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · Southall</p>
-                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} in-house guests` : `${occupied} / ${BEDS} beds`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
+                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} occupied (check-in + confirmed)` : `${occupied} / ${BEDS} beds`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
                   </div>
                   <OccRing pct={occPct}/>
                 </div>
@@ -764,7 +769,7 @@ export default function Dashboard() {
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
                 {pmsConn&&pmsData?(
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"In-house guests",value:pmsData.occupied,color:C.gold},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
+                    {[{label:"Occupied (check-in + confirmed)",value:pmsData.occupied,color:C.gold},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
                       <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
                         <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
                         <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
