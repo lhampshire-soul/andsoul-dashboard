@@ -94,22 +94,26 @@ async function ghlGet(path) {
 }
 
 async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
-  let all=[], page=1;
-  while(true) {
+  let all=[], startAfter, startAfterId, safety=0;
+  while(safety < 20) {
     const p = new URLSearchParams({
       location_id: GHL_LOCATION,
       pipeline_id: pipelineId,
       limit: "100",
-      page: String(page),
     });
-    if (dateFrom) p.set("startDate", `${dateFrom}T00:00:00.000Z`);
-    if (dateTo)   p.set("endDate",   `${dateTo}T23:59:59.999Z`);
+    if (startAfter)   p.set("startAfter", startAfter);
+    if (startAfterId) p.set("startAfterId", startAfterId);
+    if (dateFrom) p.set("date", `${dateFrom}T00:00:00.000Z`);
+    if (dateTo)   p.set("endDate", `${dateTo}T23:59:59.999Z`);
     const res = await ghlGet(`/opportunities/search?${p}`);
     const opps = res?.opportunities ?? res?.data ?? [];
     all = all.concat(opps);
-    const total = res?.meta?.total ?? res?.total ?? opps.length;
-    if (all.length >= total || opps.length === 0 || page >= 20) break;
-    page++;
+    // Cursor-based pagination
+    startAfter   = res?.meta?.startAfter   ?? res?.startAfter   ?? null;
+    startAfterId = res?.meta?.startAfterId ?? res?.startAfterId ?? null;
+    const total  = res?.meta?.total ?? res?.total ?? opps.length;
+    if (all.length >= total || opps.length === 0 || !startAfter) break;
+    safety++;
   }
   return all;
 }
