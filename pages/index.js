@@ -347,44 +347,13 @@ export default function Dashboard() {
       });
       debug.push(`guestStay statuses: ${JSON.stringify(gsStatuses)}`);
 
-      // Count check-in + confirmed + in-house from guestStays
-      const occupiedStatuses = new Set([
-        "in_house","inhouse","checked_in","checkin","check_in","check-in",
-        "confirmed","active","current","occupied","staying","arrived",
-        "IN_HOUSE","CONFIRMED","CHECKED_IN","ACTIVE","CheckedIn","Confirmed","InHouse"
-      ]);
-      const occupiedGuests = allGuestStays.filter(g => {
-        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString();
-        if (occupiedStatuses.has(status) || occupiedStatuses.has(status.toLowerCase())) return true;
-        // Also check by date range — if checked in before today and not checked out
-        const ci = g.checkInDate ?? g.checkIn ?? g.arrivalDate ?? g.startDate ?? g.from ?? "";
-        const co = g.checkOutDate ?? g.checkOut ?? g.departureDate ?? g.endDate ?? g.to ?? "";
-        if (ci && ci <= today && (!co || co >= today)) return true;
-        return false;
+      // Count ONLY CHECKED_IN guests — this is the accurate occupancy number
+      const checkedInGuests = allGuestStays.filter(g => {
+        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
+        return status === "CHECKED_IN";
       });
-      debug.push(`guestStays occupied (status+date filter): ${occupiedGuests.length}`);
-
-      // ── 3. Also count from bookings as backup ──
-      const bkStatuses = {};
-      allBookings.forEach(b => {
-        const s = b.status ?? b.bookingStatus ?? b.state ?? "unknown";
-        bkStatuses[s] = (bkStatuses[s]||0) + 1;
-      });
-      debug.push(`booking statuses: ${JSON.stringify(bkStatuses)}`);
-
-      const occupiedBookings = allBookings.filter(b => {
-        const status = (b.status ?? b.bookingStatus ?? b.state ?? "").toString();
-        if (occupiedStatuses.has(status) || occupiedStatuses.has(status.toLowerCase())) return true;
-        const ci = b.checkInDate ?? b.checkIn ?? b.arrivalDate ?? b.startDate ?? b.from ?? "";
-        const co = b.checkOutDate ?? b.checkOut ?? b.departureDate ?? b.endDate ?? b.to ?? "";
-        if (ci && ci <= today && (!co || co >= today)) return true;
-        return false;
-      });
-      debug.push(`bookings occupied (status+date filter): ${occupiedBookings.length}`);
-
-      // Use whichever gives higher count (guestStays or bookings)
-      const inHouseCount = Math.max(occupiedGuests.length, occupiedBookings.length);
-      debug.push(`Final occupied count: ${inHouseCount} (max of guestStays ${occupiedGuests.length} vs bookings ${occupiedBookings.length})`);
+      const inHouseCount = checkedInGuests.length;
+      debug.push(`CHECKED_IN guests: ${inHouseCount}`);
 
       // ── 4. Total units ──
       const totalUnits = allUnits.length || BEDS;
@@ -397,55 +366,44 @@ export default function Dashboard() {
         debug.push(`Financial sample: ${JSON.stringify(allFinancials[0]).slice(0,300)}`);
       }
 
-      // Sum revenue from financials — try every possible amount field
-      const sumFinancials = (records, dateFrom, dateTo) => {
-        return records.reduce((sum, f) => {
-          // Check date range if provided
-          if (dateFrom || dateTo) {
-            const fDate = f.date ?? f.transactionDate ?? f.invoiceDate ?? f.createdDate ?? f.postingDate ?? "";
-            if (fDate) {
-              if (dateFrom && fDate < dateFrom) return sum;
-              if (dateTo && fDate > dateTo) return sum;
-            }
-          }
-          // Try every possible amount field
-          const v = parseFloat(
-            f.amount ?? f.totalAmount ?? f.total ?? f.netAmount ?? f.grossAmount ??
-            f.value ?? f.revenue ?? f.charge ?? f.debit ?? f.credit ?? f.sum ?? 0
-          );
-          return sum + (isNaN(v) ? 0 : Math.abs(v));
-        }, 0);
-      };
-
-      // Also try revenue from bookings (each booking may have a total value)
+      // Revenue from bookings — using netAmount field (confirmed from debug)
+      // Bookings have: startDate, endDate, netAmount, vatAmount, roomStayStatus
       const sumBookingRevenue = (bookings, dateFrom, dateTo) => {
         return bookings.reduce((sum, b) => {
-          const bDate = b.checkInDate ?? b.checkIn ?? b.arrivalDate ?? b.startDate ?? b.createdDate ?? "";
+          const bDate = b.startDate ?? b.checkInDate ?? b.arrivalDate ?? b.createdDate ?? "";
           if (dateFrom && bDate && bDate < dateFrom) return sum;
           if (dateTo && bDate && bDate > dateTo) return sum;
-          const v = parseFloat(
-            b.totalAmount ?? b.total ?? b.totalValue ?? b.revenue ?? b.rent ??
-            b.price ?? b.grossAmount ?? b.netAmount ?? b.value ?? b.amount ?? 0
-          );
+          const v = parseFloat(b.netAmount ?? b.grossAmount ?? b.totalAmount ?? b.amount ?? b.vatAmount ?? 0);
           return sum + (isNaN(v) ? 0 : v);
         }, 0);
       };
 
-      const monthlyRevFin = sumFinancials(allFinancials, mthStart, today);
-      const weeklyRevFin = sumFinancials(allFinancials, wkStart, today);
+      // Revenue from financials — using gross/net fields (confirmed from debug)
+      const sumFinancials = (records, dateFrom, dateTo) => {
+        return records.filter(f => {
+          if (f.financialType !== "SALES_INVOICE") return false; // Only count sales
+          const fDate = f.dateCreated ?? "";
+          if (dateFrom && fDate && fDate < dateFrom) return false;
+          if (dateTo && fDate && fDate > dateTo) return false;
+          return true;
+        }).reduce((sum, f) => {
+          const v = parseFloat(f.gross ?? f.net ?? f.amountPaid ?? 0);
+          return sum + (isNaN(v) ? 0 : v);
+        }, 0);
+      };
+
       const monthlyRevBkg = sumBookingRevenue(allBookings, mthStart, today);
       const weeklyRevBkg = sumBookingRevenue(allBookings, wkStart, today);
-      const monthlyRev = Math.max(monthlyRevFin, monthlyRevBkg);
-      const weeklyRev = Math.max(weeklyRevFin, weeklyRevBkg);
+      const monthlyRevFin = sumFinancials(allFinancials, mthStart, today);
+      const weeklyRevFin = sumFinancials(allFinancials, wkStart, today);
 
-      debug.push(`Revenue (financials): month £${monthlyRevFin.toFixed(0)}, week £${weeklyRevFin.toFixed(0)}`);
+      // Use bookings revenue as primary (it's working), financials as fallback
+      const monthlyRev = monthlyRevBkg > 0 ? monthlyRevBkg : monthlyRevFin;
+      const weeklyRev = weeklyRevBkg > 0 ? weeklyRevBkg : weeklyRevFin;
+
       debug.push(`Revenue (bookings): month £${monthlyRevBkg.toFixed(0)}, week £${weeklyRevBkg.toFixed(0)}`);
+      debug.push(`Revenue (financials/invoices): month £${monthlyRevFin.toFixed(0)}, week £${weeklyRevFin.toFixed(0)}`);
       debug.push(`Final revenue: month £${monthlyRev.toFixed(0)}, week £${weeklyRev.toFixed(0)}`);
-
-      // Log booking sample to see revenue fields
-      if (allBookings.length > 0) {
-        debug.push(`Booking sample keys: ${Object.keys(allBookings[0]).join(", ")}`);
-      }
 
       setPmsDebug(debug);
       setPmsData({
@@ -733,7 +691,7 @@ export default function Dashboard() {
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <div>
                     <p style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · Southall</p>
-                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} occupied (check-in + confirmed)` : `${occupied} / ${BEDS} beds`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
+                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} checked in` : `${occupied} / ${BEDS} beds`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
                   </div>
                   <OccRing pct={occPct}/>
                 </div>
@@ -769,7 +727,7 @@ export default function Dashboard() {
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
                 {pmsConn&&pmsData?(
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"Occupied (check-in + confirmed)",value:pmsData.occupied,color:C.gold},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
+                    {[{label:"Checked in",value:pmsData.occupied,color:C.gold},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
                       <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
                         <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
                         <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
