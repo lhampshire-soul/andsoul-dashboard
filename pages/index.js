@@ -409,7 +409,7 @@ export default function Dashboard() {
       setPmsData({
         occupied: inHouseCount,
         total: totalUnits,
-        occupancyPct: totalUnits > 0 ? Math.round(inHouseCount / totalUnits * 100) : Math.round(inHouseCount / BEDS * 100),
+        occupancyPct: Math.round(inHouseCount / BEDS * 100),
         revenue: monthlyRev,
         weeklyRevenue: weeklyRev,
         newThisWeek: 0,
