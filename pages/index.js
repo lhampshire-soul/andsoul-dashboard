@@ -290,14 +290,17 @@ export default function Dashboard() {
   useEffect(()=>{ if(ghlConn) runGHL(from,to); },[from,to]);
 
   // PMS
-  const [cid,setCid]=useState(""), [csec,setCsec]=useState("");
+  const [cid,setCid]=useState("5n3lgu73rc3jqus4fur3c58fbb"), [csec,setCsec]=useState("1bfob7es3ge16bmjs8t4i0ah2ica4t1ujt8aeqa4b3rs9cmsa7uh");
   const [pmsLoad,setPmsLoad]=useState(false), [pmsErr,setPmsErr]=useState("");
   const [pmsConn,setPmsConn]=useState(false), [pmsData,setPmsData]=useState(null);
   const [mOcc,setMOcc]=useState(72), [mRate,setMRate]=useState(1450);
   const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
+  const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
+  const [blockedRooms, setBlockedRooms] = useState(24);
 
+  const availableRooms = BEDS - blockedRooms;
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
-  const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
+  const occPct    = pmsConn&&pmsData ? Math.round(pmsData.occupied / availableRooms * 100) : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
   const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
   const renewRate = (mRen+mChurn)>0 ? Math.round(mRen/(mRen+mChurn)*100) : 0;
@@ -418,6 +421,13 @@ export default function Dashboard() {
 
       console.log(`RH: occupied=${inHouseCount}, checkIns=${checkInsWeek}, checkOuts=${checkOutsWeek}, monthRev=${monthlyRev}, weekRev=${weeklyRev}`);
 
+      // Try to detect blocked/unavailable units
+      const blockedUnits = allUnits.filter(u => {
+        const avail = (u.availability ?? u.availabilityStatus ?? u.status ?? u.blockAvailability ?? "").toString().toUpperCase();
+        return avail.includes("BLOCK") || avail.includes("UNAVAILABLE") || avail.includes("OUT_OF_SERVICE") || avail === "BLOCKED";
+      });
+      console.log(`RH: blockedUnits=${blockedUnits.length}, sample:`, allUnits.slice(0,2));
+
       const totalUnits = allUnits.length || BEDS;
 
       setPmsData({
@@ -428,6 +438,7 @@ export default function Dashboard() {
         occupancyPct: Math.round(inHouseCount / BEDS * 100),
         revenue: monthlyRev,
         weeklyRevenue: weeklyRev,
+        blockedUnits: blockedUnits.length,
       });
       setPmsConn(true);
     }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
@@ -435,12 +446,12 @@ export default function Dashboard() {
   },[cid,csec]);
 
   // Reputation state
-  const [gmbRating, setGmbRating] = useState(4.5);
-  const [gmbCount, setGmbCount] = useState(42);
-  const [airbnbRating, setAirbnbRating] = useState(4.8);
-  const [airbnbCount, setAirbnbCount] = useState(156);
-  const [trustpilotRating, setTrustpilotRating] = useState(4.2);
-  const [trustpilotCount, setTrustpilotCount] = useState(28);
+  const [gmbRating, setGmbRating] = useState(4.4);
+  const [gmbCount, setGmbCount] = useState(72);
+  const [airbnbRating, setAirbnbRating] = useState(3.55);
+  const [airbnbCount, setAirbnbCount] = useState(11);
+  const [trustpilotRating, setTrustpilotRating] = useState(3.1);
+  const [trustpilotCount, setTrustpilotCount] = useState(4);
   const [mentions, setMentions] = useState("");
 
   const reputationScore = Math.round(((gmbRating + airbnbRating + trustpilotRating) / 3 / 5) * 100);
@@ -701,203 +712,320 @@ export default function Dashboard() {
 
         {/* ════ OCCUPANCY ════ */}
         {tab==="bookings"&&(
-          <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · 300 beds</p>
-            <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 16px"}}>Occupancy & Revenue</h2>
+  <div style={{padding:"22px 26px"}}>
+    <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · {BEDS} beds · {availableRooms} available</p>
+    <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 16px"}}>Occupancy & Revenue</h2>
 
-            {!pmsConn&&(
-              <div style={{background:C.card,border:`1px solid ${C.goldDim}`,borderRadius:14,padding:18,marginBottom:18}}>
-                <p style={{fontWeight:700,color:C.gold,fontSize:14,marginBottom:4}}>Connect Res Harmonics PMS</p>
-                <p style={{fontSize:12,color:C.muted,marginBottom:12}}>OAuth2 from Res Harmonics admin → Settings → API / Integrations</p>
-                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                  <input type="text" placeholder="Client ID" value={cid} onChange={e=>setCid(e.target.value)} style={{flex:1,minWidth:150,background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"9px 12px",fontSize:13}}/>
-                  <input type="password" placeholder="Client Secret" value={csec} onChange={e=>setCsec(e.target.value)} style={{flex:1,minWidth:150,background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"9px 12px",fontSize:13}}/>
-                  <button onClick={connectPMS} disabled={pmsLoad} style={{background:C.gold,color:"#000",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:"pointer",opacity:pmsLoad?0.6:1}}>{pmsLoad?"Connecting…":"Connect"}</button>
-                </div>
-                {pmsErr&&<p style={{color:C.rose,fontSize:12,marginTop:8}}>⚠ {pmsErr}</p>}
-              </div>
-            )}
+    {!pmsConn&&(
+      <div style={{background:C.card,border:`1px solid ${C.goldDim}`,borderRadius:14,padding:18,marginBottom:18}}>
+        <p style={{fontWeight:700,color:C.gold,fontSize:14,marginBottom:4}}>Connect Res Harmonics PMS</p>
+        <p style={{fontSize:12,color:C.muted,marginBottom:12}}>OAuth2 from Res Harmonics admin → Settings → API / Integrations</p>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <input type="text" placeholder="Client ID" value={cid} onChange={e=>setCid(e.target.value)} style={{flex:1,minWidth:150,background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"9px 12px",fontSize:13}}/>
+          <input type="password" placeholder="Client Secret" value={csec} onChange={e=>setCsec(e.target.value)} style={{flex:1,minWidth:150,background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"9px 12px",fontSize:13}}/>
+          <button onClick={connectPMS} disabled={pmsLoad} style={{background:C.gold,color:"#000",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:"pointer",opacity:pmsLoad?0.6:1}}>{pmsLoad?"Connecting…":"Connect"}</button>
+        </div>
+        {pmsErr&&<p style={{color:C.rose,fontSize:12,marginTop:8}}>⚠ {pmsErr}</p>}
+      </div>
+    )}
 
-            <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
-              <div style={{flex:"1.5 1 250px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,borderTop:`2px solid ${C.gold}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                  <div>
-                    <p style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · Southall</p>
-                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} checked in` : `${occupied} / ${BEDS} beds`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
-                  </div>
-                  <OccRing pct={occPct}/>
-                </div>
-                {!pmsConn&&(<>
-                  <div style={{marginBottom:12}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
-                    <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
-                  </div>
-                  <div style={{marginBottom:12}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
-                    <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
-                  </div>
-                </>)}
-                <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <span style={{fontSize:13,color:C.muted}}>{pmsConn ? "Revenue this month" : "Est. monthly revenue"}</span>
-                  <span style={{fontSize:16,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(monthRev)}</span>
-                </div>
-                {pmsConn&&<div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <span style={{fontSize:13,color:C.muted}}>Revenue this week</span>
-                  <span style={{fontSize:16,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{fmt(weekRev)}</span>
-                </div>}
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
-                  <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.round(BEDS*.95)-occupied} to go`}</span>
-                </div>
-                <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
-                  <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
-                  <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
-                </div>
-              </div>
-
-              <div style={{flex:"1 1 200px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
-                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
-                {pmsConn&&pmsData?(
-                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"Checked in",value:pmsData.occupied,color:C.gold},{label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},{label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
-                      <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
-                        <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
-                        <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{typeof x.value === 'number' ? x.value : x.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                ):(
-                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"New bookings this week",val:mBook,set:setMBook,max:50,color:C.sage},{label:"Renewals this month",val:mRen,set:setMRen,max:50,color:C.sage},{label:"Move-outs / churn",val:mChurn,set:setMChurn,max:30,color:C.rose}].map(x=>(
-                      <div key={x.label}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>{x.label}</span><span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.val}</span></div>
-                        <input type="range" min={0} max={x.max} value={x.val} onChange={e=>x.set(+e.target.value)} style={{width:"100%",accentColor:x.color}}/>
-                      </div>
-                    ))}
-                    <div style={{background:C.bg,borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between"}}>
-                      <span style={{fontSize:12,color:C.muted}}>Renewal rate</span>
-                      <span style={{fontSize:13,fontWeight:700,fontFamily:"DM Mono,monospace",color:renewRate>=80?C.sage:renewRate>=60?C.gold:C.rose}}>{renewRate}%</span>
-                    </div>
-                  </div>
-                )}
-              </div>
+    {/* Blocked Rooms Adjustment */}
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Room Availability Settings</p>
+      <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{flex:"1 1 180px",minWidth:150}}>
+          <label style={{display:"block",fontSize:12,color:C.muted,marginBottom:6}}>Blocked / Unavailable Rooms</label>
+          <input type="number" min={0} max={BEDS} value={blockedRooms} onChange={e=>setBlockedRooms(Math.max(0,Math.min(BEDS,+e.target.value)))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+          <p style={{fontSize:10,color:C.muted,marginTop:4}}>Rooms marked "Block Availability" in RH{pmsConn&&pmsData?.blockedUnits>0?` · API detected: ${pmsData.blockedUnits}`:""}</p>
+        </div>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          {[{label:"Total Beds",value:BEDS,color:C.muted},{label:"Blocked",value:blockedRooms,color:C.rose},{label:"Available",value:availableRooms,color:C.sage}].map((s,i)=>(
+            <div key={i} style={{background:C.bg,borderRadius:8,padding:"8px 14px",border:`1px solid ${C.border}`,textAlign:"center",minWidth:70}}>
+              <p style={{fontSize:10,color:C.muted,marginBottom:2}}>{s.label}</p>
+              <p style={{fontSize:18,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
             </div>
+          ))}
+        </div>
+      </div>
+    </div>
 
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Revenue Target Calculator</p>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10,marginBottom:16}}>
-                {[{label:"Target occupancy",value:`${TARGET_OCC*100}%`,color:C.gold},{label:"Target rooms",value:TARGET_ROOMS,color:C.sage},{label:"Average rate",value:fmt(TARGET_RATE),color:C.blue},{label:"Monthly target",value:fmt(TARGET_MONTHLY),color:C.rose}].map((s,i)=>(
-                  <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
-                    <p style={{fontSize:16,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
-                  </div>
-                ))}
+    <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
+      <div style={{flex:"1.5 1 250px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,borderTop:`2px solid ${C.gold}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div>
+            <p style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · Southall</p>
+            <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} checked in` : `${occupied} / ${availableRooms} available`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
+          </div>
+          <OccRing pct={occPct}/>
+        </div>
+
+        {/* Checked In vs Available Rooms */}
+        <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+            <span style={{fontSize:12,color:C.muted}}>Checked In vs Available ({availableRooms})</span>
+            <span style={{fontSize:13,fontWeight:700,color:occPct>=90?C.sage:occPct>=70?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{occupied} / {availableRooms} ({occPct}%)</span>
+          </div>
+          <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
+            <div style={{height:6,background:occPct>=90?C.sage:occPct>=70?C.gold:C.rose,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
+          </div>
+        </div>
+
+        {/* Checked In vs 270 Target */}
+        <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+            <span style={{fontSize:12,color:C.muted}}>Checked In vs 90% Target ({TARGET_ROOMS})</span>
+            <span style={{fontSize:13,fontWeight:700,color:occupied>=TARGET_ROOMS?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{occupied} / {TARGET_ROOMS} ({Math.round(occupied/TARGET_ROOMS*100)}%)</span>
+          </div>
+          <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
+            <div style={{height:6,background:occupied>=TARGET_ROOMS?C.sage:C.gold,borderRadius:3,width:`${Math.min((occupied/TARGET_ROOMS)*100,100)}%`,transition:"width 0.4s"}}/>
+            <div style={{position:"absolute",top:-2,left:"100%",height:10,width:2,background:C.sage,borderRadius:1}}/>
+          </div>
+          <p style={{fontSize:10,color:C.muted,marginTop:4}}>{occupied>=TARGET_ROOMS?`✓ TARGET HIT — ${occupied-TARGET_ROOMS} rooms above target`:`${TARGET_ROOMS-occupied} rooms needed to hit 90% target`}</p>
+        </div>
+
+        {!pmsConn&&(<>
+          <div style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
+            <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
+            <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
+          </div>
+        </>)}
+
+        <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <span style={{fontSize:13,color:C.muted}}>{pmsConn ? "Revenue this month" : "Est. monthly revenue"}</span>
+          <span style={{fontSize:16,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(monthRev)}</span>
+        </div>
+        {pmsConn&&<div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontSize:13,color:C.muted}}>Revenue this week</span>
+          <span style={{fontSize:16,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{fmt(weekRev)}</span>
+        </div>}
+      </div>
+
+      <div style={{flex:"1 1 200px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+        <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
+        {pmsConn&&pmsData?(
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {[{label:"Checked in",value:pmsData.occupied,color:C.gold},{label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},{label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
+              <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
+                <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{typeof x.value === 'number' ? x.value : x.value}</span>
               </div>
-
-              <div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.border}`,marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
-                  <span style={{fontSize:12,color:C.muted}}>Current vs Target</span>
-                  <span style={{fontSize:14,fontWeight:700,color:occupied>=TARGET_ROOMS?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{occupied} / {TARGET_ROOMS} rooms</span>
-                </div>
-                <div style={{height:8,background:C.border,borderRadius:4,position:"relative",overflow:"hidden"}}>
-                  <div style={{height:8,background:occupied>=TARGET_ROOMS?C.sage:C.gold,borderRadius:4,width:`${Math.min((occupied/TARGET_ROOMS)*100,100)}%`,transition:"width 0.4s"}}/>
-                </div>
-                <p style={{fontSize:10,color:C.muted,marginTop:6}}>{occupied>=TARGET_ROOMS?`✓ TARGET HIT`:`${TARGET_ROOMS-occupied} rooms still needed`}</p>
+            ))}
+          </div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {[{label:"New bookings this week",val:mBook,set:setMBook,max:50,color:C.sage},{label:"Renewals this month",val:mRen,set:setMRen,max:50,color:C.sage},{label:"Move-outs / churn",val:mChurn,set:setMChurn,max:30,color:C.rose}].map(x=>(
+              <div key={x.label}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>{x.label}</span><span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.val}</span></div>
+                <input type="range" min={0} max={x.max} value={x.val} onChange={e=>x.set(+e.target.value)} style={{width:"100%",accentColor:x.color}}/>
               </div>
-
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10}}>
-                {(() => {
-                  const today = new Date();
-                  const july1 = new Date("2026-07-01");
-                  const daysLeft = Math.ceil((july1 - today) / (1000*60*60*24));
-                  const weeksLeft = Math.ceil(daysLeft / 7);
-                  const roomsNeeded = Math.max(0, TARGET_ROOMS - occupied);
-                  const bookingsPerWeek = weeksLeft > 0 ? Math.ceil(roomsNeeded / weeksLeft) : 0;
-
-                  return [
-                    {label:"Days until July 1st",value:daysLeft,color:C.muted},
-                    {label:"Weeks remaining",value:weeksLeft,color:C.muted},
-                    {label:"Rooms still needed",value:roomsNeeded,color:roomsNeeded===0?C.sage:C.rose},
-                    {label:"Bookings per week needed",value:bookingsPerWeek,color:C.gold},
-                  ].map((s,i)=>(
-                    <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                      <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
-                      <p style={{fontSize:16,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
-                    </div>
-                  ));
-                })()}
-              </div>
+            ))}
+            <div style={{background:C.bg,borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:12,color:C.muted}}>Renewal rate</span>
+              <span style={{fontSize:13,fontWeight:700,fontFamily:"DM Mono,monospace",color:renewRate>=80?C.sage:renewRate>=60?C.gold:C.rose}}>{renewRate}%</span>
             </div>
           </div>
         )}
+      </div>
+    </div>
+
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
+      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Revenue Target · Net Bookings Calculator</p>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10,marginBottom:16}}>
+        {[{label:"Target occupancy",value:`${TARGET_OCC*100}%`,color:C.gold},{label:"Target rooms (90%)",value:TARGET_ROOMS,color:C.sage},{label:"Available rooms",value:availableRooms,color:C.blue},{label:"Average rate /wk",value:fmt(TARGET_RATE),color:C.blue},{label:"Monthly target",value:fmt(TARGET_MONTHLY),color:C.rose}].map((s,i)=>(
+          <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+            <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
+            <p style={{fontSize:16,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.border}`,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
+          <span style={{fontSize:12,color:C.muted}}>Current vs Target</span>
+          <span style={{fontSize:14,fontWeight:700,color:occupied>=TARGET_ROOMS?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{occupied} / {TARGET_ROOMS} rooms</span>
+        </div>
+        <div style={{height:8,background:C.border,borderRadius:4,position:"relative",overflow:"hidden"}}>
+          <div style={{height:8,background:occupied>=TARGET_ROOMS?C.sage:C.gold,borderRadius:4,width:`${Math.min((occupied/TARGET_ROOMS)*100,100)}%`,transition:"width 0.4s"}}/>
+        </div>
+        <p style={{fontSize:10,color:C.muted,marginTop:6}}>{occupied>=TARGET_ROOMS?`✓ TARGET HIT`:`${TARGET_ROOMS-occupied} rooms still needed`}</p>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10}}>
+        {(() => {
+          const today = new Date();
+          const july1 = new Date("2026-07-01");
+          const daysLeft = Math.ceil((july1 - today) / (1000*60*60*24));
+          const weeksLeft = Math.ceil(daysLeft / 7);
+          const roomsNeeded = Math.max(0, TARGET_ROOMS - occupied);
+          const netBookingsPerWeek = weeksLeft > 0 ? Math.ceil(roomsNeeded / weeksLeft) : 0;
+
+          return [
+            {label:"Days until July 1st",value:daysLeft,color:C.muted},
+            {label:"Weeks remaining",value:weeksLeft,color:C.muted},
+            {label:"Net rooms still needed",value:roomsNeeded,color:roomsNeeded===0?C.sage:C.rose},
+            {label:"Net bookings per week",value:netBookingsPerWeek,color:C.gold},
+          ].map((s,i)=>(
+            <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+              <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
+              <p style={{fontSize:16,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
+            </div>
+          ));
+        })()}
+      </div>
+      <p style={{fontSize:10,color:C.muted,marginTop:8,fontStyle:"italic"}}>Net bookings = new check-ins minus check-outs. To hit 270 rooms by 1 July, you need this many net new bookings each week.</p>
+    </div>
+  </div>
+)}
 
         {/* ════ REPUTATION ════ */}
         {tab==="reputation"&&(
-          <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brand Health</p>
-            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Reputation Score</h2>
+  <div style={{padding:"22px 26px"}}>
+    <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brand Health · Live Data</p>
+    <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Reputation Score</h2>
 
-            <div style={{display:"flex",gap:14,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
-              <div style={{flex:"0 0 auto",background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:24}}>
-                <OccRing pct={reputationScore} color={reputationColor}/>
-              </div>
-              <div style={{flex:"1 1 220px",minWidth:0}}>
-                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Composite Score</p>
-                <p style={{fontSize:36,fontWeight:700,color:reputationColor,fontFamily:"DM Mono,monospace",marginBottom:4}}>{reputationScore}</p>
-                <p style={{fontSize:12,color:C.muted}}>
-                  {reputationScore>=80?"Excellent — strong brand presence":reputationScore>=60?"Good — solid reputation":reputationScore>=40?"Fair — room for improvement":"Poor — needs attention"}
-                </p>
-                <div style={{marginTop:10,display:"flex",gap:6}}>
-                  <span style={{fontSize:10,background:reputationColor+"22",color:reputationColor,padding:"3px 8px",borderRadius:12}}>Weighted average</span>
-                </div>
-              </div>
+    <div style={{display:"flex",gap:14,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
+      <div style={{flex:"0 0 auto",background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:24}}>
+        <OccRing pct={reputationScore} color={reputationColor}/>
+      </div>
+      <div style={{flex:"1 1 220px",minWidth:0}}>
+        <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Composite Score</p>
+        <p style={{fontSize:36,fontWeight:700,color:reputationColor,fontFamily:"DM Mono,monospace",marginBottom:4}}>{reputationScore}</p>
+        <p style={{fontSize:12,color:C.muted}}>
+          {reputationScore>=80?"Excellent — strong brand presence":reputationScore>=60?"Good — solid reputation":reputationScore>=40?"Fair — room for improvement":"Poor — needs urgent attention"}
+        </p>
+        <div style={{marginTop:10,display:"flex",gap:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:10,background:reputationColor+"22",color:reputationColor,padding:"3px 8px",borderRadius:12}}>Weighted average of 3 platforms</span>
+          <span style={{fontSize:10,background:C.border,color:C.muted,padding:"3px 8px",borderRadius:12}}>{gmbCount+airbnbCount+trustpilotCount} total reviews</span>
+        </div>
+      </div>
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:12,marginBottom:16}}>
+      {[
+        {title:"Google My Business",rating:gmbRating,count:gmbCount,setRating:setGmbRating,setCount:setGmbCount,color:C.blue,icon:"🔍",url:"https://share.google/idncSpwKzkzqIYZVw"},
+        {title:"Airbnb",rating:airbnbRating,count:airbnbCount,setRating:setAirbnbRating,setCount:setAirbnbCount,color:C.rose,icon:"🏠",url:"https://www.airbnb.co.uk/users/profile/1470683042353154223"},
+        {title:"Trustpilot",rating:trustpilotRating,count:trustpilotCount,setRating:setTrustpilotRating,setCount:setTrustpilotCount,color:C.sage,icon:"⭐",url:"https://uk.trustpilot.com/review/andsoul.com"},
+      ].map((p,i)=>(
+        <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{ p.icon} {p.title}</p>
+              <a href={p.url} target="_blank" rel="noopener" style={{fontSize:10,color:p.color,textDecoration:"underline"}}>View page →</a>
             </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:12,marginBottom:16}}>
-              {[
-                {title:"Google My Business",rating:gmbRating,count:gmbCount,setRating:setGmbRating,setCount:setGmbCount,color:C.blue,icon:"🔍"},
-                {title:"Airbnb",rating:airbnbRating,count:airbnbCount,setRating:setAirbnbRating,setCount:setAirbnbCount,color:C.rose,icon:"🏠"},
-                {title:"Trustpilot",rating:trustpilotRating,count:trustpilotCount,setRating:setTrustpilotRating,setCount:setTrustpilotCount,color:C.sage,icon:"⭐"},
-              ].map((p,i)=>(
-                <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                    <div>
-                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{ p.icon} {p.title}</p>
-                    </div>
-                  </div>
-                  <div style={{marginBottom:12}}>
-                    <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Rating (1-5)</p>
-                    <input type="number" min="0" max="5" step="0.1" value={p.rating} onChange={e=>p.setRating(parseFloat(e.target.value))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box",marginBottom:4}}/>
-                    <div style={{display:"flex",gap:2}}>
-                      {[1,2,3,4,5].map(x=>(
-                        <span key={x} style={{fontSize:14,opacity:x<=Math.floor(p.rating)?1:0.3}}>★</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Review count</p>
-                    <input type="number" min="0" value={p.count} onChange={e=>p.setCount(Math.max(0,parseInt(e.target.value)))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
-                    <p style={{fontSize:10,color:C.muted,marginTop:6}}>{p.rating.toFixed(1)}/5 • {p.count} reviews</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Online Mentions & Sentiment</p>
-              <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Reddit, forums, social media</p>
-              <textarea value={mentions} onChange={e=>setMentions(e.target.value)} placeholder="Paste mentions here..." style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:12,fontFamily:"DM Mono,monospace",minHeight:100,boxSizing:"border-box",resize:"vertical"}}/>
-              <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
-                <span style={{fontSize:10,background:mentions.toLowerCase().includes("love")||mentions.toLowerCase().includes("great")?"#3d9e7522":"#1c202855",color:mentions.toLowerCase().includes("love")||mentions.toLowerCase().includes("great")?C.sage:C.muted,padding:"4px 10px",borderRadius:12}}>
-                  Positive mentions: {mentions.split(" ").filter(w=>["love","great","amazing","best","excellent","perfect"].includes(w.toLowerCase())).length}
-                </span>
-                <span style={{fontSize:10,background:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?"#c95c5422":"#1c202855",color:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?C.rose:C.muted,padding:"4px 10px",borderRadius:12}}>
-                  Negative mentions: {mentions.split(" ").filter(w=>["issue","problem","bad","awful","hate","disappointed"].includes(w.toLowerCase())).length}
-                </span>
-              </div>
+            <div style={{background:p.color+"22",borderRadius:8,padding:"6px 12px",textAlign:"center"}}>
+              <p style={{fontSize:20,fontWeight:700,color:p.color,fontFamily:"DM Mono,monospace"}}>{p.rating.toFixed(1)}</p>
+              <p style={{fontSize:9,color:C.muted}}>/5.0</p>
             </div>
           </div>
-        )}
+          <div style={{marginBottom:8}}>
+            <div style={{display:"flex",gap:2,marginBottom:4}}>
+              {[1,2,3,4,5].map(x=>(
+                <span key={x} style={{fontSize:16,color:x<=Math.round(p.rating)?p.color:C.border}}>★</span>
+              ))}
+            </div>
+            <p style={{fontSize:11,color:C.muted}}>{p.count} reviews</p>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <div style={{flex:1}}>
+              <label style={{display:"block",fontSize:10,color:C.muted,marginBottom:4}}>Update rating</label>
+              <input type="number" min="0" max="5" step="0.1" value={p.rating} onChange={e=>p.setRating(parseFloat(e.target.value)||0)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"6px 8px",fontSize:12,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{flex:1}}>
+              <label style={{display:"block",fontSize:10,color:C.muted,marginBottom:4}}>Update count</label>
+              <input type="number" min="0" value={p.count} onChange={e=>p.setCount(Math.max(0,parseInt(e.target.value)||0))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"6px 8px",fontSize:12,boxSizing:"border-box"}}/>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    {/* Expert Reputation Recommendations */}
+    <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:12,padding:18,marginBottom:14}}>
+      <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14,fontWeight:700}}>Expert Reputation Strategy</p>
+      
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",gap:12}}>
+        {/* Priority 1: Trustpilot */}
+        <div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.rose}44`}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+            <span style={{background:C.rose,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:12}}>URGENT</span>
+            <span style={{fontSize:12,fontWeight:700,color:C.text}}>Trustpilot: {trustpilotRating}/5 ({trustpilotCount} reviews)</span>
+          </div>
+          <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+            <p style={{marginBottom:6}}>Your lowest-rated platform needs immediate attention:</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Volume is critically low</strong> — {trustpilotCount} reviews gives zero social proof. Aim for 50+ within 90 days.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Automate review requests</strong> — Send Trustpilot invite links at check-out via RH/GHL automation.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Respond to every review</strong> — Especially negatives. Thoughtful replies show accountability.</p>
+            <p>• <strong style={{color:C.text}}>Incentivise with community points</strong> — Offer cafe credit or event priority for honest reviews.</p>
+          </div>
+        </div>
+
+        {/* Priority 2: Airbnb */}
+        <div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.gold}44`}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+            <span style={{background:C.gold,color:"#000",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:12}}>HIGH</span>
+            <span style={{fontSize:12,fontWeight:700,color:C.text}}>Airbnb: {airbnbRating}/5 ({airbnbCount} reviews)</span>
+          </div>
+          <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+            <p style={{marginBottom:6}}>Airbnb is your primary discovery channel — this rating hurts conversion:</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Address the recurring theme</strong> — Air conditioning and ventilation issues appear in multiple reviews. Fix the root cause before seeking more reviews.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Improve first 24hr experience</strong> — Create a "wow" check-in: welcome pack, room walkthrough, working amenities check.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Follow up on day 2</strong> — A personal check-in message catches issues before they become bad reviews.</p>
+            <p>• <strong style={{color:C.text}}>Superhost status</strong> — Target 4.8+ overall. You need to resolve maintenance complaints to get there.</p>
+          </div>
+        </div>
+
+        {/* Priority 3: Google */}
+        <div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.sage}44`}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+            <span style={{background:C.sage,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:12}}>GOOD</span>
+            <span style={{fontSize:12,fontWeight:700,color:C.text}}>Google: {gmbRating}/5 ({gmbCount} reviews)</span>
+          </div>
+          <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+            <p style={{marginBottom:6}}>Your strongest platform — maintain and grow:</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Target 100 reviews</strong> — You're at {gmbCount}, push to 100 for stronger local SEO presence.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Post weekly on GMB</strong> — Share events, community photos, amenity updates. Google rewards active listings.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Add fresh photos monthly</strong> — Listings with 100+ photos get 520% more calls (Google data).</p>
+            <p>• <strong style={{color:C.text}}>Reply to all reviews within 24hrs</strong> — Professional, personalised responses (not ChatGPT-sounding templates).</p>
+          </div>
+        </div>
+
+        {/* Overall Strategy */}
+        <div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.blue}44`,gridColumn:"1 / -1"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+            <span style={{background:C.blue,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:12}}>STRATEGY</span>
+            <span style={{fontSize:12,fontWeight:700,color:C.text}}>Overall Reputation Roadmap</span>
+          </div>
+          <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+            <p style={{marginBottom:6}}>Your composite score of <strong style={{color:reputationColor}}>{reputationScore}/100</strong> has significant room for improvement. Key actions:</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Fix operations first, then ask for reviews</strong> — The recurring HVAC/maintenance complaints will sink any review campaign. Resolve these before pushing for volume.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Implement a review funnel</strong> — Happy guests → NPS survey → High scorers get review link → Low scorers get direct feedback channel. This filters bad reviews.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Dedicated reputation owner</strong> — Assign one team member to monitor all 3 platforms daily and respond within 24hrs.</p>
+            <p style={{marginBottom:4}}>• <strong style={{color:C.text}}>Monthly reputation report</strong> — Track new reviews, average rating trend, response rate, and sentiment themes.</p>
+            <p>• <strong style={{color:C.text}}>Target by Q3 2026</strong> — Google 4.5+ (100 reviews), Airbnb 4.2+ (30 reviews), Trustpilot 4.0+ (50 reviews). Composite target: 75+.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Online Mentions & Sentiment</p>
+      <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Reddit, forums, social media</p>
+      <textarea value={mentions} onChange={e=>setMentions(e.target.value)} placeholder="Paste mentions here..." style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:12,fontFamily:"DM Mono,monospace",minHeight:100,boxSizing:"border-box",resize:"vertical"}}/>
+      <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
+        <span style={{fontSize:10,background:mentions.toLowerCase().includes("love")||mentions.toLowerCase().includes("great")?"#3d9e7522":"#1c202855",color:mentions.toLowerCase().includes("love")||mentions.toLowerCase().includes("great")?C.sage:C.muted,padding:"4px 10px",borderRadius:12}}>
+          Positive mentions: {mentions.split(" ").filter(w=>["love","great","amazing","best","excellent","perfect","friendly","community","recommend"].includes(w.toLowerCase().replace(/[^a-z]/g,""))).length}
+        </span>
+        <span style={{fontSize:10,background:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?"#c95c5422":"#1c202855",color:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?C.rose:C.muted,padding:"4px 10px",borderRadius:12}}>
+          Negative mentions: {mentions.split(" ").filter(w=>["issue","problem","bad","awful","hate","disappointed","broken","dirty","sick","worst"].includes(w.toLowerCase().replace(/[^a-z]/g,""))).length}
+        </span>
+      </div>
+    </div>
+  </div>
+)}
 
         <div style={{padding:"10px 26px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
           <p style={{fontSize:10,color:C.muted}}>Meta 296625156418426 · Google Ads 635-731-8686 · GHL {GHL_LOCATION} · Res Harmonics</p>
