@@ -427,12 +427,12 @@ export default function Dashboard() {
   },[cid,csec]);
 
   // Reputation state
-  const [gmbRating, setGmbRating] = useState(4.5);
-  const [gmbCount, setGmbCount] = useState(42);
-  const [airbnbRating, setAirbnbRating] = useState(4.8);
-  const [airbnbCount, setAirbnbCount] = useState(156);
-  const [trustpilotRating, setTrustpilotRating] = useState(4.2);
-  const [trustpilotCount, setTrustpilotCount] = useState(28);
+  const [gmbRating, setGmbRating] = useState(4.4);
+  const [gmbCount, setGmbCount] = useState(72);
+  const [airbnbRating, setAirbnbRating] = useState(3.55);
+  const [airbnbCount, setAirbnbCount] = useState(11);
+  const [trustpilotRating, setTrustpilotRating] = useState(3.1);
+  const [trustpilotCount, setTrustpilotCount] = useState(4);
   const [mentions, setMentions] = useState("");
 
   const reputationScore = Math.round(((gmbRating + airbnbRating + trustpilotRating) / 3 / 5) * 100);
