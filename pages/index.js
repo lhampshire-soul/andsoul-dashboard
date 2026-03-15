@@ -59,6 +59,13 @@ const GOOGLE_CAMPAIGNS = [
   { name:"&Soul - Southall Video",        spend:  98, convs: 3, avgCPC:0.88, type:"Video" },
 ];
 
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const BEDS = 300;
+const TARGET_OCC = 0.9;
+const TARGET_RATE = 300;
+const TARGET_ROOMS = Math.round(BEDS * TARGET_OCC);
+const TARGET_MONTHLY = Math.round(TARGET_ROOMS * TARGET_RATE * (52/12));
+
 // ─── COLOURS ──────────────────────────────────────────────────────────────────
 const C = {
   bg:"#080a0d", card:"#0e1115", border:"#1c2028",
@@ -79,11 +86,9 @@ const STAGE_BOOKED = "booking confirmed";
 
 // ─── GHL API — routes through /api/ghl (server-side, no CORS issues) ──────────
 async function ghlGet(path) {
-  // The path is passed as a query param to our Next.js serverless function
   const res = await fetch(`/api/ghl?path=${encodeURIComponent(path)}`);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    // Build a detailed error message for debugging
     const msg  = data?.error ?? data?.message ?? data?.msg ?? JSON.stringify(data).slice(0,200) ?? `HTTP ${res.status}`;
     if (res.status === 401) throw new Error("GHL 401: Invalid API key — check your environment variable.");
     if (res.status === 403) throw new Error("GHL 403: Forbidden — key may not have access to this location.");
@@ -94,7 +99,6 @@ async function ghlGet(path) {
 }
 
 async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
-  // Try minimal params first, then add dates if that works
   let all=[], startAfter, startAfterId, safety=0;
   while(safety < 20) {
     const p = new URLSearchParams({
@@ -107,14 +111,12 @@ async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
     const res = await ghlGet(`/opportunities/search?${p}`);
     const opps = res?.opportunities ?? res?.data ?? [];
     all = all.concat(opps);
-    // Cursor-based pagination
     startAfter   = res?.meta?.startAfter   ?? res?.startAfter   ?? null;
     startAfterId = res?.meta?.startAfterId ?? res?.startAfterId ?? null;
     const total  = res?.meta?.total ?? res?.total ?? opps.length;
     if (all.length >= total || opps.length === 0 || !startAfter) break;
     safety++;
   }
-  // Filter dates client-side for reliability
   if (dateFrom || dateTo) {
     all = all.filter(o => {
       const d = (o.createdAt ?? o.dateAdded ?? o.created_at ?? "").slice(0,10);
@@ -139,30 +141,25 @@ async function loadGHL(dateFrom, dateTo) {
 
   const stages = pipeline.stages ?? [];
 
-  // Find "Tour Booked" stage
   const tourStage = stages.find(s => s.name?.trim().toLowerCase() === TAG_TOUR.toLowerCase())
     ?? stages.find(s => s.name?.toLowerCase().includes("tour"));
 
-  // Find "Booking Confirmed" stage
   const bookedStage = stages.find(s => s.name?.trim().toLowerCase() === STAGE_BOOKED.toLowerCase())
     ?? stages.find(s => s.name?.toLowerCase().includes("booking confirmed"))
     ?? stages.find(s => s.name?.toLowerCase().includes("booking"));
 
   const opps = await fetchAllOpps(pipeline.id, dateFrom, dateTo);
 
-  // Tours = opportunities in the "Tour Booked" pipeline stage (or tagged)
   const tours = opps.filter(o => {
     const inTourStage = tourStage ? o.pipelineStageId === tourStage.id : false;
     const hasTag = (o.tags??[]).some(t => t.toLowerCase().trim() === TAG_TOUR.toLowerCase());
     return inTourStage || hasTag;
   });
 
-  // Confirmed = opportunities in "Booking Confirmed" stage (with or without Won status)
   const confirmed = opps.filter(o => {
     const inBookedStage = bookedStage
       ? o.pipelineStageId === bookedStage.id
       : (o.pipelineStage?.name ?? o.stage?.name ?? "").toLowerCase().includes("booking");
-    // Count if in the right stage — don't require Won status as some may not be marked
     const won = (o.status??"").toLowerCase() === "won";
     return inBookedStage || (won && inBookedStage);
   });
@@ -199,7 +196,6 @@ async function rhFetch(tok,path) {
   return data;
 }
 
-// Fetch ALL pages from a Spring Boot paginated endpoint
 async function rhFetchAll(tok, basePath, maxPages=50) {
   let all = [];
   let page = 0;
@@ -208,7 +204,6 @@ async function rhFetchAll(tok, basePath, maxPages=50) {
     const data = await rhFetch(tok, `${basePath}${sep}page=${page}&size=100`);
     const content = data.content ?? data.data ?? data.results ?? (Array.isArray(data) ? data : []);
     all = all.concat(content);
-    // Check pagination info
     const pageInfo = data.page ?? {};
     const totalPages = pageInfo.totalPages ?? 1;
     const totalElements = pageInfo.totalElements ?? all.length;
@@ -228,7 +223,7 @@ const Tip = ({active,payload,label}) => {
 };
 
 const KPI = ({label,value,sub,accent=C.gold,badge}) => (
-  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",borderTop:`2px solid ${accent}`,flex:1,minWidth:0,position:"relative"}}>
+  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",borderTop:`2px solid ${accent}`,flex:"1 1 140px",minWidth:0,position:"relative"}}>
     {badge&&<span style={{position:"absolute",top:10,right:12,fontSize:10,color:accent,background:accent+"22",padding:"2px 8px",borderRadius:20}}>{badge}</span>}
     <p style={{color:C.muted,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>{label}</p>
     <p style={{fontSize:26,fontWeight:700,color:C.text,fontFamily:"'DM Mono',monospace",letterSpacing:"-0.02em"}}>{value}</p>
@@ -236,13 +231,13 @@ const KPI = ({label,value,sub,accent=C.gold,badge}) => (
   </div>
 );
 
-const OccRing = ({pct}) => {
+const OccRing = ({pct,color=C.gold}) => {
   const r=42,c=2*Math.PI*r,d=(pct/100)*c;
   return <svg width={110} height={110} viewBox="0 0 100 100">
     <circle cx="50" cy="50" r={r} fill="none" stroke={C.border} strokeWidth="9"/>
-    <circle cx="50" cy="50" r={r} fill="none" stroke={C.gold} strokeWidth="9" strokeDasharray={`${d} ${c}`} strokeDashoffset={c*0.25} strokeLinecap="round" style={{transition:"stroke-dasharray 0.5s ease"}}/>
+    <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="9" strokeDasharray={`${d} ${c}`} strokeDashoffset={c*0.25} strokeLinecap="round" style={{transition:"stroke-dasharray 0.5s ease"}}/>
     <text x="50" y="47" textAnchor="middle" fill={C.text} fontSize="15" fontWeight="700" fontFamily="DM Mono,monospace">{pct}%</text>
-    <text x="50" y="61" textAnchor="middle" fill={C.muted} fontSize="8">occupancy</text>
+    <text x="50" y="61" textAnchor="middle" fill={C.muted} fontSize="8">target</text>
   </svg>;
 };
 
@@ -273,20 +268,25 @@ export default function Dashboard() {
   const metaCpl   = metaLeads>0 ? metaSpend/metaLeads : 0;
   const gSpend    = metaRows.reduce((s,r)=>s+(GOOGLE_DAILY_SPEND[r.iso]??0),0);
   const gConvs    = GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0);
+  const googleCostPerSubmit = gConvs>0 ? gSpend/gConvs : 0;
+  const blendedAvgCPL = (metaLeads+gConvs)>0 ? (metaSpend+gSpend)/(metaLeads+gConvs) : 0;
 
   // GHL
   const [ghlLoading, setGhlLoad] = useState(false);
   const [ghlError,   setGhlErr]  = useState("");
   const [ghlData,    setGhlData] = useState(null);
   const [ghlConn,    setGhlConn] = useState(false);
+  const [manualBookings, setManualBookings] = useState(0);
+  const [manualValue, setManualValue] = useState(0);
 
   const runGHL = useCallback(async(f,t)=>{
     setGhlLoad(true); setGhlErr("");
     try { setGhlData(await loadGHL(f,t)); setGhlConn(true); }
-    catch(e) { setGhlErr(e.message); }
+    catch(e) { setGhlErr(e.message); console.log("GHL Error:", e.message); }
     finally { setGhlLoad(false); }
   },[]);
 
+  useEffect(()=>{ runGHL(from,to); }, []);
   useEffect(()=>{ if(ghlConn) runGHL(from,to); },[from,to]);
 
   // PMS
@@ -295,79 +295,96 @@ export default function Dashboard() {
   const [pmsConn,setPmsConn]=useState(false), [pmsData,setPmsData]=useState(null);
   const [mOcc,setMOcc]=useState(72), [mRate,setMRate]=useState(1450);
   const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
-  const BEDS=300;
+
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
   const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
   const renewRate = (mRen+mChurn)>0 ? Math.round(mRen/(mRen+mChurn)*100) : 0;
 
-  const [pmsDebug, setPmsDebug] = useState(null);
+  // Adjust GHL confirmed counts with manual values
+  const adjConfirmed = ghlConn && ghlData ? ghlData.confirmed + manualBookings : ghlData?.confirmed ?? 0;
+  const adjConfirmedValue = ghlConn && ghlData ? ghlData.confirmedValue + manualValue : ghlData?.confirmedValue ?? 0;
+  const adjConvRate = ghlConn && ghlData && ghlData.toursBooked > 0 ? Math.round(adjConfirmed/ghlData.toursBooked*100) : ghlData?.convRate;
+
+  // Load RH credentials from localStorage on mount
+  useEffect(()=>{
+    const saved = typeof window !== "undefined" && localStorage.getItem("rh_creds");
+    if (saved) {
+      try {
+        const { cid: c, csec: s } = JSON.parse(saved);
+        setCid(c);
+        setCsec(s);
+      } catch (e) {
+        console.log("Failed to load RH creds from localStorage:", e);
+      }
+    }
+  }, []);
+
+  // Auto-connect PMS when cid+csec loaded from localStorage
+  useEffect(()=>{
+    if (cid && csec && !pmsConn) {
+      connectPMS();
+    }
+  }, [cid, csec]);
 
   const connectPMS = useCallback(async()=>{
     if(!cid||!csec){setPmsErr("Enter both fields.");return;}
-    setPmsLoad(true);setPmsErr("");setPmsDebug(null);
+    setPmsLoad(true);setPmsErr("");
     try{
       const tok=await getRHToken(cid,csec);
+      localStorage.setItem("rh_creds", JSON.stringify({ cid, csec }));
+
       const today = new Date().toISOString().slice(0,10);
       const mthStart = today.slice(0,7) + "-01";
       const wkStart = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
-      const debug = [];
 
-      // ── 1. Fetch ALL guestStays (paginated) for in-house / check-in / confirmed ──
-      debug.push("Fetching /api/v3/guestStays (all pages)...");
+      // Fetch guestStays
       let allGuestStays = [];
-      try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { debug.push(`guestStays error: ${e.message}`); }
-      debug.push(`guestStays: ${allGuestStays.length} total records`);
+      try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { console.log("guestStays error:", e.message); }
 
-      // Also fetch ALL bookings for revenue + additional occupancy data
-      debug.push("Fetching /api/v3/bookings (all pages)...");
+      // Fetch bookings for revenue
       let allBookings = [];
-      try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) { debug.push(`bookings error: ${e.message}`); }
-      debug.push(`bookings: ${allBookings.length} total records`);
+      try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) { console.log("bookings error:", e.message); }
 
-      // Fetch units for total room/bed count
-      debug.push("Fetching /api/v3/units (all pages)...");
+      // Fetch units
       let allUnits = [];
-      try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) { debug.push(`units error: ${e.message}`); }
-      debug.push(`units: ${allUnits.length} total records`);
+      try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) { console.log("units error:", e.message); }
 
-      // Fetch financials for revenue
-      debug.push("Fetching /api/v3/financials (all pages)...");
+      // Fetch financials
       let allFinancials = [];
-      try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { debug.push(`financials error: ${e.message}`); }
-      debug.push(`financials: ${allFinancials.length} total records`);
+      try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { console.log("financials error:", e.message); }
 
-      // ── 2. Count occupied guests from guestStays ──
-      // Log all unique status values to understand the data
-      const gsStatuses = {};
-      allGuestStays.forEach(g => {
-        const s = g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "unknown";
-        gsStatuses[s] = (gsStatuses[s]||0) + 1;
-      });
-      debug.push(`guestStay statuses: ${JSON.stringify(gsStatuses)}`);
-
-      // Count ONLY CHECKED_IN guests — this is the accurate occupancy number
+      // Count CHECKED_IN guests (current occupancy)
       const checkedInGuests = allGuestStays.filter(g => {
         const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
         return status === "CHECKED_IN";
       });
       const inHouseCount = checkedInGuests.length;
-      debug.push(`CHECKED_IN guests: ${inHouseCount}`);
 
-      // ── 4. Total units ──
-      const totalUnits = allUnits.length || BEDS;
-      debug.push(`Total units: ${totalUnits}`);
+      // Count check-ins in last 7 days
+      const checkInsWeek = allGuestStays.filter(g => {
+        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
+        if (status !== "CHECKED_IN") return false;
+        const checkInDate = (g.startDate ?? g.checkInDate ?? g.arrivalDate ?? "").slice(0,10);
+        if (!checkInDate) return false;
+        if (checkInDate < wkStart) return false;
+        if (checkInDate > today) return false;
+        return true;
+      }).length;
 
-      // ── 5. Revenue from financials ──
-      // Log sample financial record to understand structure
-      if (allFinancials.length > 0) {
-        debug.push(`Financial sample keys: ${Object.keys(allFinancials[0]).join(", ")}`);
-        debug.push(`Financial sample: ${JSON.stringify(allFinancials[0]).slice(0,300)}`);
-      }
+      // Count check-outs in last 7 days
+      const checkOutsWeek = allGuestStays.filter(g => {
+        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
+        if (status !== "CHECKED_OUT") return false;
+        const checkOutDate = (g.endDate ?? g.checkOutDate ?? g.departureDate ?? "").slice(0,10);
+        if (!checkOutDate) return false;
+        if (checkOutDate < wkStart) return false;
+        if (checkOutDate > today) return false;
+        return true;
+      }).length;
 
-      // Revenue from bookings — using netAmount field (confirmed from debug)
-      // Bookings have: startDate, endDate, netAmount, vatAmount, roomStayStatus
+      // Revenue calculations
       const sumBookingRevenue = (bookings, dateFrom, dateTo) => {
         return bookings.reduce((sum, b) => {
           const bDate = b.startDate ?? b.checkInDate ?? b.arrivalDate ?? b.createdDate ?? "";
@@ -378,10 +395,9 @@ export default function Dashboard() {
         }, 0);
       };
 
-      // Revenue from financials — using gross/net fields (confirmed from debug)
       const sumFinancials = (records, dateFrom, dateTo) => {
         return records.filter(f => {
-          if (f.financialType !== "SALES_INVOICE") return false; // Only count sales
+          if (f.financialType !== "SALES_INVOICE") return false;
           const fDate = f.dateCreated ?? "";
           if (dateFrom && fDate && fDate < dateFrom) return false;
           if (dateTo && fDate && fDate > dateTo) return false;
@@ -397,31 +413,41 @@ export default function Dashboard() {
       const monthlyRevFin = sumFinancials(allFinancials, mthStart, today);
       const weeklyRevFin = sumFinancials(allFinancials, wkStart, today);
 
-      // Use bookings revenue as primary (it's working), financials as fallback
       const monthlyRev = monthlyRevBkg > 0 ? monthlyRevBkg : monthlyRevFin;
       const weeklyRev = weeklyRevBkg > 0 ? weeklyRevBkg : weeklyRevFin;
 
-      debug.push(`Revenue (bookings): month £${monthlyRevBkg.toFixed(0)}, week £${weeklyRevBkg.toFixed(0)}`);
-      debug.push(`Revenue (financials/invoices): month £${monthlyRevFin.toFixed(0)}, week £${weeklyRevFin.toFixed(0)}`);
-      debug.push(`Final revenue: month £${monthlyRev.toFixed(0)}, week £${weeklyRev.toFixed(0)}`);
+      console.log(`RH: occupied=${inHouseCount}, checkIns=${checkInsWeek}, checkOuts=${checkOutsWeek}, monthRev=${monthlyRev}, weekRev=${weeklyRev}`);
 
-      setPmsDebug(debug);
+      const totalUnits = allUnits.length || BEDS;
+
       setPmsData({
         occupied: inHouseCount,
+        checkInsWeek,
+        checkOutsWeek,
         total: totalUnits,
         occupancyPct: Math.round(inHouseCount / BEDS * 100),
         revenue: monthlyRev,
         weeklyRevenue: weeklyRev,
-        newThisWeek: 0,
-        rawBookings: inHouseCount,
       });
       setPmsConn(true);
-    }catch(e){setPmsErr(`Failed: ${e.message}`);}
+    }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
     finally{setPmsLoad(false);}
   },[cid,csec]);
 
+  // Reputation state
+  const [gmbRating, setGmbRating] = useState(4.5);
+  const [gmbCount, setGmbCount] = useState(42);
+  const [airbnbRating, setAirbnbRating] = useState(4.8);
+  const [airbnbCount, setAirbnbCount] = useState(156);
+  const [trustpilotRating, setTrustpilotRating] = useState(4.2);
+  const [trustpilotCount, setTrustpilotCount] = useState(28);
+  const [mentions, setMentions] = useState("");
+
+  const reputationScore = Math.round(((gmbRating + airbnbRating + trustpilotRating) / 3 / 5) * 100);
+  const reputationColor = reputationScore >= 80 ? C.sage : reputationScore >= 60 ? C.gold : C.rose;
+
   const tabBtn=(t,label,dot)=>(
-    <button onClick={()=>setTab(t)} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,background:tab===t?C.gold:"transparent",color:tab===t?"#000":C.muted}}>
+    <button onClick={()=>setTab(t)} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,background:tab===t?C.gold:"transparent",color:tab===t?"#000":C.muted,whiteSpace:"nowrap"}}>
       {dot&&<span style={{width:6,height:6,borderRadius:"50%",background:dot,flexShrink:0}}/>}
       {label}
     </button>
@@ -431,6 +457,7 @@ export default function Dashboard() {
     <>
       <Head>
         <title>Southall · The House — Dashboard</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
       </Head>
       <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:"'DM Sans',system-ui,sans-serif"}}>
@@ -467,10 +494,11 @@ export default function Dashboard() {
         </div>
 
         {/* TABS */}
-        <div style={{padding:"10px 26px 0",display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{padding:"10px 26px 0",display:"flex",gap:6,borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
           {tabBtn("marketing","Marketing")}
           {tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}
           {tabBtn("bookings","Occupancy")}
+          {tabBtn("reputation","Reputation")}
         </div>
 
         {/* ════ MARKETING ════ */}
@@ -485,10 +513,12 @@ export default function Dashboard() {
               <KPI label="Meta Avg CPL"        value={fmt(metaCpl,"£",2)}      sub="Per lead form submit"             accent={C.sage}/>
               <KPI label="Google Spend"        value={fmt(gSpend)}             sub="Filtered period"                  accent={C.blue}/>
               <KPI label="Google Form Submits" value={gConvs}                  sub="GTM tag · 30d fixed"              accent={C.blue}/>
+              <KPI label="Google Cost/Submit"  value={fmt(googleCostPerSubmit,"£",2)} sub="Spend ÷ form submits"        accent={C.blue}/>
+              <KPI label="Blended Avg CPL"     value={fmt(blendedAvgCPL,"£",2)} sub="All channels weighted"           accent={C.rose}/>
             </div>
 
             <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
-              <div style={{flex:1.6,minWidth:280,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px"}}>
+              <div style={{flex:"1 1 280px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px",overflowX:"auto"}}>
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Daily Spend — Meta vs Google (£)</p>
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={chartData} margin={{top:2,right:6,bottom:0,left:-8}}>
@@ -505,7 +535,7 @@ export default function Dashboard() {
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-              <div style={{flex:1,minWidth:220,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px"}}>
+              <div style={{flex:"1 1 220px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px",overflowX:"auto"}}>
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Meta · Lead Form Submits & CPL</p>
                 <ResponsiveContainer width="100%" height={180}>
                   <ComposedChart data={chartData} margin={{top:2,right:6,bottom:0,left:-16}}>
@@ -521,9 +551,9 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,overflowX:"auto"}}>
               <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Southall Campaigns · 30d · GTM form submits only</p>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:600}}>
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
                   {["Campaign","Type","Spend","Form Submits","Avg CPC","Cost/Submit"].map(h=>(
                     <th key={h} style={{padding:"5px 10px",textAlign:"left",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
@@ -610,9 +640,24 @@ export default function Dashboard() {
 
                 <div style={{display:"flex",gap:14,marginBottom:20,flexWrap:"wrap"}}>
                   <KPI label="Tours Booked"             value={ghlData.toursBooked}   sub={`Stage: "${ghlData.tourStageName??TAG_TOUR}"`}                                       accent={C.purple} badge={rangeLabel}/>
-                  <KPI label="Bookings Confirmed"       value={ghlData.confirmed}      sub={`Won · Stage: "${ghlData.bookedStageName??STAGE_BOOKED}"`} accent={C.sage}   badge={rangeLabel}/>
-                  <KPI label="Confirmed Pipeline Value" value={ghlData.confirmedValue>0?fmt(ghlData.confirmedValue):"£0"} sub="Total value of Won + Booking Confirmed" accent={C.gold}/>
-                  <KPI label="Tour → Booking Rate"      value={ghlData.convRate!=null?`${ghlData.convRate}%`:"—"} sub="Confirmed ÷ Tours booked"       accent={ghlData.convRate==null?C.muted:ghlData.convRate>=30?C.sage:ghlData.convRate>=15?C.gold:C.rose}/>
+                  <KPI label="Bookings Confirmed"       value={adjConfirmed}      sub={`Won · Stage: "${ghlData.bookedStageName??STAGE_BOOKED}"`} accent={C.sage}   badge={rangeLabel}/>
+                  <KPI label="Confirmed Pipeline Value" value={adjConfirmedValue>0?fmt(adjConfirmedValue):"£0"} sub="Total value of Won + Booking Confirmed" accent={C.gold}/>
+                  <KPI label="Tour → Booking Rate"      value={adjConvRate!=null?`${adjConvRate}%`:"—"} sub="Confirmed ÷ Tours booked"       accent={adjConvRate==null?C.muted:adjConvRate>=30?C.sage:adjConvRate>=15?C.gold:C.rose}/>
+                </div>
+
+                {/* Manual Adjustments */}
+                <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Manual Adjustments</p>
+                  <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                    <div style={{flex:1,minWidth:150}}>
+                      <label style={{display:"block",fontSize:12,color:C.muted,marginBottom:6}}>Manual bookings (+)</label>
+                      <input type="number" value={manualBookings} onChange={e=>setManualBookings(Math.max(0,+e.target.value))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                    </div>
+                    <div style={{flex:1,minWidth:150}}>
+                      <label style={{display:"block",fontSize:12,color:C.muted,marginBottom:6}}>Manual value £ (+)</label>
+                      <input type="number" value={manualValue} onChange={e=>setManualValue(Math.max(0,+e.target.value))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                    </div>
+                  </div>
                 </div>
 
                 <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:14}}>
@@ -621,9 +666,9 @@ export default function Dashboard() {
                     {[
                       {label:"Total Opps",    value:ghlData.totalOpps,   color:C.blue,   pct:100},
                       {label:"Tours Booked",  value:ghlData.toursBooked, color:C.purple, pct:ghlData.totalOpps>0?Math.round(ghlData.toursBooked/ghlData.totalOpps*100):0},
-                      {label:"Confirmed Won", value:ghlData.confirmed,   color:C.sage,   pct:ghlData.totalOpps>0?Math.round(ghlData.confirmed/ghlData.totalOpps*100):0},
+                      {label:"Confirmed Won", value:adjConfirmed,   color:C.sage,   pct:ghlData.totalOpps>0?Math.round(adjConfirmed/ghlData.totalOpps*100):0},
                     ].map((s,i)=>(
-                      <div key={i} style={{flex:1,minWidth:100,display:"flex",alignItems:"center",gap:6}}>
+                      <div key={i} style={{flex:"1 1 100px",minWidth:0,display:"flex",alignItems:"center",gap:6}}>
                         {i>0&&<span style={{color:C.muted,fontSize:20,flexShrink:0}}>›</span>}
                         <div style={{flex:1,background:s.color+"18",border:`1px solid ${s.color}44`,borderRadius:10,padding:"14px 10px",textAlign:"center"}}>
                           <p style={{fontSize:28,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
@@ -673,21 +718,8 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* DEBUG PANEL — always visible when debug data exists */}
-            {pmsDebug&&pmsDebug.length>0&&(
-              <div style={{marginBottom:18,background:"#0a0c10",border:`1px solid ${C.border}`,borderRadius:8,padding:12,maxHeight:300,overflow:"auto"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em"}}>API Debug Log</p>
-                  <button onClick={()=>setPmsDebug(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:4,padding:"2px 8px",fontSize:9,cursor:"pointer"}}>Hide</button>
-                </div>
-                {pmsDebug.map((line,i)=>(
-                  <p key={i} style={{fontSize:10,fontFamily:"DM Mono,monospace",color:line.includes("error")?C.rose:line.includes("Final")||line.includes("sample")?C.gold:C.sage,marginBottom:2,wordBreak:"break-all"}}>{line}</p>
-                ))}
-              </div>
-            )}
-
             <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
-              <div style={{flex:1.5,minWidth:250,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,borderTop:`2px solid ${C.gold}`}}>
+              <div style={{flex:"1.5 1 250px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,borderTop:`2px solid ${C.gold}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <div>
                     <p style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · Southall</p>
@@ -723,14 +755,14 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div style={{flex:1,minWidth:200,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+              <div style={{flex:"1 1 200px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
                 {pmsConn&&pmsData?(
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"Checked in",value:pmsData.occupied,color:C.gold},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
+                    {[{label:"Checked in",value:pmsData.occupied,color:C.gold},{label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},{label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
                       <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
                         <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
-                        <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
+                        <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{typeof x.value === 'number' ? x.value : x.value}</span>
                       </div>
                     ))}
                   </div>
@@ -752,15 +784,116 @@ export default function Dashboard() {
             </div>
 
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Revenue Scenarios</p>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                {[{label:"Current",pct:occPct,rev:occupied*mRate},{label:"75%",pct:75,rev:Math.round(BEDS*.75)*mRate},{label:"85%",pct:85,rev:Math.round(BEDS*.85)*mRate},{label:"95% target",pct:95,rev:Math.round(BEDS*.95)*mRate}].map((s,i)=>(
-                  <div key={i} style={{flex:1,minWidth:120,background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${s.pct===95?C.sage:C.border}`}}>
-                    <p style={{fontSize:11,color:C.muted,marginBottom:5}}>{s.label}</p>
-                    <p style={{fontSize:20,fontWeight:700,color:s.pct===occPct?C.gold:s.pct===95?C.sage:C.text,fontFamily:"DM Mono,monospace"}}>{fmt(s.rev)}</p>
-                    <p style={{fontSize:10,color:C.muted,marginTop:3}}>{s.pct}% · {Math.round(BEDS*s.pct/100)} beds</p>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Revenue Target Calculator</p>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10,marginBottom:16}}>
+                {[{label:"Target occupancy",value:`${TARGET_OCC*100}%`,color:C.gold},{label:"Target rooms",value:TARGET_ROOMS,color:C.sage},{label:"Average rate",value:fmt(TARGET_RATE),color:C.blue},{label:"Monthly target",value:fmt(TARGET_MONTHLY),color:C.rose}].map((s,i)=>(
+                  <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
+                    <p style={{fontSize:16,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
                   </div>
                 ))}
+              </div>
+
+              <div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.border}`,marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
+                  <span style={{fontSize:12,color:C.muted}}>Current vs Target</span>
+                  <span style={{fontSize:14,fontWeight:700,color:occupied>=TARGET_ROOMS?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{occupied} / {TARGET_ROOMS} rooms</span>
+                </div>
+                <div style={{height:8,background:C.border,borderRadius:4,position:"relative",overflow:"hidden"}}>
+                  <div style={{height:8,background:occupied>=TARGET_ROOMS?C.sage:C.gold,borderRadius:4,width:`${Math.min((occupied/TARGET_ROOMS)*100,100)}%`,transition:"width 0.4s"}}/>
+                </div>
+                <p style={{fontSize:10,color:C.muted,marginTop:6}}>{occupied>=TARGET_ROOMS?`✓ TARGET HIT`:`${TARGET_ROOMS-occupied} rooms still needed`}</p>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10}}>
+                {(() => {
+                  const today = new Date();
+                  const july1 = new Date("2026-07-01");
+                  const daysLeft = Math.ceil((july1 - today) / (1000*60*60*24));
+                  const weeksLeft = Math.ceil(daysLeft / 7);
+                  const roomsNeeded = Math.max(0, TARGET_ROOMS - occupied);
+                  const bookingsPerWeek = weeksLeft > 0 ? Math.ceil(roomsNeeded / weeksLeft) : 0;
+
+                  return [
+                    {label:"Days until July 1st",value:daysLeft,color:C.muted},
+                    {label:"Weeks remaining",value:weeksLeft,color:C.muted},
+                    {label:"Rooms still needed",value:roomsNeeded,color:roomsNeeded===0?C.sage:C.rose},
+                    {label:"Bookings per week needed",value:bookingsPerWeek,color:C.gold},
+                  ].map((s,i)=>(
+                    <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
+                      <p style={{fontSize:16,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════ REPUTATION ════ */}
+        {tab==="reputation"&&(
+          <div style={{padding:"22px 26px"}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brand Health</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Reputation Score</h2>
+
+            <div style={{display:"flex",gap:14,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
+              <div style={{flex:"0 0 auto",background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:24}}>
+                <OccRing pct={reputationScore} color={reputationColor}/>
+              </div>
+              <div style={{flex:"1 1 220px",minWidth:0}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Composite Score</p>
+                <p style={{fontSize:36,fontWeight:700,color:reputationColor,fontFamily:"DM Mono,monospace",marginBottom:4}}>{reputationScore}</p>
+                <p style={{fontSize:12,color:C.muted}}>
+                  {reputationScore>=80?"Excellent — strong brand presence":reputationScore>=60?"Good — solid reputation":reputationScore>=40?"Fair — room for improvement":"Poor — needs attention"}
+                </p>
+                <div style={{marginTop:10,display:"flex",gap:6}}>
+                  <span style={{fontSize:10,background:reputationColor+"22",color:reputationColor,padding:"3px 8px",borderRadius:12}}>Weighted average</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:12,marginBottom:16}}>
+              {[
+                {title:"Google My Business",rating:gmbRating,count:gmbCount,setRating:setGmbRating,setCount:setGmbCount,color:C.blue,icon:"🔍"},
+                {title:"Airbnb",rating:airbnbRating,count:airbnbCount,setRating:setAirbnbRating,setCount:setAirbnbCount,color:C.rose,icon:"🏠"},
+                {title:"Trustpilot",rating:trustpilotRating,count:trustpilotCount,setRating:setTrustpilotRating,setCount:setTrustpilotCount,color:C.sage,icon:"⭐"},
+              ].map((p,i)=>(
+                <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div>
+                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{ p.icon} {p.title}</p>
+                    </div>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Rating (1-5)</p>
+                    <input type="number" min="0" max="5" step="0.1" value={p.rating} onChange={e=>p.setRating(parseFloat(e.target.value))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box",marginBottom:4}}/>
+                    <div style={{display:"flex",gap:2}}>
+                      {[1,2,3,4,5].map(x=>(
+                        <span key={x} style={{fontSize:14,opacity:x<=Math.floor(p.rating)?1:0.3}}>★</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Review count</p>
+                    <input type="number" min="0" value={p.count} onChange={e=>p.setCount(Math.max(0,parseInt(e.target.value)))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:6}}>{p.rating.toFixed(1)}/5 • {p.count} reviews</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Online Mentions & Sentiment</p>
+              <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Reddit, forums, social media</p>
+              <textarea value={mentions} onChange={e=>setMentions(e.target.value)} placeholder="Paste mentions here..." style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:12,fontFamily:"DM Mono,monospace",minHeight:100,boxSizing:"border-box",resize:"vertical"}}/>
+              <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
+                <span style={{fontSize:10,background:mentions.toLowerCase().includes("love")||mentions.toLowerCase().includes("great")?"#3d9e7522":"#1c202855",color:mentions.toLowerCase().includes("love")||mentions.toLowerCase().includes("great")?C.sage:C.muted,padding:"4px 10px",borderRadius:12}}>
+                  Positive mentions: {mentions.split(" ").filter(w=>["love","great","amazing","best","excellent","perfect"].includes(w.toLowerCase())).length}
+                </span>
+                <span style={{fontSize:10,background:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?"#c95c5422":"#1c202855",color:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?C.rose:C.muted,padding:"4px 10px",borderRadius:12}}>
+                  Negative mentions: {mentions.split(" ").filter(w=>["issue","problem","bad","awful","hate","disappointed"].includes(w.toLowerCase())).length}
+                </span>
               </div>
             </div>
           </div>
