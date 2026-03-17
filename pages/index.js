@@ -433,12 +433,12 @@ export default function Dashboard() {
   },[cid,csec]);
 
   // Reputation state
-  const [gmbRating, setGmbRating] = useState(4.5);
-  const [gmbCount, setGmbCount] = useState(42);
-  const [airbnbRating, setAirbnbRating] = useState(4.8);
-  const [airbnbCount, setAirbnbCount] = useState(156);
-  const [trustpilotRating, setTrustpilotRating] = useState(4.2);
-  const [trustpilotCount, setTrustpilotCount] = useState(28);
+  const [gmbRating, setGmbRating] = useState(4.4);
+  const [gmbCount, setGmbCount] = useState(72);
+  const [airbnbRating, setAirbnbRating] = useState(3.55);
+  const [airbnbCount, setAirbnbCount] = useState(11);
+  const [trustpilotRating, setTrustpilotRating] = useState(3.1);
+  const [trustpilotCount, setTrustpilotCount] = useState(4);
   const [mentions, setMentions] = useState("");
 
   const reputationScore = Math.round(((gmbRating + airbnbRating + trustpilotRating) / 3 / 5) * 100);
@@ -892,6 +892,110 @@ export default function Dashboard() {
                 <span style={{fontSize:10,background:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?"#c95c5422":"#1c202855",color:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?C.rose:C.muted,padding:"4px 10px",borderRadius:12}}>
                   Negative mentions: {mentions.split(" ").filter(w=>["issue","problem","bad","awful","hate","disappointed"].includes(w.toLowerCase())).length}
                 </span>
+              </div>
+            </div>
+
+            {/* ── EXPERT REPUTATION RECOMMENDATIONS ── */}
+            <div style={{marginTop:18}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14}}>Expert Recommendations</p>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",gap:14}}>
+
+                {/* Trustpilot - URGENT */}
+                <div style={{background:C.card,border:`1px solid ${C.rose}55`,borderRadius:12,padding:18,borderTop:`3px solid ${C.rose}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Trustpilot</span>
+                    <span style={{fontSize:10,fontWeight:700,color:C.rose,background:C.rose+"22",padding:"3px 10px",borderRadius:12}}>URGENT</span>
+                  </div>
+                  <p style={{fontSize:28,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace",marginBottom:4}}>{trustpilotRating.toFixed(1)}<span style={{fontSize:14,color:C.muted}}>/5</span></p>
+                  <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{trustpilotCount} reviews — critically low volume</p>
+                  <div style={{background:C.bg,borderRadius:8,padding:12}}>
+                    <p style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Action Plan:</p>
+                    <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
+                      <p>1. <strong style={{color:C.text}}>Claim & optimise</strong> your Trustpilot business page immediately</p>
+                      <p>2. <strong style={{color:C.text}}>Automated email sequence</strong> — send review request 48hrs after move-in via GHL</p>
+                      <p>3. <strong style={{color:C.text}}>QR code cards</strong> in rooms linking directly to Trustpilot review page</p>
+                      <p>4. <strong style={{color:C.text}}>Respond to every review</strong> within 24hrs — shows engagement</p>
+                      <p>5. Target: <strong style={{color:C.sage}}>20+ reviews within 60 days</strong> to establish credibility</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Airbnb - HIGH */}
+                <div style={{background:C.card,border:`1px solid ${C.gold}55`,borderRadius:12,padding:18,borderTop:`3px solid ${C.gold}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Airbnb</span>
+                    <span style={{fontSize:10,fontWeight:700,color:C.gold,background:C.gold+"22",padding:"3px 10px",borderRadius:12}}>HIGH</span>
+                  </div>
+                  <p style={{fontSize:28,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginBottom:4}}>{airbnbRating.toFixed(2)}<span style={{fontSize:14,color:C.muted}}>/5</span></p>
+                  <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{airbnbCount} reviews — below Superhost threshold (4.8)</p>
+                  <div style={{background:C.bg,borderRadius:8,padding:12}}>
+                    <p style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Action Plan:</p>
+                    <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
+                      <p>1. <strong style={{color:C.text}}>Audit negative reviews</strong> — identify recurring complaints (cleanliness, communication, facilities)</p>
+                      <p>2. <strong style={{color:C.text}}>Pre-arrival message template</strong> with check-in guide, WiFi, house rules</p>
+                      <p>3. <strong style={{color:C.text}}>Mid-stay check-in</strong> message at Day 2 asking if everything is OK</p>
+                      <p>4. <strong style={{color:C.text}}>Post-stay thank you</strong> with subtle review prompt</p>
+                      <p>5. Target: <strong style={{color:C.sage}}>4.5+ rating</strong> within 90 days, <strong style={{color:C.sage}}>4.8+</strong> within 6 months</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Google - GOOD */}
+                <div style={{background:C.card,border:`1px solid ${C.sage}55`,borderRadius:12,padding:18,borderTop:`3px solid ${C.sage}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Google My Business</span>
+                    <span style={{fontSize:10,fontWeight:700,color:C.sage,background:C.sage+"22",padding:"3px 10px",borderRadius:12}}>GOOD</span>
+                  </div>
+                  <p style={{fontSize:28,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace",marginBottom:4}}>{gmbRating.toFixed(1)}<span style={{fontSize:14,color:C.muted}}>/5</span></p>
+                  <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{gmbCount} reviews — solid base, keep growing</p>
+                  <div style={{background:C.bg,borderRadius:8,padding:12}}>
+                    <p style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Action Plan:</p>
+                    <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
+                      <p>1. <strong style={{color:C.text}}>Weekly Google Posts</strong> — events, community updates, room features</p>
+                      <p>2. <strong style={{color:C.text}}>Photo uploads</strong> — add 5+ high-quality photos monthly (rooms, communal spaces, events)</p>
+                      <p>3. <strong style={{color:C.text}}>Review response SLA</strong> — reply to all reviews within 24hrs with personalised messages</p>
+                      <p>4. <strong style={{color:C.text}}>Q&A section</strong> — pre-populate with common questions about co-living</p>
+                      <p>5. Target: <strong style={{color:C.sage}}>100+ reviews</strong> and <strong style={{color:C.sage}}>4.5+ rating</strong> by end of Q2</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Overall Strategy */}
+                <div style={{background:C.card,border:`1px solid ${C.purple}55`,borderRadius:12,padding:18,borderTop:`3px solid ${C.purple}`,gridColumn:"1 / -1"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Overall Reputation Strategy</span>
+                    <span style={{fontSize:10,fontWeight:700,color:C.purple,background:C.purple+"22",padding:"3px 10px",borderRadius:12}}>ROADMAP</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))",gap:14}}>
+                    <div style={{background:C.bg,borderRadius:8,padding:14}}>
+                      <p style={{fontSize:12,fontWeight:600,color:C.gold,marginBottom:6}}>Month 1 — Foundation</p>
+                      <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
+                        <p>• Claim all review platforms</p>
+                        <p>• Set up automated review request flows in GHL</p>
+                        <p>• Create review response templates</p>
+                        <p>• Brief all staff on review importance</p>
+                      </div>
+                    </div>
+                    <div style={{background:C.bg,borderRadius:8,padding:14}}>
+                      <p style={{fontSize:12,fontWeight:600,color:C.sage,marginBottom:6}}>Month 2-3 — Growth</p>
+                      <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
+                        <p>• Launch "Share your experience" campaign</p>
+                        <p>• Incentivise reviews (community events raffle)</p>
+                        <p>• Address all negative review themes</p>
+                        <p>• Partner with local influencers for content</p>
+                      </div>
+                    </div>
+                    <div style={{background:C.bg,borderRadius:8,padding:14}}>
+                      <p style={{fontSize:12,fontWeight:600,color:C.purple,marginBottom:6}}>Month 4-6 — Scale</p>
+                      <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
+                        <p>• Target 150+ total reviews across platforms</p>
+                        <p>• Aim for composite score of 80+</p>
+                        <p>• Leverage reviews in Meta/Google ad copy</p>
+                        <p>• Create video testimonials from residents</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
