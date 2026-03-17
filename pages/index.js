@@ -355,26 +355,32 @@ export default function Dashboard() {
       let allFinancials = [];
       try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { console.log("financials error:", e.message); }
 
-      // Count CHECKED_IN guests (current occupancy)
+      // Count CHECKED_IN guests — use unique roomStayIds to match RH "In House Guests"
+      // (guestStays has one record per person; shared rooms have 2+ records per roomStayId)
       const checkedInGuests = allGuestStays.filter(g => {
         const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
         return status === "CHECKED_IN";
       });
-      const inHouseCount = checkedInGuests.length;
+      const uniqueCheckedInRooms = new Set(checkedInGuests.map(g => g.roomStayId));
+      const inHouseCount = uniqueCheckedInRooms.size;
 
-      // Count check-ins in last 7 days (dateFrom = contract/stay start date)
-      const checkInsWeek = allGuestStays.filter(g => {
-        if (g.status !== "CHECKED_IN") return false;
+      // Count check-ins in last 7 days — unique roomStayIds only
+      const checkInRooms7d = new Set();
+      allGuestStays.forEach(g => {
+        if (g.status !== "CHECKED_IN") return;
         const d = (g.dateFrom ?? "").slice(0,10);
-        return d >= wkStart && d <= today;
-      }).length;
+        if (d >= wkStart && d <= today) checkInRooms7d.add(g.roomStayId);
+      });
+      const checkInsWeek = checkInRooms7d.size;
 
-      // Count check-outs in last 7 days (dateTo = contract/stay end date)
-      const checkOutsWeek = allGuestStays.filter(g => {
-        if (g.status !== "CHECKED_OUT") return false;
+      // Count check-outs in last 7 days — unique roomStayIds only
+      const checkOutRooms7d = new Set();
+      allGuestStays.forEach(g => {
+        if (g.status !== "CHECKED_OUT") return;
         const d = (g.dateTo ?? "").slice(0,10);
-        return d >= wkStart && d <= today;
-      }).length;
+        if (d >= wkStart && d <= today) checkOutRooms7d.add(g.roomStayId);
+      });
+      const checkOutsWeek = checkOutRooms7d.size;
 
       // Revenue calculations
       const sumBookingRevenue = (bookings, dateFrom, dateTo) => {
@@ -427,21 +433,13 @@ export default function Dashboard() {
   },[cid,csec]);
 
   // Reputation state
-  const [gmbRating, setGmbRating] = useState(4.4);
-  const [gmbCount, setGmbCount] = useState(72);
-  const [airbnbRating, setAirbnbRating] = useState(3.55);
-  const [airbnbCount, setAirbnbCount] = useState(11);
-  const [trustpilotRating, setTrustpilotRating] = useState(3.1);
-  const [trustpilotCount, setTrustpilotCount] = useState(4);
+  const [gmbRating, setGmbRating] = useState(4.5);
+  const [gmbCount, setGmbCount] = useState(42);
+  const [airbnbRating, setAirbnbRating] = useState(4.8);
+  const [airbnbCount, setAirbnbCount] = useState(156);
+  const [trustpilotRating, setTrustpilotRating] = useState(4.2);
+  const [trustpilotCount, setTrustpilotCount] = useState(28);
   const [mentions, setMentions] = useState("");
-
-  // Manual check-in/out adjustments (to correct RH renewal check-out issue)
-  const [manualCheckIns, setManualCheckIns] = useState(0);
-  const [manualCheckOuts, setManualCheckOuts] = useState(0);
-
-  // Blocked / unavailable rooms
-  const [blockedRooms, setBlockedRooms] = useState(24);
-  const availableRooms = BEDS - blockedRooms;
 
   const reputationScore = Math.round(((gmbRating + airbnbRating + trustpilotRating) / 3 / 5) * 100);
   const reputationColor = reputationScore >= 80 ? C.sage : reputationScore >= 60 ? C.gold : C.rose;
@@ -759,36 +757,12 @@ export default function Dashboard() {
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
                 {pmsConn&&pmsData?(
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"Checked in (PMS)",value:pmsData.occupied,color:C.gold},{label:"Check-ins 7d (PMS)",value:pmsData.checkInsWeek??0,color:C.sage},{label:"Check-outs 7d (PMS)",value:pmsData.checkOutsWeek??0,color:C.rose},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
+                    {[{label:"Checked in",value:pmsData.occupied,color:C.gold},{label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},{label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
                       <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
                         <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
                         <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{typeof x.value === 'number' ? x.value : x.value}</span>
                       </div>
                     ))}
-                    <div style={{borderTop:`1px solid ${C.gold}44`,paddingTop:10,marginTop:4}}>
-                      <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Manual Adjustments</p>
-                      <p style={{fontSize:10,color:C.muted,marginBottom:8}}>RH marks renewals as check-outs — use these to correct the live data</p>
-                      <div style={{display:"flex",gap:8,marginBottom:8}}>
-                        <div style={{flex:1}}>
-                          <label style={{display:"block",fontSize:10,color:C.muted,marginBottom:4}}>Check-ins adj (+/-)</label>
-                          <input type="number" value={manualCheckIns} onChange={e=>setManualCheckIns(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"6px 8px",fontSize:12,boxSizing:"border-box"}}/>
-                        </div>
-                        <div style={{flex:1}}>
-                          <label style={{display:"block",fontSize:10,color:C.muted,marginBottom:4}}>Check-outs adj (+/-)</label>
-                          <input type="number" value={manualCheckOuts} onChange={e=>setManualCheckOuts(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"6px 8px",fontSize:12,boxSizing:"border-box"}}/>
-                        </div>
-                      </div>
-                      <div style={{background:C.bg,borderRadius:8,padding:"8px 12px"}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                          <span style={{fontSize:12,color:C.muted}}>Adjusted check-ins (7d)</span>
-                          <span style={{fontSize:13,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{(pmsData.checkInsWeek??0)+manualCheckIns}</span>
-                        </div>
-                        <div style={{display:"flex",justifyContent:"space-between"}}>
-                          <span style={{fontSize:12,color:C.muted}}>Adjusted check-outs (7d)</span>
-                          <span style={{fontSize:13,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{(pmsData.checkOutsWeek??0)+manualCheckOuts}</span>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 ):(
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -804,38 +778,6 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
-
-            {/* Blocked / Unavailable Rooms */}
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginBottom:16}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Room Availability Settings</p>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:12,marginBottom:14}}>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Total beds</p>
-                  <p style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{BEDS}</p>
-                </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.rose}44`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Blocked / unavailable</p>
-                  <input type="number" min={0} max={BEDS} value={blockedRooms} onChange={e=>setBlockedRooms(Math.max(0,Math.min(BEDS,+e.target.value)))} style={{width:"100%",background:"transparent",border:"none",color:C.rose,fontSize:20,fontWeight:700,fontFamily:"DM Mono,monospace",padding:0,outline:"none",boxSizing:"border-box"}}/>
-                </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.sage}44`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Available rooms</p>
-                  <p style={{fontSize:20,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{availableRooms}</p>
-                </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.gold}44`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Occupancy of available</p>
-                  <p style={{fontSize:20,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{availableRooms>0?Math.round(occupied/availableRooms*100):0}%</p>
-                </div>
-              </div>
-              <div style={{height:8,background:C.border,borderRadius:4,position:"relative",overflow:"hidden",marginBottom:6}}>
-                <div style={{height:8,background:C.rose,borderRadius:"4px 0 0 4px",width:`${Math.round(blockedRooms/BEDS*100)}%`,position:"absolute",right:0,opacity:0.5}}/>
-                <div style={{height:8,background:C.sage,borderRadius:4,width:`${Math.round(occupied/BEDS*100)}%`,transition:"width 0.4s"}}/>
-              </div>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
-                <span>{occupied} occupied</span>
-                <span>{blockedRooms} blocked</span>
-                <span>{Math.max(0,availableRooms-occupied)} vacant</span>
               </div>
             </div>
 
@@ -867,20 +809,14 @@ export default function Dashboard() {
                   const july1 = new Date("2026-07-01");
                   const daysLeft = Math.ceil((july1 - today) / (1000*60*60*24));
                   const weeksLeft = Math.ceil(daysLeft / 7);
-                  const effectiveTarget = Math.min(TARGET_ROOMS, availableRooms);
-                  const roomsNeeded = Math.max(0, effectiveTarget - occupied);
+                  const roomsNeeded = Math.max(0, TARGET_ROOMS - occupied);
                   const bookingsPerWeek = weeksLeft > 0 ? Math.ceil(roomsNeeded / weeksLeft) : 0;
-                  const netCheckIns7d = pmsConn && pmsData ? ((pmsData.checkInsWeek??0)+manualCheckIns) - ((pmsData.checkOutsWeek??0)+manualCheckOuts) : mBook - mChurn;
 
                   return [
                     {label:"Days until July 1st",value:daysLeft,color:C.muted},
                     {label:"Weeks remaining",value:weeksLeft,color:C.muted},
-                    {label:"Available rooms",value:availableRooms,color:C.sage},
-                    {label:"Blocked rooms",value:blockedRooms,color:C.rose},
-                    {label:"Effective target (90% avail.)",value:effectiveTarget,color:C.gold},
                     {label:"Rooms still needed",value:roomsNeeded,color:roomsNeeded===0?C.sage:C.rose},
-                    {label:"Net bookings this week",value:netCheckIns7d,color:netCheckIns7d>=0?C.sage:C.rose},
-                    {label:"Net bookings/week needed",value:bookingsPerWeek,color:C.gold},
+                    {label:"Bookings per week needed",value:bookingsPerWeek,color:C.gold},
                   ].map((s,i)=>(
                     <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
                       <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
@@ -956,110 +892,6 @@ export default function Dashboard() {
                 <span style={{fontSize:10,background:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?"#c95c5422":"#1c202855",color:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?C.rose:C.muted,padding:"4px 10px",borderRadius:12}}>
                   Negative mentions: {mentions.split(" ").filter(w=>["issue","problem","bad","awful","hate","disappointed"].includes(w.toLowerCase())).length}
                 </span>
-              </div>
-            </div>
-
-            {/* ── EXPERT REPUTATION RECOMMENDATIONS ── */}
-            <div style={{marginTop:18}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14}}>Expert Recommendations</p>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",gap:14}}>
-
-                {/* Trustpilot - URGENT */}
-                <div style={{background:C.card,border:`1px solid ${C.rose}55`,borderRadius:12,padding:18,borderTop:`3px solid ${C.rose}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Trustpilot</span>
-                    <span style={{fontSize:10,fontWeight:700,color:C.rose,background:C.rose+"22",padding:"3px 10px",borderRadius:12}}>URGENT</span>
-                  </div>
-                  <p style={{fontSize:28,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace",marginBottom:4}}>{trustpilotRating.toFixed(1)}<span style={{fontSize:14,color:C.muted}}>/5</span></p>
-                  <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{trustpilotCount} reviews — critically low volume</p>
-                  <div style={{background:C.bg,borderRadius:8,padding:12}}>
-                    <p style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Action Plan:</p>
-                    <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
-                      <p>1. <strong style={{color:C.text}}>Claim & optimise</strong> your Trustpilot business page immediately</p>
-                      <p>2. <strong style={{color:C.text}}>Automated email sequence</strong> — send review request 48hrs after move-in via GHL</p>
-                      <p>3. <strong style={{color:C.text}}>QR code cards</strong> in rooms linking directly to Trustpilot review page</p>
-                      <p>4. <strong style={{color:C.text}}>Respond to every review</strong> within 24hrs — shows engagement</p>
-                      <p>5. Target: <strong style={{color:C.sage}}>20+ reviews within 60 days</strong> to establish credibility</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Airbnb - HIGH */}
-                <div style={{background:C.card,border:`1px solid ${C.gold}55`,borderRadius:12,padding:18,borderTop:`3px solid ${C.gold}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Airbnb</span>
-                    <span style={{fontSize:10,fontWeight:700,color:C.gold,background:C.gold+"22",padding:"3px 10px",borderRadius:12}}>HIGH</span>
-                  </div>
-                  <p style={{fontSize:28,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginBottom:4}}>{airbnbRating.toFixed(2)}<span style={{fontSize:14,color:C.muted}}>/5</span></p>
-                  <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{airbnbCount} reviews — below Superhost threshold (4.8)</p>
-                  <div style={{background:C.bg,borderRadius:8,padding:12}}>
-                    <p style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Action Plan:</p>
-                    <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
-                      <p>1. <strong style={{color:C.text}}>Audit negative reviews</strong> — identify recurring complaints (cleanliness, communication, facilities)</p>
-                      <p>2. <strong style={{color:C.text}}>Pre-arrival message template</strong> with check-in guide, WiFi, house rules</p>
-                      <p>3. <strong style={{color:C.text}}>Mid-stay check-in</strong> message at Day 2 asking if everything is OK</p>
-                      <p>4. <strong style={{color:C.text}}>Post-stay thank you</strong> with subtle review prompt</p>
-                      <p>5. Target: <strong style={{color:C.sage}}>4.5+ rating</strong> within 90 days, <strong style={{color:C.sage}}>4.8+</strong> within 6 months</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Google - GOOD */}
-                <div style={{background:C.card,border:`1px solid ${C.sage}55`,borderRadius:12,padding:18,borderTop:`3px solid ${C.sage}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Google My Business</span>
-                    <span style={{fontSize:10,fontWeight:700,color:C.sage,background:C.sage+"22",padding:"3px 10px",borderRadius:12}}>GOOD</span>
-                  </div>
-                  <p style={{fontSize:28,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace",marginBottom:4}}>{gmbRating.toFixed(1)}<span style={{fontSize:14,color:C.muted}}>/5</span></p>
-                  <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{gmbCount} reviews — solid base, keep growing</p>
-                  <div style={{background:C.bg,borderRadius:8,padding:12}}>
-                    <p style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Action Plan:</p>
-                    <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
-                      <p>1. <strong style={{color:C.text}}>Weekly Google Posts</strong> — events, community updates, room features</p>
-                      <p>2. <strong style={{color:C.text}}>Photo uploads</strong> — add 5+ high-quality photos monthly (rooms, communal spaces, events)</p>
-                      <p>3. <strong style={{color:C.text}}>Review response SLA</strong> — reply to all reviews within 24hrs with personalised messages</p>
-                      <p>4. <strong style={{color:C.text}}>Q&A section</strong> — pre-populate with common questions about co-living</p>
-                      <p>5. Target: <strong style={{color:C.sage}}>100+ reviews</strong> and <strong style={{color:C.sage}}>4.5+ rating</strong> by end of Q2</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Overall Strategy */}
-                <div style={{background:C.card,border:`1px solid ${C.purple}55`,borderRadius:12,padding:18,borderTop:`3px solid ${C.purple}`,gridColumn:"1 / -1"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Overall Reputation Strategy</span>
-                    <span style={{fontSize:10,fontWeight:700,color:C.purple,background:C.purple+"22",padding:"3px 10px",borderRadius:12}}>ROADMAP</span>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))",gap:14}}>
-                    <div style={{background:C.bg,borderRadius:8,padding:14}}>
-                      <p style={{fontSize:12,fontWeight:600,color:C.gold,marginBottom:6}}>Month 1 — Foundation</p>
-                      <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
-                        <p>• Claim all review platforms</p>
-                        <p>• Set up automated review request flows in GHL</p>
-                        <p>• Create review response templates</p>
-                        <p>• Brief all staff on review importance</p>
-                      </div>
-                    </div>
-                    <div style={{background:C.bg,borderRadius:8,padding:14}}>
-                      <p style={{fontSize:12,fontWeight:600,color:C.sage,marginBottom:6}}>Month 2-3 — Growth</p>
-                      <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
-                        <p>• Launch "Share your experience" campaign</p>
-                        <p>• Incentivise reviews (community events raffle)</p>
-                        <p>• Address all negative review themes</p>
-                        <p>• Partner with local influencers for content</p>
-                      </div>
-                    </div>
-                    <div style={{background:C.bg,borderRadius:8,padding:14}}>
-                      <p style={{fontSize:12,fontWeight:600,color:C.purple,marginBottom:6}}>Month 4-6 — Scale</p>
-                      <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
-                        <p>• Target 150+ total reviews across platforms</p>
-                        <p>• Aim for composite score of 80+</p>
-                        <p>• Leverage reviews in Meta/Google ad copy</p>
-                        <p>• Create video testimonials from residents</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
