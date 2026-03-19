@@ -58,10 +58,40 @@ const GOOGLE_CAMPAIGNS = [
   { name:"Southall - Local Pmax",         spend: 906, convs:42, avgCPC:0.62, type:"Pmax"  },
   { name:"&Soul - Southall Video",        spend:  98, convs: 3, avgCPC:0.88, type:"Video" },
 ];
-// ─── SHOREDITCH DATA ──────────────────────────────────────────────────────────
-const SD_GOOGLE_CAMPAIGNS = [
-  { name:"Shoreditch Apartments - Local Pmax", spend:948.76, convs:220, avgCPC:0.43, type:"Pmax" },
-  { name:"&Soul - Shoreditch Apartments", spend:620.45, convs:5, avgCPC:1.24, type:"Search" },
+
+// ─── SHOREDITCH DATA ──────────────────────────────────────────────────────
+
+const SD_GOOGLE_DAILY = [
+  {date:"2026-02-17",spend:113.34,convs:19},
+  {date:"2026-02-18",spend:121.55,convs:24},
+  {date:"2026-02-19",spend:109.87,convs:21},
+  {date:"2026-02-20",spend:128.02,convs:27},
+  {date:"2026-02-21",spend:154.30,convs:16},
+  {date:"2026-02-22",spend:106.00,convs:21},
+  {date:"2026-02-23",spend:29.12,convs:25},
+  {date:"2026-02-24",spend:52.15,convs:32},
+  {date:"2026-02-25",spend:56.84,convs:27},
+  {date:"2026-02-26",spend:36.19,convs:9},
+  {date:"2026-02-27",spend:0,convs:0},
+  {date:"2026-02-28",spend:21.11,convs:0},
+  {date:"2026-03-01",spend:28.16,convs:1},
+  {date:"2026-03-02",spend:27.25,convs:1},
+  {date:"2026-03-03",spend:35.78,convs:0},
+  {date:"2026-03-04",spend:41.04,convs:1},
+  {date:"2026-03-05",spend:40.79,convs:0},
+  {date:"2026-03-06",spend:40.93,convs:1},
+  {date:"2026-03-07",spend:41.72,convs:0},
+  {date:"2026-03-08",spend:25.88,convs:0},
+  {date:"2026-03-09",spend:63.21,convs:2},
+  {date:"2026-03-10",spend:43.60,convs:0},
+  {date:"2026-03-11",spend:35.18,convs:2},
+  {date:"2026-03-12",spend:47.70,convs:1},
+  {date:"2026-03-13",spend:39.90,convs:0},
+  {date:"2026-03-14",spend:41.43,convs:1},
+  {date:"2026-03-15",spend:40.40,convs:3},
+  {date:"2026-03-16",spend:27.37,convs:0},
+  {date:"2026-03-17",spend:46.87,convs:0},
+  {date:"2026-03-18",spend:50.00,convs:0},
 ];
 
 const SD_META = {
@@ -73,29 +103,28 @@ const SD_META = {
   linkClicks: 1217,
 };
 
-const SD_FLATS = [
-  { name:"Flat 1", rooms:[{id:"1.1",status:"OCCUPIED"},{id:"1.2",status:"VACANT"},{id:"1.3",status:"VACANT"},{id:"1.4",status:"OCCUPIED"},{id:"1.5",status:"VACANT"}]},
-  { name:"Flat 2", rooms:[{id:"2.1",status:"OCCUPIED"},{id:"2.2",status:"VACANT"},{id:"2.3",status:"VACANT"},{id:"2.4",status:"INCOMING"},{id:"2.5",status:"OCCUPIED"}]},
-  { name:"Flat 3", rooms:[{id:"3.1",status:"VACANT"},{id:"3.2",status:"VACANT"},{id:"3.3",status:"OCCUPIED"},{id:"3.4",status:"OCCUPIED"}]},
-  { name:"Flat 4", rooms:[{id:"4.1",status:"OCCUPIED"},{id:"4.2",status:"VACANT"},{id:"4.3",status:"VACANT"},{id:"4.4",status:"INCOMING"},{id:"4.5",status:"OCCUPIED"},{id:"4.6",status:"VACANT"}]},
-  { name:"Flat 5", rooms:[{id:"5.1",status:"OCCUPIED"},{id:"5.2",status:"OCCUPIED"},{id:"5.3",status:"OCCUPIED"},{id:"5.4",status:"OCCUPIED"}]},
-  { name:"Flat 6", rooms:[{id:"6.1",status:"OCCUPIED"},{id:"6.2",status:"OCCUPIED"},{id:"6.3",status:"OCCUPIED"},{id:"6.4",status:"VACANT"}]},
-  { name:"Flat 7", rooms:[{id:"7.1",status:"OCCUPIED"},{id:"7.2",status:"VACANT"},{id:"7.3",status:"VACANT"},{id:"7.4",status:"OCCUPIED"}]},
-  { name:"Flat 8", rooms:[{id:"8.1",status:"OCCUPIED"},{id:"8.2",status:"VACANT"},{id:"8.3",status:"VACANT"},{id:"8.4",status:"OCCUPIED"}]},
-  { name:"Flat 9", rooms:[{id:"9.1",status:"OCCUPIED"},{id:"9.2",status:"VACANT"},{id:"9.3",status:"OCCUPIED"},{id:"9.4",status:"OCCUPIED"}]},
-  { name:"Flat 10", rooms:[{id:"10.1",status:"OCCUPIED"},{id:"10.2",status:"VACANT"},{id:"10.3",status:"OCCUPIED"},{id:"10.4",status:"INCOMING"},{id:"10.5",status:"INCOMING"}]},
-  { name:"Flat 11", rooms:[{id:"11.1",status:"VACANT"},{id:"11.2",status:"VACANT"},{id:"11.3",status:"OCCUPIED"},{id:"11.4",status:"INCOMING"},{id:"11.5",status:"OCCUPIED"},{id:"11.6",status:"OCCUPIED"}]},
-  { name:"Flat 12", rooms:[{id:"12.1",status:"OCCUPIED"},{id:"12.2",status:"VACANT"},{id:"12.3",status:"VACANT"},{id:"12.4",status:"OCCUPIED"},{id:"12.5",status:"OCCUPIED"},{id:"12.6",status:"OCCUPIED"}]},
-  { name:"Flat 13", rooms:[{id:"13.1",status:"VACANT"},{id:"13.2",status:"OCCUPIED"},{id:"13.3",status:"VACANT"},{id:"13.4",status:"VACANT"}]},
-  { name:"Flat 14", rooms:[{id:"14.1",status:"VACANT"},{id:"14.2",status:"VACANT"},{id:"14.3",status:"OCCUPIED"},{id:"14.4",status:"OCCUPIED"}]},
-  { name:"Flat 15", rooms:[{id:"15.1",status:"VACANT"},{id:"15.2",status:"VACANT"},{id:"15.3",status:"VACANT"},{id:"15.4",status:"OCCUPIED"}]},
-  { name:"Flat 16", rooms:[{id:"16.1",status:"VACANT"},{id:"16.2",status:"OCCUPIED"},{id:"16.3",status:"OCCUPIED"},{id:"16.4",status:"VACANT"}]},
-];
 const SD_VILLAS = 16;
 const SD_BEDROOMS = 72;
-
 const SD_GHL_PIPELINE = "applied for villas";
 
+const SD_FLATS = [
+  {name:"Flat 1",rooms:[{id:"1.1",s:"OCCUPIED"},{id:"1.2",s:"VACANT"},{id:"1.3",s:"VACANT"},{id:"1.4",s:"OCCUPIED"},{id:"1.5",s:"VACANT"}]},
+  {name:"Flat 2",rooms:[{id:"2.1",s:"OCCUPIED"},{id:"2.2",s:"VACANT"},{id:"2.3",s:"VACANT"},{id:"2.4",s:"INCOMING"},{id:"2.5",s:"OCCUPIED"}]},
+  {name:"Flat 3",rooms:[{id:"3.1",s:"VACANT"},{id:"3.2",s:"VACANT"},{id:"3.3",s:"OCCUPIED"},{id:"3.4",s:"OCCUPIED"}]},
+  {name:"Flat 4",rooms:[{id:"4.1",s:"OCCUPIED"},{id:"4.2",s:"VACANT"},{id:"4.3",s:"VACANT"},{id:"4.4",s:"INCOMING"},{id:"4.5",s:"OCCUPIED"},{id:"4.6",s:"VACANT"}]},
+  {name:"Flat 5",rooms:[{id:"5.1",s:"OCCUPIED"},{id:"5.2",s:"OCCUPIED"},{id:"5.3",s:"OCCUPIED"},{id:"5.4",s:"OCCUPIED"}]},
+  {name:"Flat 6",rooms:[{id:"6.1",s:"OCCUPIED"},{id:"6.2",s:"OCCUPIED"},{id:"6.3",s:"OCCUPIED"},{id:"6.4",s:"VACANT"}]},
+  {name:"Flat 7",rooms:[{id:"7.1",s:"OCCUPIED"},{id:"7.2",s:"VACANT"},{id:"7.3",s:"VACANT"},{id:"7.4",s:"OCCUPIED"}]},
+  {name:"Flat 8",rooms:[{id:"8.1",s:"OCCUPIED"},{id:"8.2",s:"VACANT"},{id:"8.3",s:"VACANT"},{id:"8.4",s:"OCCUPIED"}]},
+  {name:"Flat 9",rooms:[{id:"9.1",s:"OCCUPIED"},{id:"9.2",s:"VACANT"},{id:"9.3",s:"OCCUPIED"},{id:"9.4",s:"OCCUPIED"}]},
+  {name:"Flat 10",rooms:[{id:"10.1",s:"OCCUPIED"},{id:"10.2",s:"VACANT"},{id:"10.3",s:"OCCUPIED"},{id:"10.4",s:"INCOMING"},{id:"10.5",s:"INCOMING"}]},
+  {name:"Flat 11",rooms:[{id:"11.1",s:"VACANT"},{id:"11.2",s:"VACANT"},{id:"11.3",s:"OCCUPIED"},{id:"11.4",s:"INCOMING"},{id:"11.5",s:"OCCUPIED"},{id:"11.6",s:"OCCUPIED"}]},
+  {name:"Flat 12",rooms:[{id:"12.1",s:"OCCUPIED"},{id:"12.2",s:"VACANT"},{id:"12.3",s:"VACANT"},{id:"12.4",s:"OCCUPIED"},{id:"12.5",s:"OCCUPIED"},{id:"12.6",s:"OCCUPIED"}]},
+  {name:"Flat 13",rooms:[{id:"13.1",s:"VACANT"},{id:"13.2",s:"OCCUPIED"},{id:"13.3",s:"VACANT"},{id:"13.4",s:"VACANT"}]},
+  {name:"Flat 14",rooms:[{id:"14.1",s:"VACANT"},{id:"14.2",s:"VACANT"},{id:"14.3",s:"OCCUPIED"},{id:"14.4",s:"OCCUPIED"}]},
+  {name:"Flat 15",rooms:[{id:"15.1",s:"VACANT"},{id:"15.2",s:"VACANT"},{id:"15.3",s:"VACANT"},{id:"15.4",s:"OCCUPIED"}]},
+  {name:"Flat 16",rooms:[{id:"16.1",s:"VACANT"},{id:"16.2",s:"OCCUPIED"},{id:"16.3",s:"OCCUPIED"},{id:"16.4",s:"VACANT"}]},
+];
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const BEDS = 300;
@@ -284,9 +313,9 @@ const dinp={background:C.card,border:`1px solid ${C.border}`,color:C.text,border
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const [tab, setTab] = useState("marketing");
   const [property, setProperty] = useState("southall");
   const [sdTab, setSdTab] = useState("marketing");
-  const [tab, setTab] = useState("marketing");
   const [preset, setPreset] = useState(30);
   const [from, setFrom] = useState("2026-02-11");
   const [to,   setTo]   = useState("2026-03-12");
@@ -474,71 +503,64 @@ export default function Dashboard() {
 
   // Reputation state
   const [gmbRating, setGmbRating] = useState(4.4);
-  const [gmbCount, setGmbCount] = useState(72);
+  const [gmbCount, setGmbCount] = useState(42);
   const [airbnbRating, setAirbnbRating] = useState(3.55);
-  const [airbnbCount, setAirbnbCount] = useState(11);
+  const [airbnbCount, setAirbnbCount] = useState(156);
   const [trustpilotRating, setTrustpilotRating] = useState(3.1);
   const [trustpilotCount, setTrustpilotCount] = useState(4);
   const [mentions, setMentions] = useState("");
 
-  // Shoreditch GHL
+  // Shoreditch GHL state
   const [sdGhlLoading, setSdGhlLoad] = useState(false);
-  const [sdGhlError,   setSdGhlErr]  = useState("");
-  const [sdGhlData,    setSdGhlData] = useState(null);
-  const [sdGhlConn,    setSdGhlConn] = useState(false);
+  const [sdGhlError, setSdGhlErr] = useState("");
+  const [sdGhlData, setSdGhlData] = useState(null);
+  const [sdGhlConn, setSdGhlConn] = useState(false);
 
+  // Shoreditch occupancy state (editable per flat)
+  const [sdFlats, setSdFlats] = useState(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));
+
+  // Shoreditch Google Ads filtered by date
+  const sdGoogleFiltered = useMemo(()=>SD_GOOGLE_DAILY.filter(r=>r.date>=from&&r.date<=to),[from,to]);
+  const sdGSpend = sdGoogleFiltered.reduce((s,r)=>s+r.spend,0);
+  const sdGConvs = sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
+  const sdGCostPerConv = sdGConvs > 0 ? sdGSpend/sdGConvs : 0;
+  const sdMetaCpl = SD_META.leads > 0 ? SD_META.spend/SD_META.leads : 0;
+
+  // Shoreditch occupancy calculations
+  const sdOccStats = useMemo(()=>{
+    let occ=0,inc=0,vac=0,total=0;
+    sdFlats.forEach(f=>f.rooms.forEach(r=>{total++;if(r.s==="OCCUPIED")occ++;else if(r.s==="INCOMING")inc++;else vac++;}));
+    return {occ,inc,vac,total,occPct:total>0?Math.round(occ/total*100):0,futPct:total>0?Math.round((occ+inc)/total*100):0};
+  },[sdFlats]);
+
+  // Toggle room status function
+  const sdToggleRoom = (flatIdx, roomIdx) => {
+    setSdFlats(prev => {
+      const next = prev.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
+      const statuses = ["OCCUPIED","VACANT","INCOMING"];
+      const cur = next[flatIdx].rooms[roomIdx].s;
+      const idx = statuses.indexOf(cur);
+      next[flatIdx].rooms[roomIdx].s = statuses[(idx+1)%3];
+      return next;
+    });
+  };
+
+  // Shoreditch GHL loader
   const runSDGHL = useCallback(async(f,t)=>{
     setSdGhlLoad(true); setSdGhlErr("");
     try {
-      const pRes = await ghlGet(`/opportunities/pipelines?locationId=${GHL_LOCATION}`);
+      const pRes = await ghlGet("/opportunities/pipelines?locationId=" + GHL_LOCATION);
       const pipelines = pRes?.pipelines ?? pRes?.data ?? [];
-      const pipeline = pipelines.find(p => p.name?.trim() === SD_GHL_PIPELINE)
-        ?? pipelines.find(p => p.name?.toLowerCase().includes("villas"));
-      if (!pipeline) throw new Error(
-        `Pipeline "${SD_GHL_PIPELINE}" not found. Available: ${pipelines.map(p=>p.name).join(", ")||"none"}`
-      );
-
+      const pipeline = pipelines.find(p => (p.name||"").toLowerCase().includes("villa"))
+        ?? pipelines.find(p => (p.name||"").toLowerCase().includes("applied"));
+      if (!pipeline) throw new Error("Pipeline not found. Available: " + pipelines.map(p=>p.name).join(", "));
+      const stages = pipeline.stages ?? [];
       const opps = await fetchAllOpps(pipeline.id, f, t);
-      setSdGhlData({
-        pipelineName: pipeline.name,
-        totalOpps: opps.length,
-        stages: pipeline.stages ?? [],
-      });
+      setSdGhlData({pipelineName:pipeline.name,stages:stages.map(s=>({id:s.id,name:s.name})),totalOpps:opps.length});
       setSdGhlConn(true);
-    }
-    catch(e) { setSdGhlErr(e.message); console.log("SD GHL Error:", e.message); }
+    } catch(e) { setSdGhlErr(e.message); }
     finally { setSdGhlLoad(false); }
   },[]);
-
-  useEffect(()=>{ if(property==="shoreditch") runSDGHL(from,to); },[property,from,to]);
-
-  // Shoreditch Occupancy
-  const [sdFlats, setSdFlats] = useState(SD_FLATS);
-
-  const sdOccupancySummary = useMemo(() => {
-    let totalOccupied = 0, totalIncoming = 0;
-    sdFlats.forEach(flat => {
-      flat.rooms.forEach(room => {
-        if(room.status === "OCCUPIED") totalOccupied++;
-        if(room.status === "INCOMING") totalIncoming++;
-      });
-    });
-    const totalBedrooms = SD_BEDROOMS;
-    const currentOcc = Math.round(totalOccupied / totalBedrooms * 100);
-    const futureOcc = Math.round((totalOccupied + totalIncoming) / totalBedrooms * 100);
-    return { totalOccupied, totalIncoming, currentOcc, futureOcc, totalBedrooms };
-  }, [sdFlats]);
-
-  const sdToggleRoomStatus = (flatIdx, roomIdx) => {
-    const newFlats = JSON.parse(JSON.stringify(sdFlats));
-    const statuses = ["OCCUPIED", "VACANT", "INCOMING"];
-    const current = newFlats[flatIdx].rooms[roomIdx].status;
-    const currentIdx = statuses.indexOf(current);
-    const nextIdx = (currentIdx + 1) % statuses.length;
-    newFlats[flatIdx].rooms[roomIdx].status = statuses[nextIdx];
-    setSdFlats(newFlats);
-  };
-
 
   const reputationScore = Math.round(((gmbRating + airbnbRating + trustpilotRating) / 3 / 5) * 100);
   const reputationColor = reputationScore >= 80 ? C.sage : reputationScore >= 60 ? C.gold : C.rose;
@@ -590,33 +612,29 @@ export default function Dashboard() {
           <span style={{marginLeft:"auto",fontSize:11,color:C.gold,fontFamily:"DM Mono,monospace"}}>{from} → {to}</span>
         </div>
 
-        {/* TABS */}
-        
         {/* PROPERTY SWITCHER */}
-        <div style={{padding:"10px 26px 0",display:"flex",gap:6,borderBottom:`1px solid ${C.border}`,flexWrap:"wrap",alignItems:"center"}}>
-          <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginRight:8}}>Property:</span>
-          <button onClick={()=>setProperty("southall")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,transition:"all 0.2s",background:property==="southall"?C.gold:"transparent",color:property==="southall"?"#000":C.muted,whiteSpace:"nowrap"}}>
-            Southall
-          </button>
-          <button onClick={()=>setProperty("shoreditch")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,transition:"all 0.2s",background:property==="shoreditch"?C.gold:"transparent",color:property==="shoreditch"?"#000":C.muted,whiteSpace:"nowrap"}}>
-            Shoreditch
-          </button>
+        <div style={{padding:"10px 26px 0",display:"flex",gap:8,borderBottom:`1px solid ${C.border}`,flexWrap:"wrap",marginBottom:"8px"}}>
+          <button onClick={()=>setProperty("southall")} style={{padding:"8px 12px",fontSize:"13px",border:"none",background:property==="southall"?"#1f2937":"transparent",color:property==="southall"?"white":"#666",cursor:"pointer",borderRadius:"4px",fontWeight:"500"}}>Southall</button>
+          <button onClick={()=>setProperty("shoreditch")} style={{padding:"8px 12px",fontSize:"13px",border:"none",background:property==="shoreditch"?"#1f2937":"transparent",color:property==="shoreditch"?"white":"#666",cursor:"pointer",borderRadius:"4px",fontWeight:"500"}}>Shoreditch</button>
         </div>
 
+        {/* SOUTHALL TABS */}
         {property==="southall"&&(
-        <div style={{padding:"10px 26px 0",display:"flex",gap:6,borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-          {tabBtn("marketing","Marketing")}
-          {tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}
-          {tabBtn("bookings","Occupancy")}
-          {tabBtn("reputation","Reputation")}
-        </div>
+          <div style={{padding:"0 26px",display:"flex",gap:6,borderBottom:`1px solid ${C.border}`,flexWrap:"wrap",marginBottom:"12px"}}>
+            {tabBtn("marketing","Marketing")}
+            {tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}
+            {tabBtn("bookings","Occupancy")}
+            {tabBtn("reputation","Reputation")}
+          </div>
         )}
+
+        {/* SHOREDITCH TABS */}
         {property==="shoreditch"&&(
-        <div style={{padding:"10px 26px 0",display:"flex",gap:6,borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-          {tabBtn("marketing","Marketing")}
-          {tabBtn("crm","CRM")}
-          {tabBtn("bookings","Occupancy")}
-        </div>
+          <div style={{padding:"0 26px",display:"flex",gap:6,borderBottom:`1px solid ${C.border}`,flexWrap:"wrap",marginBottom:"12px"}}>
+            <button onClick={()=>setSdTab("marketing")} style={{padding:"8px 12px",fontSize:"13px",border:"none",background:sdTab==="marketing"?"#1f2937":"#f3f4f6",color:sdTab==="marketing"?"white":"#333",borderRadius:"4px",cursor:"pointer"}}>Marketing</button>
+            <button onClick={()=>setSdTab("crm")} style={{padding:"8px 12px",fontSize:"13px",border:"none",background:sdTab==="crm"?"#1f2937":"#f3f4f6",color:sdTab==="crm"?"white":"#333",borderRadius:"4px",cursor:"pointer"}}>CRM</button>
+            <button onClick={()=>setSdTab("occupancy")} style={{padding:"8px 12px",fontSize:"13px",border:"none",background:sdTab==="occupancy"?"#1f2937":"#f3f4f6",color:sdTab==="occupancy"?"white":"#333",borderRadius:"4px",cursor:"pointer"}}>Occupancy</button>
+          </div>
         )}
 
         {/* ════ MARKETING ════ */}
@@ -702,89 +720,6 @@ export default function Dashboard() {
                   <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.spend,0)/gConvs,"£",2)}/submit</td>
                 </tr></tfoot>
               </table>
-            </div>
-          </div>
-        )}
-
-        
-        {/* ════ SHOREDITCH MARKETING ════ */}
-        {property==="shoreditch"&&sdTab==="marketing"&&(
-          <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}</p>
-            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
-
-            <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
-              <KPI label="Total Spend"         value={fmt(SD_META.spend+SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.spend,0))}  sub="Meta + Google"         accent={C.gold}/>
-              <KPI label="Google Spend"        value={fmt(SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.spend,0))}    sub="Pmax + Search" accent={C.blue}/>
-              <KPI label="Google Conversions"  value={SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0)} sub="Total conversions" accent={C.blue}/>
-              <KPI label="Google Cost/Conv"    value={fmt(SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.spend,0)/SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0),"£",2)} sub="Per conversion" accent={C.blue}/>
-              <KPI label="Meta Spend"          value={fmt(SD_META.spend)}      sub={`${SD_META.leads} leads`} accent={C.gold}/>
-              <KPI label="Meta CPL"            value={fmt(SD_META.spend/SD_META.leads,"£",2)} sub="Per lead" accent={C.sage}/>
-            </div>
-
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:16,overflowX:"auto"}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Shoreditch Campaigns</p>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:500}}>
-                <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
-                  {["Campaign","Type","Spend","Conversions","Avg CPC","Cost/Conv"].map(h=>(
-                    <th key={h} style={{padding:"5px 10px",textAlign:"left",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
-                  ))}
-                </tr></thead>
-                <tbody>
-                  {[...SD_GOOGLE_CAMPAIGNS].sort((a,b)=>b.spend-a.spend).map((c,i)=>{
-                    const max=Math.max(...SD_GOOGLE_CAMPAIGNS.map(x=>x.spend));
-                    const cpc2=c.convs>0?c.spend/c.convs:null;
-                    const tc={Search:C.blue,GMB:C.sage,Pmax:C.gold,Video:C.rose};
-                    return <tr key={i} style={{borderBottom:`1px solid ${C.border}`}} onMouseEnter={e=>e.currentTarget.style.background="#ffffff07"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <td style={{padding:"9px 10px"}}>
-                        <p style={{color:C.text,marginBottom:3}}>{c.name}</p>
-                        <div style={{height:3,background:C.border,borderRadius:2,maxWidth:160}}><div style={{height:3,background:C.blue,borderRadius:2,width:`${Math.round(c.spend/max*100)}%`,opacity:0.55}}/></div>
-                      </td>
-                      <td style={{padding:"9px 10px"}}><span style={{color:tc[c.type],fontSize:11,background:tc[c.type]+"22",padding:"2px 8px",borderRadius:20}}>{c.type}</span></td>
-                      <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(c.spend)}</td>
-                      <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{c.convs}</td>
-                      <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(c.avgCPC,"£",2)}</td>
-                      <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace"}}>{cpc2!=null?<span style={{color:cplColor(cpc2)}}>{fmt(cpc2,"£",2)}</span>:<span style={{color:C.muted}}>—</span>}</td>
-                    </tr>;
-                  })}
-                </tbody>
-                <tfoot><tr style={{borderTop:`1px solid ${C.border}`}}>
-                  <td colSpan={2} style={{padding:"9px 10px",color:C.muted,fontSize:11}}>Total</td>
-                  <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{fmt(SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.spend,0))}</td>
-                  <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0)}</td>
-                  <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.spend,0)/SD_GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0),"£",2)}/conv</td>
-                </tr></tfoot>
-              </table>
-            </div>
-
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Meta · {SD_META.campaign}</p>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:12}}>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Campaign Spend</p>
-                  <p style={{fontSize:16,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(SD_META.spend)}</p>
-                </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Leads (period)</p>
-                  <p style={{fontSize:16,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{SD_META.leads}</p>
-                </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Cost Per Lead</p>
-                  <p style={{fontSize:16,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(SD_META.spend/SD_META.leads,"£",2)}</p>
-                </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Total Leads</p>
-                  <p style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{SD_META.totalLeads}</p>
-                </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Landing Page Views</p>
-                  <p style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{SD_META.landingPageViews}</p>
-                </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Link Clicks</p>
-                  <p style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{SD_META.linkClicks}</p>
-                </div>
-              </div>
             </div>
           </div>
         )}
@@ -896,68 +831,6 @@ export default function Dashboard() {
                   )}
                 </div>
               </>
-            )}
-          </div>
-        )}
-
-        
-        {/* ════ SHOREDITCH CRM ════ */}
-        {property==="shoreditch"&&sdTab==="crm"&&(
-          <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Go High Level · {SD_GHL_PIPELINE} · {rangeLabel}</p>
-            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>CRM Pipeline</h2>
-
-            {!sdGhlConn&&!sdGhlLoading&&(
-              <div style={{background:C.card,border:`1px solid ${C.purple}44`,borderRadius:14,padding:32,textAlign:"center"}}>
-                <p style={{fontSize:30,marginBottom:10}}>🔌</p>
-                <p style={{color:C.text,fontWeight:600,fontSize:15,marginBottom:6}}>Shoreditch Villas Pipeline</p>
-                <p style={{color:C.muted,fontSize:13,marginBottom:20}}>Connect to view applications and track pipeline progress.</p>
-                <button onClick={()=>runSDGHL(from,to)} style={{background:C.purple,color:"#fff",border:"none",borderRadius:8,padding:"11px 32px",fontWeight:700,fontSize:14,cursor:"pointer"}}>
-                  Connect to Go High Level
-                </button>
-                {sdGhlError&&(
-                  <div style={{marginTop:16,background:C.rose+"18",border:`1px solid ${C.rose}44`,borderRadius:10,padding:"12px 16px",textAlign:"left"}}>
-                    <p style={{color:C.rose,fontSize:12,fontWeight:600,marginBottom:4}}>Connection failed</p>
-                    <p style={{color:C.rose,fontSize:11,fontFamily:"DM Mono,monospace",lineHeight:1.6,wordBreak:"break-word"}}>{sdGhlError}</p>
-                    <button onClick={()=>runSDGHL(from,to)} style={{marginTop:10,background:"transparent",border:`1px solid ${C.rose}`,color:C.rose,borderRadius:6,padding:"5px 14px",fontSize:11,cursor:"pointer",fontWeight:600}}>↻ Try again</button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {sdGhlLoading&&(
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:40,textAlign:"center"}}>
-                <div style={{display:"inline-block",width:28,height:28,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.purple}`,borderRadius:"50%",animation:"spin 0.8s linear infinite",marginBottom:14}}/>
-                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-                <p style={{color:C.muted,fontSize:14}}>Connecting to Go High Level…</p>
-              </div>
-            )}
-
-            {sdGhlConn&&sdGhlData&&!sdGhlLoading&&(
-              <div>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:8}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{width:8,height:8,borderRadius:"50%",background:C.purple,display:"inline-block"}}/>
-                    <span style={{fontSize:12,color:C.purple,fontWeight:600}}>{sdGhlData.pipelineName}</span>
-                    <span style={{fontSize:11,color:C.muted}}>{sdGhlData.totalOpps} opportunities</span>
-                  </div>
-                  <div style={{display:"flex",gap:8}}>
-                    <button onClick={()=>runSDGHL(from,to)} style={{background:"transparent",border:`1px solid ${C.purple}`,color:C.purple,borderRadius:6,padding:"4px 12px",fontSize:11,cursor:"pointer"}}>↻ Refresh</button>
-                    <button onClick={()=>{setSdGhlConn(false);setSdGhlData(null);}} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"4px 12px",fontSize:11,cursor:"pointer"}}>Disconnect</button>
-                  </div>
-                </div>
-
-                <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
-                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Pipeline Stages</p>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                    {sdGhlData.stages.map((s,i)=>(
-                      <div key={i} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,color:C.muted}}>
-                        {s.name}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
             )}
           </div>
         )}
@@ -1094,70 +967,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        
-        {/* ════ SHOREDITCH OCCUPANCY ════ */}
-        {property==="shoreditch"&&sdTab==="occupancy"&&(
-          <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Shoreditch Villas · {SD_BEDROOMS} beds across {SD_VILLAS} flats</p>
-            <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 16px"}}>Occupancy Dashboard</h2>
-
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:12,marginBottom:20}}>
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Total Bedrooms</p>
-                <p style={{fontSize:24,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{sdOccupancySummary.totalBedrooms}</p>
-              </div>
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Currently Occupied</p>
-                <p style={{fontSize:24,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{sdOccupancySummary.totalOccupied}</p>
-              </div>
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Current Occupancy %</p>
-                <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{sdOccupancySummary.currentOcc}%</p>
-              </div>
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Incoming</p>
-                <p style={{fontSize:24,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{sdOccupancySummary.totalIncoming}</p>
-              </div>
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Future Occupancy %</p>
-                <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{sdOccupancySummary.futureOcc}%</p>
-              </div>
-            </div>
-
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Flat Breakdown</p>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:12}}>
-                {sdFlats.map((flat,idx)=>{
-                  const occupied = flat.rooms.filter(r=>r.status==="OCCUPIED").length;
-                  const incoming = flat.rooms.filter(r=>r.status==="INCOMING").length;
-                  const vacant = flat.rooms.filter(r=>r.status==="VACANT").length;
-                  const currentPct = Math.round(occupied / flat.rooms.length * 100);
-                  const futurePct = Math.round((occupied + incoming) / flat.rooms.length * 100);
-                  return (
-                    <div key={idx} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                      <p style={{fontSize:12,color:C.text,fontWeight:600,marginBottom:8}}>{flat.name} ({flat.rooms.length} rooms)</p>
-                      <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
-                        {flat.rooms.map((room,ridx)=>{
-                          const colors = {OCCUPIED:C.sage,INCOMING:C.gold,VACANT:C.rose};
-                          return (
-                            <button key={ridx} onClick={()=>sdToggleRoomStatus(idx,ridx)} style={{width:24,height:24,borderRadius:6,border:"none",background:colors[room.status],cursor:"pointer",opacity:0.8,transition:"opacity 0.2s",fontSize:9,color:"#000",fontWeight:700}}>
-                              {room.id.split(".")[1]}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div style={{fontSize:10,color:C.muted,display:"flex",justifyContent:"space-between",borderTop:`1px solid ${C.border}`,paddingTop:8}}>
-                        <span>O:{occupied} I:{incoming} V:{vacant}</span>
-                        <span>{currentPct}% → {futurePct}%</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ════ REPUTATION ════ */}
         {property==="southall"&&tab==="reputation"&&(
           <div style={{padding:"22px 26px"}}>
@@ -1238,11 +1047,11 @@ export default function Dashboard() {
                   <div style={{background:C.bg,borderRadius:8,padding:12}}>
                     <p style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Action Plan:</p>
                     <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
-                      <p>1. <strong style={{color:C.text}}>Claim & optimise</strong> your Trustpilot business page immediately</p>
-                      <p>2. <strong style={{color:C.text}}>Automated email sequence</strong> — send review request 48hrs after move-in via GHL</p>
-                      <p>3. <strong style={{color:C.text}}>QR code cards</strong> in rooms linking directly to Trustpilot review page</p>
-                      <p>4. <strong style={{color:C.text}}>Respond to every review</strong> within 24hrs — shows engagement</p>
-                      <p>5. Target: <strong style={{color:C.sage}}>20+ reviews within 60 days</strong> to establish credibility</p>
+                      <p>1. <strong style={{color:C.text}}>Claim & optimise</strong> Trustpilot business page</p>
+                      <p>2. <strong style={{color:C.text}}>Automated email sequence</strong> — review request 48hrs after move-in</p>
+                      <p>3. <strong style={{color:C.text}}>QR code cards</strong> in rooms linking to Trustpilot</p>
+                      <p>4. <strong style={{color:C.text}}>Respond to every review</strong> within 24hrs</p>
+                      <p>5. Target: <strong style={{color:C.sage}}>20+ reviews within 60 days</strong></p>
                     </div>
                   </div>
                 </div>
@@ -1258,9 +1067,9 @@ export default function Dashboard() {
                     <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
                       <p>1. <strong style={{color:C.text}}>Audit negative reviews</strong> — identify recurring complaints</p>
                       <p>2. <strong style={{color:C.text}}>Pre-arrival message template</strong> with check-in guide</p>
-                      <p>3. <strong style={{color:C.text}}>Mid-stay check-in</strong> message at Day 2</p>
+                      <p>3. <strong style={{color:C.text}}>Mid-stay check-in</strong> at Day 2</p>
                       <p>4. <strong style={{color:C.text}}>Post-stay thank you</strong> with review prompt</p>
-                      <p>5. Target: <strong style={{color:C.sage}}>4.5+ rating</strong> within 90 days</p>
+                      <p>5. Target: <strong style={{color:C.sage}}>4.5+ rating within 90 days</strong></p>
                     </div>
                   </div>
                 </div>
@@ -1274,11 +1083,11 @@ export default function Dashboard() {
                   <div style={{background:C.bg,borderRadius:8,padding:12}}>
                     <p style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Action Plan:</p>
                     <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
-                      <p>1. <strong style={{color:C.text}}>Weekly Google Posts</strong> — events, community updates</p>
-                      <p>2. <strong style={{color:C.text}}>Photo uploads</strong> — 5+ high-quality photos monthly</p>
+                      <p>1. <strong style={{color:C.text}}>Weekly Google Posts</strong> — events, updates</p>
+                      <p>2. <strong style={{color:C.text}}>Photo uploads</strong> — 5+ photos monthly</p>
                       <p>3. <strong style={{color:C.text}}>Review response SLA</strong> — reply within 24hrs</p>
                       <p>4. <strong style={{color:C.text}}>Q&A section</strong> — pre-populate common questions</p>
-                      <p>5. Target: <strong style={{color:C.sage}}>100+ reviews</strong> and <strong style={{color:C.sage}}>4.5+</strong> by Q2</p>
+                      <p>5. Target: <strong style={{color:C.sage}}>100+ reviews and 4.5+ by Q2</strong></p>
                     </div>
                   </div>
                 </div>
@@ -1291,28 +1100,19 @@ export default function Dashboard() {
                     <div style={{background:C.bg,borderRadius:8,padding:14}}>
                       <p style={{fontSize:12,fontWeight:600,color:C.gold,marginBottom:6}}>Month 1 — Foundation</p>
                       <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
-                        <p>• Claim all review platforms</p>
-                        <p>• Set up automated review requests in GHL</p>
-                        <p>• Create review response templates</p>
-                        <p>• Brief all staff on review importance</p>
+                        <p>• Claim all review platforms</p><p>• Set up automated review requests in GHL</p><p>• Create review response templates</p><p>• Brief staff on review importance</p>
                       </div>
                     </div>
                     <div style={{background:C.bg,borderRadius:8,padding:14}}>
                       <p style={{fontSize:12,fontWeight:600,color:C.sage,marginBottom:6}}>Month 2-3 — Growth</p>
                       <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
-                        <p>• Launch "Share your experience" campaign</p>
-                        <p>• Incentivise reviews (community events raffle)</p>
-                        <p>• Address all negative review themes</p>
-                        <p>• Partner with local influencers</p>
+                        <p>• Launch "Share your experience" campaign</p><p>• Incentivise reviews (community events raffle)</p><p>• Address all negative review themes</p><p>• Partner with local influencers</p>
                       </div>
                     </div>
                     <div style={{background:C.bg,borderRadius:8,padding:14}}>
                       <p style={{fontSize:12,fontWeight:600,color:C.purple,marginBottom:6}}>Month 4-6 — Scale</p>
                       <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
-                        <p>• Target 150+ reviews across platforms</p>
-                        <p>• Aim for composite score of 80+</p>
-                        <p>• Leverage reviews in ad copy</p>
-                        <p>• Create video testimonials from residents</p>
+                        <p>• Target 150+ reviews across platforms</p><p>• Aim for composite score of 80+</p><p>• Leverage reviews in ad copy</p><p>• Create video testimonials from residents</p>
                       </div>
                     </div>
                   </div>
@@ -1327,6 +1127,110 @@ export default function Dashboard() {
           <p style={{fontSize:10,color:C.muted}}>&Soul · {new Date().toLocaleDateString("en-GB")}</p>
         </div>
       </div>
+
+      {/* SHOREDITCH MARKETING */}
+      {property==="shoreditch"&&sdTab==="marketing"&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"16px",marginBottom:"24px"}}>
+          <div style={{background:"#f9fafb",padding:"16px",borderRadius:"8px",border:"1px solid #e5e7eb"}}>
+            <div style={{fontSize:"12px",color:"#666",marginBottom:"4px"}}>Total Spend</div>
+            <div style={{fontSize:"20px",fontWeight:"bold"}}>£{(sdGSpend + SD_META.spend).toFixed(2)}</div>
+          </div>
+          <div style={{background:"#f9fafb",padding:"16px",borderRadius:"8px",border:"1px solid #e5e7eb"}}>
+            <div style={{fontSize:"12px",color:"#666",marginBottom:"4px"}}>Google Spend</div>
+            <div style={{fontSize:"20px",fontWeight:"bold"}}>£{sdGSpend.toFixed(2)}</div>
+          </div>
+          <div style={{background:"#f9fafb",padding:"16px",borderRadius:"8px",border:"1px solid #e5e7eb"}}>
+            <div style={{fontSize:"12px",color:"#666",marginBottom:"4px"}}>Google Conversions</div>
+            <div style={{fontSize:"20px",fontWeight:"bold"}}>{sdGConvs}</div>
+          </div>
+          <div style={{background:"#f9fafb",padding:"16px",borderRadius:"8px",border:"1px solid #e5e7eb"}}>
+            <div style={{fontSize:"12px",color:"#666",marginBottom:"4px"}}>Cost Per Conv.</div>
+            <div style={{fontSize:"20px",fontWeight:"bold"}}>£{sdGCostPerConv.toFixed(2)}</div>
+          </div>
+          <div style={{background:"#f9fafb",padding:"16px",borderRadius:"8px",border:"1px solid #e5e7eb"}}>
+            <div style={{fontSize:"12px",color:"#666",marginBottom:"4px"}}>Meta Spend</div>
+            <div style={{fontSize:"20px",fontWeight:"bold"}}>£{SD_META.spend.toFixed(2)}</div>
+          </div>
+          <div style={{background:"#f9fafb",padding:"16px",borderRadius:"8px",border:"1px solid #e5e7eb"}}>
+            <div style={{fontSize:"12px",color:"#666",marginBottom:"4px"}}>Meta CPL</div>
+            <div style={{fontSize:"20px",fontWeight:"bold"}}>£{sdMetaCpl.toFixed(2)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* SHOREDITCH CRM */}
+      {property==="shoreditch"&&sdTab==="crm"&&(
+        <div style={{background:"#f9fafb",padding:"24px",borderRadius:"8px",border:"1px solid #e5e7eb"}}>
+          {!sdGhlConn&&(
+            <div>
+              <h3>GHL Pipeline: {SD_GHL_PIPELINE}</h3>
+              <button onClick={()=>runSDGHL(from,to)} disabled={sdGhlLoading} style={{padding:"10px 16px",background:"#1f2937",color:"white",border:"none",borderRadius:"4px",cursor:"pointer",marginTop:"12px"}}>
+                {sdGhlLoading?"Loading...":"Connect Pipeline"}
+              </button>
+              {sdGhlError&&<div style={{color:"#dc2626",marginTop:"8px"}}>{sdGhlError}</div>}
+            </div>
+          )}
+          {sdGhlConn&&sdGhlData&&(
+            <div>
+              <h3>{sdGhlData.pipelineName}</h3>
+              <p style={{fontSize:"14px",marginTop:"8px"}}>Total Applications: <strong>{sdGhlData.totalOpps}</strong></p>
+              <div style={{marginTop:"16px"}}>
+                <h4>Stages:</h4>
+                <div style={{display:"flex",flexWrap:"wrap",gap:"8px",marginTop:"8px"}}>
+                  {sdGhlData.stages.map(s=><div key={s.id} style={{background:"#e5e7eb",padding:"6px 12px",borderRadius:"4px",fontSize:"13px"}}>{s.name}</div>)}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SHOREDITCH OCCUPANCY */}
+      {property==="shoreditch"&&sdTab==="occupancy"&&(
+        <div style={{marginBottom:"24px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:"12px",marginBottom:"24px"}}>
+            <div style={{background:"#f9fafb",padding:"12px",borderRadius:"6px",textAlign:"center"}}>
+              <div style={{fontSize:"12px",color:"#666"}}>Total Rooms</div>
+              <div style={{fontSize:"18px",fontWeight:"bold"}}>{sdOccStats.total}</div>
+            </div>
+            <div style={{background:"#f9fafb",padding:"12px",borderRadius:"6px",textAlign:"center"}}>
+              <div style={{fontSize:"12px",color:"#666"}}>Occupied</div>
+              <div style={{fontSize:"18px",fontWeight:"bold",color:"#16a34a"}}>{sdOccStats.occ}</div>
+            </div>
+            <div style={{background:"#f9fafb",padding:"12px",borderRadius:"6px",textAlign:"center"}}>
+              <div style={{fontSize:"12px",color:"#666"}}>Vacant</div>
+              <div style={{fontSize:"18px",fontWeight:"bold",color:"#dc2626"}}>{sdOccStats.vac}</div>
+            </div>
+            <div style={{background:"#f9fafb",padding:"12px",borderRadius:"6px",textAlign:"center"}}>
+              <div style={{fontSize:"12px",color:"#666"}}>Incoming</div>
+              <div style={{fontSize:"18px",fontWeight:"bold",color:"#d97706"}}>{sdOccStats.inc}</div>
+            </div>
+            <div style={{background:"#f9fafb",padding:"12px",borderRadius:"6px",textAlign:"center"}}>
+              <div style={{fontSize:"12px",color:"#666"}}>Current %</div>
+              <div style={{fontSize:"18px",fontWeight:"bold"}}>{sdOccStats.occPct}%</div>
+            </div>
+            <div style={{background:"#f9fafb",padding:"12px",borderRadius:"6px",textAlign:"center"}}>
+              <div style={{fontSize:"12px",color:"#666"}}>Future %</div>
+              <div style={{fontSize:"18px",fontWeight:"bold"}}>{sdOccStats.futPct}%</div>
+            </div>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:"16px"}}>
+            {sdFlats.map((flat,fidx) => (
+              <div key={fidx} style={{background:"#f9fafb",padding:"16px",borderRadius:"8px",border:"1px solid #e5e7eb"}}>
+                <h4 style={{marginTop:0}}>{flat.name}</h4>
+                <p style={{fontSize:"12px",color:"#666",marginBottom:"12px"}}>{flat.rooms.length} rooms</p>
+                <div style={{display:"flex",flexWrap:"wrap",gap:"8px"}}>
+                  {flat.rooms.map((room,ridx) => {
+                    const colors = {OCCUPIED:"#84cc16",VACANT:"#f87171",INCOMING:"#fbbf24"};
+                    return <button key={ridx} onClick={()=>sdToggleRoom(fidx,ridx)} style={{padding:"6px 10px",borderRadius:"4px",border:"none",fontSize:"11px",fontWeight:"500",background:colors[room.s],color:"white",cursor:"pointer"}}>{room.id}</button>;
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 }
