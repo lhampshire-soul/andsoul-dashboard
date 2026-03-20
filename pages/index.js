@@ -540,7 +540,7 @@ export default function Dashboard() {
               <span style={{color:"#000",fontWeight:800,fontSize:15,fontFamily:"DM Mono,monospace"}}>&</span>
             </div>
             <div>
-              <p style={{fontSize:"0.95rem",color:"#666",margin:"4px 0 0 0"}}>&Soul · Performance Dashboard</p>
+              <p style={{fontSize:"0.95rem",color:C.text,margin:"4px 0 0 0"}}>&Soul · Performance Dashboard</p>
               <p style={{fontSize:11,color:C.muted}}>Performance dashboard</p>
             </div>
           </div>
@@ -564,19 +564,21 @@ export default function Dashboard() {
           <span style={{marginLeft:"auto",fontSize:11,color:C.gold,fontFamily:"DM Mono,monospace"}}>{from} → {to}</span>
         </div>
 
-{/* PROPERTY SWITCHER & TABS */}
-      <div style={{display:"flex",gap:"8px",padding:"16px 26px",borderBottom:"1px solid #eee",alignItems:"center"}}>
-        <div style={{display:"flex",gap:"8px"}}>
-          <button onClick={()=>setProperty("southall")} style={{padding:"8px 16px",background:property==="southall"?"#000":"#f0f0f0",color:property==="southall"?"#fff":"#000",border:"none",borderRadius:"4px",cursor:"pointer",fontSize:"0.9rem",fontWeight:property==="southall"?"600":"500"}}>Southall</button>
-          <button onClick={()=>setProperty("shoreditch")} style={{padding:"8px 16px",background:property==="shoreditch"?"#000":"#f0f0f0",color:property==="shoreditch"?"#fff":"#000",border:"none",borderRadius:"4px",cursor:"pointer",fontSize:"0.9rem",fontWeight:property==="shoreditch"?"600":"500"}}>Shoreditch</button>
+{/* PROPERTY SWITCHER + TABS */}
+        <div style={{padding:"10px 26px 0",borderBottom:`1px solid ${C.border}`,display:"flex",gap:0,flexWrap:"wrap",alignItems:"stretch"}}>
+          <div style={{display:"flex",gap:4,marginRight:16,borderRight:`1px solid ${C.border}`,paddingRight:16,alignItems:"center"}}>
+            <span style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginRight:4}}>Property:</span>
+            {[{k:"southall",l:"Southall"},{k:"shoreditch",l:"Shoreditch"}].map(p=>(
+              <button key={p.k} onClick={()=>setProperty(p.k)} style={{padding:"7px 14px",border:`1px solid ${property===p.k?C.gold:C.border}`,cursor:"pointer",fontWeight:700,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",borderRadius:8,background:property===p.k?C.gold+"22":"transparent",color:property===p.k?C.gold:C.muted}}>{p.l}</button>
+            ))}
+          </div>
+          {property==="southall"&&<>{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("reputation","Reputation")}</>}
+          {property==="shoreditch"&&<div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setSdTab("marketing")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="marketing"?C.gold:"transparent",color:sdTab==="marketing"?"#000":C.muted}}>Marketing</button>
+            <button onClick={()=>setSdTab("crm")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="crm"?C.gold:"transparent",color:sdTab==="crm"?"#000":C.muted}}>CRM</button>
+            <button onClick={()=>setSdTab("occupancy")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="occupancy"?C.gold:"transparent",color:sdTab==="occupancy"?"#000":C.muted}}>Occupancy</button>
+          </div>}
         </div>
-        {property==="southall"&&<div style={{display:"flex",gap:"8px",marginLeft:"auto"}}>
-          {["marketing","crm","bookings","reputation"].map(t=><button key={t} onClick={()=>setTab(t)} style={{padding:"6px 12px",background:tab===t?"#000":"#f0f0f0",color:tab===t?"#fff":"#000",border:"none",borderRadius:"4px",cursor:"pointer",fontSize:"0.85rem",fontWeight:tab===t?"600":"500"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
-        </div>}
-        {property==="shoreditch"&&<div style={{display:"flex",gap:"8px",marginLeft:"auto"}}>
-          {["marketing","crm","occupancy"].map(t=><button key={t} onClick={()=>setSdTab(t)} style={{padding:"6px 12px",background:sdTab===t?"#000":"#f0f0f0",color:sdTab===t?"#fff":"#000",border:"none",borderRadius:"4px",cursor:"pointer",fontSize:"0.85rem",fontWeight:sdTab===t?"600":"500"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
-        </div>}
-      </div>
 
         {/* ════ MARKETING ════ */}
         {property==="southall"&&tab==="marketing"&&(
@@ -992,76 +994,70 @@ export default function Dashboard() {
 
       {/* SHOREDITCH MARKETING */}
       {property==="shoreditch"&&sdTab==="marketing"&&(
-        <div style={{padding:"16px 26px"}}>
-          <h2 style={{fontSize:"1.2rem",marginBottom:"16px"}}>Shoreditch Marketing</h2>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"12px",marginBottom:"20px"}}>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Total Spend</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>£{(SD_META.spend+sdGSpend).toFixed(2)}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Google Spend</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>£{sdGSpend.toFixed(2)}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Google Conversions</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>{sdGConvs}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Google CPC</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>£{sdGCPC.toFixed(2)}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Meta Spend</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>£{SD_META.spend.toFixed(2)}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Meta Leads</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>{SD_META.leads}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Meta CPL</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>£{sdMetaCpl.toFixed(2)}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Landing Page Views</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>{SD_META.landingPageViews}</div>
+        <div style={{padding:"22px 26px"}}>
+          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}</p>
+          <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
+
+          <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+            <KPI label="Total Spend" value={fmt(SD_META.spend+sdGSpend)} sub="Meta + Google" accent={C.gold}/>
+            <KPI label="Google Spend" value={fmt(sdGSpend)} sub={`${sdGConvs} conversions`} accent={C.blue}/>
+            <KPI label="Google Cost/Conv" value={fmt(sdGCPC,"£",2)} sub="Per conversion" accent={C.blue}/>
+            <KPI label="Meta Spend" value={fmt(SD_META.spend)} sub={`${SD_META.leads} leads`} accent={C.gold}/>
+            <KPI label="Meta CPL" value={fmt(sdMetaCpl,"£",2)} sub="Per lead" accent={C.sage}/>
+            <KPI label="Landing Page Views" value={SD_META.landingPageViews} sub="Total views" accent={C.purple}/>
+          </div>
+
+          <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 280px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px",overflowX:"auto"}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Daily Google Spend — Shoreditch (£)</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={sdGoogleFiltered.map(r=>({d:r.date.slice(5),spend:r.spend,convs:r.convs}))} margin={{top:2,right:6,bottom:0,left:-8}}>
+                  <defs>
+                    <linearGradient id="gSD" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.blue} stopOpacity={0.25}/><stop offset="95%" stopColor={C.blue} stopOpacity={0}/></linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                  <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                  <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                  <Tooltip content={<Tip/>}/>
+                  <Area type="monotone" dataKey="spend" name="Spend" stroke={C.blue} fill="url(#gSD)" strokeWidth={2} dot={false}/>
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           </div>
-          <div style={{background:"#f5f5f5",padding:"16px",borderRadius:"8px",marginBottom:"20px"}}>
-            <div style={{fontSize:"0.9rem",color:"#666"}}>Campaign: {SD_META.campaign}</div>
-            <div style={{fontSize:"0.9rem",color:"#666",marginTop:"4px"}}>Total Leads (All Time): {SD_META.totalLeads}</div>
-            <div style={{fontSize:"0.9rem",color:"#666",marginTop:"4px"}}>Link Clicks: {SD_META.linkClicks}</div>
+
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Meta · {SD_META.campaign}</p>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:12}}>
+              {[{l:"Campaign Spend",v:fmt(SD_META.spend),c:C.gold},{l:"Leads (period)",v:SD_META.leads,c:C.sage},{l:"Total Leads",v:SD_META.totalLeads,c:C.text},{l:"Landing Page Views",v:SD_META.landingPageViews,c:C.blue},{l:"Link Clicks",v:SD_META.linkClicks,c:C.purple}].map((m,i)=>(
+                <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.l}</p>
+                  <p style={{fontSize:16,fontWeight:700,color:m.c,fontFamily:"DM Mono,monospace"}}>{m.v}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
       {/* SHOREDITCH CRM */}
       {property==="shoreditch"&&sdTab==="crm"&&(
-        <div style={{padding:"16px 26px"}}>
-          <h2 style={{fontSize:"1.2rem",marginBottom:"16px"}}>Shoreditch Pipeline — Villa Applications</h2>
-          {!sdGhlConn&&<button onClick={()=>runSDGHL(from,to)} disabled={sdGhlLoading} style={{padding:"8px 16px",background:sdGhlLoading?"#ccc":"#000",color:"#fff",border:"none",borderRadius:"4px",cursor:sdGhlLoading?"default":"pointer"}}>
-            {sdGhlLoading?"Connecting...":"Connect GHL"}
+        <div style={{padding:"22px 26px"}}>
+          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}</p>
+          <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Pipeline — Villa Applications</h2>
+          {!sdGhlConn&&<button onClick={()=>runSDGHL(from,to)} disabled={sdGhlLoading} style={{background:C.purple,color:"#fff",border:"none",borderRadius:8,padding:"11px 32px",fontWeight:700,fontSize:14,cursor:"pointer",opacity:sdGhlLoading?0.6:1}}>
+            {sdGhlLoading?"Connecting…":"Connect GHL"}
           </button>}
-          {sdGhlError&&<div style={{color:"#d32f2f",marginTop:"8px",padding:"8px",background:"#ffebee",borderRadius:"4px"}}>{sdGhlError}</div>}
+          {sdGhlError&&<div style={{color:C.rose,marginTop:8,padding:"10px 14px",background:C.rose+"18",border:`1px solid ${C.rose}33`,borderRadius:8,fontSize:12}}>{sdGhlError}</div>}
           {sdGhlConn&&sdGhlData&&(
-            <div style={{marginTop:"16px"}}>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"12px",marginBottom:"20px"}}>
-                <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-                  <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Total Opportunities</div>
-                  <div style={{fontSize:"1.5rem",fontWeight:"600"}}>{sdGhlData.totalOpps}</div>
-                </div>
-                <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-                  <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Applied</div>
-                  <div style={{fontSize:"1.5rem",fontWeight:"600"}}>{sdGhlData.applied}</div>
-                </div>
-                <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-                  <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Pipeline</div>
-                  <div style={{fontSize:"1.1rem",fontWeight:"600"}}>{sdGhlData.pipelineName}</div>
-                </div>
+            <div>
+              <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+                <KPI label="Total Opportunities" value={sdGhlData.totalOpps} sub="All stages" accent={C.purple}/>
+                <KPI label="Applied" value={sdGhlData.applied} sub={sdGhlData.appliedStageName||"Applied stage"} accent={C.sage}/>
+                <KPI label="Pipeline" value={sdGhlData.pipelineName} sub="Active pipeline" accent={C.gold}/>
               </div>
-              <div style={{fontSize:"0.9rem",color:"#666"}}>Stages: {sdGhlData.stages.map(s=>s.name).join(", ")}</div>
-              {sdGhlData.appliedStageName&&<div style={{fontSize:"0.9rem",color:"#666",marginTop:"4px"}}>Applied Stage: {sdGhlData.appliedStageName}</div>}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+                <p style={{fontSize:11,color:C.muted,marginBottom:6}}>Stages: {sdGhlData.stages.map(s=>s.name).join(" → ")}</p>
+              </div>
             </div>
           )}
         </div>
@@ -1069,46 +1065,42 @@ export default function Dashboard() {
 
       {/* SHOREDITCH OCCUPANCY */}
       {property==="shoreditch"&&sdTab==="occupancy"&&(
-        <div style={{padding:"16px 26px"}}>
-          <h2 style={{fontSize:"1.2rem",marginBottom:"16px"}}>Room Occupancy</h2>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:"12px",marginBottom:"20px"}}>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Total Rooms</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>{sdOcc.t}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Occupied</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600",color:"#4caf50"}}>{sdOcc.o}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Vacant</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600",color:"#ff9800"}}>{sdOcc.v}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Incoming</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600",color:"#2196f3"}}>{sdOcc.i}</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Current %</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>{sdOcc.pct}%</div>
-            </div>
-            <div style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-              <div style={{fontSize:"0.85rem",color:"#666",marginBottom:"4px"}}>Future %</div>
-              <div style={{fontSize:"1.3rem",fontWeight:"600"}}>{sdOcc.fut}%</div>
-            </div>
+        <div style={{padding:"22px 26px"}}>
+          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {SD_VILLAS} villas · {SD_BEDROOMS} bedrooms</p>
+          <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Room Occupancy</h2>
+
+          <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+            <KPI label="Total Rooms" value={sdOcc.t} accent={C.gold}/>
+            <KPI label="Occupied" value={sdOcc.o} accent={C.sage}/>
+            <KPI label="Vacant" value={sdOcc.v} accent={C.rose}/>
+            <KPI label="Incoming" value={sdOcc.i} accent={C.blue}/>
+            <KPI label="Current Occupancy" value={`${sdOcc.pct}%`} accent={C.gold}/>
+            <KPI label="Future Occupancy" value={`${sdOcc.fut}%`} sub="incl. incoming" accent={C.sage}/>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:"12px"}}>
+
+          <div style={{display:"flex",gap:24,justifyContent:"center",marginBottom:24}}>
+            <OccRing pct={sdOcc.pct} color={C.gold}/>
+            <OccRing pct={sdOcc.fut} color={C.sage}/>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
             {sdFlats.map((flat,fi)=>(
-              <div key={fi} style={{background:"#f5f5f5",padding:"12px",borderRadius:"6px"}}>
-                <div style={{fontSize:"0.9rem",fontWeight:"600",marginBottom:"8px"}}>{flat.name}</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
+              <div key={fi} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px"}}>
+                <p style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>{flat.name}</p>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                   {flat.rooms.map((room,ri)=>{
-                    const colors={OCCUPIED:"#4caf50",VACANT:"#ff9800",INCOMING:"#2196f3"};
-                    return <button key={ri} onClick={()=>sdToggleRoom(fi,ri)} style={{padding:"4px 8px",background:colors[room.s],color:"#fff",border:"none",borderRadius:"3px",cursor:"pointer",fontSize:"0.75rem",fontWeight:"500"}}>{room.id}</button>;
+                    const colors={OCCUPIED:C.sage,VACANT:C.rose,INCOMING:C.blue};
+                    return <button key={ri} onClick={()=>sdToggleRoom(fi,ri)} style={{padding:"4px 8px",background:colors[room.s]+"33",color:colors[room.s],border:`1px solid ${colors[room.s]}55`,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{room.id}</button>;
                   })}
                 </div>
               </div>
             ))}
+          </div>
+
+          <div style={{display:"flex",gap:12,marginTop:16,justifyContent:"center"}}>
+            <span style={{fontSize:10,color:C.sage,background:C.sage+"22",padding:"3px 10px",borderRadius:12}}>● Occupied</span>
+            <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"3px 10px",borderRadius:12}}>● Vacant</span>
+            <span style={{fontSize:10,color:C.blue,background:C.blue+"22",padding:"3px 10px",borderRadius:12}}>● Incoming</span>
           </div>
         </div>
       )}
