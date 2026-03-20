@@ -495,24 +495,55 @@ export default function Dashboard() {
   const sdGConvs = sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
   const sdGCPC = sdGConvs>0?sdGSpend/sdGConvs:0;
   const sdMetaCpl = SD_META.leads>0?SD_META.spend/SD_META.leads:0;
-  const sdOcc = useMemo(()=>{let o=0,i=0,v=0,t=0;sdFlats.forEach(f=>f.rooms.forEach(r=>{t++;if(r.s==="OCCUPIED")o++;else if(r.s==="INCOMING")i++;else v++;}));return{o,i,v,t,pct:t>0?Math.round(o/t*100):0,fut:t>0?Math.round((o+i)/t*100):0};},[sdFlats]);
+  const sdTotalLeads = SD_META.leads + sdGConvs;
+  const sdTotalSpend = SD_META.spend + sdGSpend;
+  const sdBlendedCpl = sdTotalLeads>0 ? sdTotalSpend/sdTotalLeads : 0;
+  const sdOcc = useMemo(()=>{
+    let o=0,i=0,v=0,t=0;
+    sdFlats.forEach(f=>f.rooms.forEach(r=>{t++;if(r.s==="OCCUPIED")o++;else if(r.s==="INCOMING")i++;else v++;}));
+    const pct=t>0?Math.round(o/t*100):0;
+    const fut=t>0?Math.round((o+i)/t*100):0;
+    // Target: 90% occupancy by 1st July 2026
+    const SD_TARGET_OCC=0.9;
+    const targetRooms=Math.round(t*SD_TARGET_OCC);
+    const roomsNeeded=Math.max(0,targetRooms-(o+i));
+    const today=new Date();
+    const deadline=new Date("2026-07-01");
+    const msPerWeek=7*24*60*60*1000;
+    const weeksLeft=Math.max(1,Math.ceil((deadline-today)/msPerWeek));
+    const roomsPerWeek=Math.ceil(roomsNeeded/weeksLeft);
+    return{o,i,v,t,pct,fut,targetRooms,roomsNeeded,weeksLeft,roomsPerWeek,targetPct:Math.round(SD_TARGET_OCC*100)};
+  },[sdFlats]);
   const sdToggleRoom=(fi,ri)=>{setSdFlats(p=>{const n=p.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));const ss=["OCCUPIED","VACANT","INCOMING"];const c=n[fi].rooms[ri].s;n[fi].rooms[ri].s=ss[(ss.indexOf(c)+1)%3];return n;});};
   const runSDGHL = useCallback(async(f,t)=>{
     setSdGhlLoad(true);setSdGhlErr("");
     try{
       const pRes=await ghlGet("/opportunities/pipelines?locationId="+GHL_LOCATION);
       const pipelines=pRes?.pipelines??pRes?.data??[];
-      const pipeline=pipelines.find(p=>p.name?.trim()===SD_GHL_PIPELINE)||pipelines.find(p=>(p.name||"").toLowerCase().includes("shoreditch"));
-      if(!pipeline) throw new Error("Pipeline '"+SD_GHL_PIPELINE+"' not found. Available: "+pipelines.map(p=>p.name).join(", "));
+      // Find the Shoreditch pipeline
+      const pipeline=pipelines.find(p=>(p.name||"").toLowerCase().includes("shoreditch"))
+        ||pipelines.find(p=>p.name?.trim()===SD_GHL_PIPELINE);
+      if(!pipeline) throw new Error("Shoreditch pipeline not found. Available: "+pipelines.map(p=>p.name).join(", "));
       const stages=pipeline.stages??[];
       const opps=await fetchAllOpps(pipeline.id,f,t);
+      // Filter by "applied for villas" tag
+      const TAG_APPLIED="applied for villas";
+      const appliedByTag=opps.filter(o=>(o.tags??[]).some(tag=>tag.toLowerCase().trim()===TAG_APPLIED));
+      // Also find the applied stage for fallback display
       const appliedStage=stages.find(s=>(s.name||"").toLowerCase().includes("applied"));
-      const applied=appliedStage?opps.filter(o=>o.pipelineStageId===appliedStage.id):opps;
-      setSdGhlData({pipelineName:pipeline.name,stages:stages.map(s=>({id:s.id,name:s.name})),totalOpps:opps.length,applied:applied.length,appliedStageName:appliedStage?.name||null});
+      const appliedByStage=appliedStage?opps.filter(o=>o.pipelineStageId===appliedStage.id):[];
+      // Use tag-based count as primary, stage as secondary
+      const appliedCount=appliedByTag.length>0?appliedByTag.length:appliedByStage.length;
+      const appliedLabel=appliedByTag.length>0?"applied for villas tag":(appliedStage?.name||"Applied stage");
+      setSdGhlData({pipelineName:pipeline.name,stages:stages.map(s=>({id:s.id,name:s.name})),totalOpps:opps.length,applied:appliedCount,appliedStageName:appliedLabel,appliedByTag:appliedByTag.length,appliedByStage:appliedByStage.length});
       setSdGhlConn(true);
     }catch(e){setSdGhlErr(e.message);}
     finally{setSdGhlLoad(false);}
   },[]);
+
+  // Auto-connect Shoreditch GHL on mount + refresh on date change
+  useEffect(()=>{ runSDGHL(from,to); },[]);
+  useEffect(()=>{ if(sdGhlConn) runSDGHL(from,to); },[from,to]);
 
   const reputationScore = Math.round(((gmbRating + airbnbRating + trustpilotRating) / 3 / 5) * 100);
   const reputationColor = reputationScore >= 80 ? C.sage : reputationScore >= 60 ? C.gold : C.rose;
@@ -999,12 +1030,12 @@ export default function Dashboard() {
           <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
 
           <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
-            <KPI label="Total Spend" value={fmt(SD_META.spend+sdGSpend)} sub="Meta + Google" accent={C.gold}/>
+            <KPI label="Total Spend" value={fmt(sdTotalSpend)} sub="Meta + Google" accent={C.gold}/>
+            <KPI label="Avg CPL (Blended)" value={fmt(sdBlendedCpl,"£",2)} sub={`${sdTotalLeads} total leads`} accent={C.sage} badge="KEY"/>
             <KPI label="Google Spend" value={fmt(sdGSpend)} sub={`${sdGConvs} conversions`} accent={C.blue}/>
             <KPI label="Google Cost/Conv" value={fmt(sdGCPC,"£",2)} sub="Per conversion" accent={C.blue}/>
             <KPI label="Meta Spend" value={fmt(SD_META.spend)} sub={`${SD_META.leads} leads`} accent={C.gold}/>
             <KPI label="Meta CPL" value={fmt(sdMetaCpl,"£",2)} sub="Per lead" accent={C.sage}/>
-            <KPI label="Landing Page Views" value={SD_META.landingPageViews} sub="Total views" accent={C.purple}/>
           </div>
 
           <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
@@ -1028,7 +1059,7 @@ export default function Dashboard() {
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
             <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Meta · {SD_META.campaign}</p>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:12}}>
-              {[{l:"Campaign Spend",v:fmt(SD_META.spend),c:C.gold},{l:"Leads (period)",v:SD_META.leads,c:C.sage},{l:"Total Leads",v:SD_META.totalLeads,c:C.text},{l:"Landing Page Views",v:SD_META.landingPageViews,c:C.blue},{l:"Link Clicks",v:SD_META.linkClicks,c:C.purple}].map((m,i)=>(
+              {[{l:"Campaign Spend",v:fmt(SD_META.spend),c:C.gold},{l:"Leads (period)",v:SD_META.leads,c:C.sage},{l:"Total Leads",v:SD_META.totalLeads,c:C.text},{l:"Link Clicks",v:SD_META.linkClicks,c:C.purple}].map((m,i)=>(
                 <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
                   <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.l}</p>
                   <p style={{fontSize:16,fontWeight:700,color:m.c,fontFamily:"DM Mono,monospace"}}>{m.v}</p>
@@ -1044,9 +1075,8 @@ export default function Dashboard() {
         <div style={{padding:"22px 26px"}}>
           <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}</p>
           <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Pipeline — Villa Applications</h2>
-          {!sdGhlConn&&<button onClick={()=>runSDGHL(from,to)} disabled={sdGhlLoading} style={{background:C.purple,color:"#fff",border:"none",borderRadius:8,padding:"11px 32px",fontWeight:700,fontSize:14,cursor:"pointer",opacity:sdGhlLoading?0.6:1}}>
-            {sdGhlLoading?"Connecting…":"Connect GHL"}
-          </button>}
+          {!sdGhlConn&&sdGhlLoading&&<p style={{fontSize:13,color:C.muted}}>Connecting to GHL…</p>}
+          {!sdGhlConn&&!sdGhlLoading&&!sdGhlError&&<p style={{fontSize:13,color:C.muted}}>Loading pipeline data…</p>}
           {sdGhlError&&<div style={{color:C.rose,marginTop:8,padding:"10px 14px",background:C.rose+"18",border:`1px solid ${C.rose}33`,borderRadius:8,fontSize:12}}>{sdGhlError}</div>}
           {sdGhlConn&&sdGhlData&&(
             <div>
@@ -1076,6 +1106,27 @@ export default function Dashboard() {
             <KPI label="Incoming" value={sdOcc.i} accent={C.blue}/>
             <KPI label="Current Occupancy" value={`${sdOcc.pct}%`} accent={C.gold}/>
             <KPI label="Future Occupancy" value={`${sdOcc.fut}%`} sub="incl. incoming" accent={C.sage}/>
+          </div>
+
+          {/* TARGET TRACKER — 90% by 1st July */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",marginBottom:18}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+              <div>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Occupancy Target</p>
+                <p style={{fontSize:18,fontWeight:700,color:C.text}}>{sdOcc.targetPct}% by 1st July 2026</p>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <p style={{fontSize:24,fontWeight:700,color:sdOcc.roomsNeeded===0?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{sdOcc.roomsPerWeek}</p>
+                <p style={{fontSize:11,color:C.muted}}>rooms/week needed</p>
+              </div>
+            </div>
+            <div style={{height:8,background:C.border,borderRadius:4,overflow:"hidden",marginBottom:10}}>
+              <div style={{height:"100%",background:`linear-gradient(90deg, ${C.sage}, ${C.gold})`,borderRadius:4,width:`${Math.min(100,Math.round((sdOcc.o+sdOcc.i)/sdOcc.targetRooms*100))}%`,transition:"width 0.5s ease"}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted}}>
+              <span>{sdOcc.o+sdOcc.i} / {sdOcc.targetRooms} rooms filled (incl. incoming)</span>
+              <span>{sdOcc.weeksLeft} weeks remaining · {sdOcc.roomsNeeded} rooms to go</span>
+            </div>
           </div>
 
           <div style={{display:"flex",gap:24,justifyContent:"center",marginBottom:24}}>
