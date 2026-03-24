@@ -975,68 +975,57 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
-              <div style={{flex:"1.5 1 250px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,borderTop:`2px solid ${C.gold}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                  <div>
-                    <p style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · Southall</p>
-                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} checked in` : `${occupied} / ${BEDS} beds`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
-                  </div>
+            {/* ── TODAY'S SNAPSHOT ── */}
+            <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18,marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Today · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Current in-house occupancy (checked-in guests only)</p>
+                </div>
+                {pmsConn&&<span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>}
+              </div>
+              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:16}}>
                   <OccRing pct={occPct}/>
-                </div>
-                {!pmsConn&&(<>
-                  <div style={{marginBottom:12}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
-                    <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
+                  <div>
+                    <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {BEDS}</span></p>
+                    <p style={{fontSize:12,color:C.muted}}>rooms occupied today</p>
                   </div>
-                  <div style={{marginBottom:12}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
-                    <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
-                  </div>
-                </>)}
-                <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <span style={{fontSize:13,color:C.muted}}>{pmsConn ? "Revenue this month" : "Est. monthly revenue"}</span>
-                  <span style={{fontSize:16,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(monthRev)}</span>
                 </div>
-                {pmsConn&&<div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <span style={{fontSize:13,color:C.muted}}>Revenue this week</span>
-                  <span style={{fontSize:16,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{fmt(weekRev)}</span>
-                </div>}
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
-                  <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.round(BEDS*.95)-occupied} to go`}</span>
-                </div>
-                <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
-                  <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
-                  <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
+                <div style={{flex:"1 1 200px",display:"flex",flexDirection:"column",gap:8}}>
+                  {(pmsConn&&pmsData?[
+                    {label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},
+                    {label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},
+                    {label:"Revenue this month",value:fmt(monthRev),color:C.gold},
+                    {label:"Revenue this week",value:fmt(weekRev),color:C.text},
+                  ]:[
+                    {label:"Occupancy %",value:`${mOcc}%`,color:C.gold},
+                    {label:"Est. monthly revenue",value:fmt(monthRev),color:C.gold},
+                  ]).map(x=>(
+                    <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:12,color:C.muted}}>{x.label}</span>
+                      <span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-
-              <div style={{flex:"1 1 200px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
-                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
-                {pmsConn&&pmsData?(
-                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"Checked in",value:pmsData.occupied,color:C.gold},{label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},{label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
-                      <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
-                        <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
-                        <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{typeof x.value === 'number' ? x.value : x.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                ):(
-                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {[{label:"New bookings this week",val:mBook,set:setMBook,max:50,color:C.sage},{label:"Renewals this month",val:mRen,set:setMRen,max:50,color:C.sage},{label:"Move-outs / churn",val:mChurn,set:setMChurn,max:30,color:C.rose}].map(x=>(
-                      <div key={x.label}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>{x.label}</span><span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.val}</span></div>
-                        <input type="range" min={0} max={x.max} value={x.val} onChange={e=>x.set(+e.target.value)} style={{width:"100%",accentColor:x.color}}/>
-                      </div>
-                    ))}
-                    <div style={{background:C.bg,borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between"}}>
-                      <span style={{fontSize:12,color:C.muted}}>Renewal rate</span>
-                      <span style={{fontSize:13,fontWeight:700,fontFamily:"DM Mono,monospace",color:renewRate>=80?C.sage:renewRate>=60?C.gold:C.rose}}>{renewRate}%</span>
-                    </div>
-                  </div>
-                )}
+              {!pmsConn&&(<div style={{marginTop:12,display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:150}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
+                  <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
+                </div>
+                <div style={{flex:1,minWidth:150}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
+                  <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                </div>
+              </div>)}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:12,marginBottom:4}}>
+                <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
+                <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.round(BEDS*.95)-occupied} to go`}</span>
+              </div>
+              <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
+                <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
+                <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
               </div>
             </div>
 
@@ -1088,21 +1077,26 @@ export default function Dashboard() {
 
             {/* ── MONTH-BY-MONTH OCCUPANCY FORECAST ── */}
             {pmsConn && pmsData?.forecast && (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginTop:16}}>
-                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Occupancy Forecast · 6 Months <span style={{color:C.sage}}>● live from Res Harmonics</span></p>
-                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Based on confirmed, pending & checked-in bookings in the system</p>
+              <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:14,padding:18,marginTop:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <p style={{fontSize:11,color:C.sage,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Future Occupancy · Month by Month</p>
+                  <span style={{fontSize:10,color:C.sage}}>● LIVE from Res Harmonics</span>
+                </div>
+                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>All pending, confirmed & checked-in bookings out of {BEDS} rooms</p>
 
-                {/* Bar chart */}
-                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:160,marginBottom:16,padding:"0 4px"}}>
+                {/* Bar chart with room counts */}
+                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:180,marginBottom:16,padding:"0 4px"}}>
                   {pmsData.forecast.map((fm, i) => {
                     const pct = Math.min(fm.occupancyPct, 100);
                     const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
                     return (
-                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}%</span>
+                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                        <span style={{fontSize:12,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{fm.activeStays}</span>
+                        <span style={{fontSize:9,color:C.muted}}>/ {BEDS}</span>
                         <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:120,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
                           <div style={{width:"100%",height:`${pct}%`,background:barColor,borderRadius:6,transition:"height 0.4s"}}/>
                         </div>
+                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}%</span>
                         <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
                       </div>
                     );
@@ -1115,9 +1109,9 @@ export default function Dashboard() {
                     <thead>
                       <tr style={{borderBottom:`1px solid ${C.border}`}}>
                         <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Active Stays</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Check-ins</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Check-outs</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked / {BEDS}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Arrivals</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Departures</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Occupancy</th>
                       </tr>
                     </thead>
@@ -1125,9 +1119,9 @@ export default function Dashboard() {
                       {pmsData.forecast.map((fm, i) => (
                         <tr key={fm.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
                           <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}{i===0?" (current)":""}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{fm.activeStays}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{fm.checkIns}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{fm.checkOuts}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{fm.activeStays} <span style={{color:C.muted,fontWeight:400}}>/ {BEDS}</span></td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>+{fm.checkIns}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>-{fm.checkOuts}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:fm.occupancyPct>=90?C.sage:fm.occupancyPct>=70?C.gold:C.rose}}>{fm.occupancyPct}%</td>
                         </tr>
                       ))}
