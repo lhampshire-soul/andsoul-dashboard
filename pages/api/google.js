@@ -79,7 +79,7 @@ export default async function handler(req, res) {
     filtered.forEach(r => {
       const date = r.date;
       const spend = parseFloat(r.spend || 0);
-      const convs = parseFloat(r.conversions || 0);
+      const convs = Math.round(parseFloat(r.conversions || 0));
       const clicks = parseInt(r.clicks || 0);
       const imps = parseInt(r.impressions || 0);
 
@@ -102,7 +102,7 @@ export default async function handler(req, res) {
       const name = r.campaign || "Unknown";
       if (!campMap[name]) campMap[name] = { name, spend: 0, convs: 0, clicks: 0, impressions: 0, type: getCampaignType(name) };
       campMap[name].spend += parseFloat(r.spend || 0);
-      campMap[name].convs += parseFloat(r.conversions || 0);
+      campMap[name].convs += Math.round(parseFloat(r.conversions || 0));
       campMap[name].clicks += parseInt(r.clicks || 0);
       campMap[name].impressions += parseInt(r.impressions || 0);
     });
