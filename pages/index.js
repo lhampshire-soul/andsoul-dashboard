@@ -529,6 +529,34 @@ export default function Dashboard() {
   const [trustpilotRating, setTrustpilotRating] = useState(3.55);
   const [trustpilotCount, setTrustpilotCount] = useState(28);
   const [mentions, setMentions] = useState("");
+  const [repLive, setRepLive] = useState({ trustpilot: false, google: false, airbnb: false });
+  const [repLoading, setRepLoading] = useState(false);
+
+  // Fetch live reputation data on mount
+  useEffect(() => {
+    setRepLoading(true);
+    fetch("/api/reputation")
+      .then(r => r.json())
+      .then(data => {
+        if (data.trustpilot && !data.trustpilot.error && data.trustpilot.rating != null) {
+          setTrustpilotRating(data.trustpilot.rating);
+          setTrustpilotCount(data.trustpilot.count || 0);
+          setRepLive(p => ({ ...p, trustpilot: true }));
+        }
+        if (data.google && !data.google.error && data.google.rating != null) {
+          setGmbRating(data.google.rating);
+          setGmbCount(data.google.count || 0);
+          setRepLive(p => ({ ...p, google: true }));
+        }
+        if (data.airbnb && !data.airbnb.error && data.airbnb.rating != null) {
+          setAirbnbRating(data.airbnb.rating);
+          setAirbnbCount(data.airbnb.count || 0);
+          setRepLive(p => ({ ...p, airbnb: true }));
+        }
+      })
+      .catch(e => console.log("Reputation fetch error:", e.message))
+      .finally(() => setRepLoading(false));
+  }, []);
 
   // Shoreditch
   const [sdGhlLoading, setSdGhlLoad] = useState(false);
@@ -990,7 +1018,7 @@ export default function Dashboard() {
         {/* ════ REPUTATION ════ */}
         {property==="southall"&&tab==="reputation"&&(
           <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brand Health</p>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brand Health{repLoading?" · loading…":""}</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Reputation Score</h2>
 
             <div style={{display:"flex",gap:14,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
@@ -1011,14 +1039,14 @@ export default function Dashboard() {
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:12,marginBottom:16}}>
               {[
-                {title:"Google My Business",rating:gmbRating,count:gmbCount,setRating:setGmbRating,setCount:setGmbCount,color:C.blue,icon:"🔍"},
-                {title:"Airbnb",rating:airbnbRating,count:airbnbCount,setRating:setAirbnbRating,setCount:setAirbnbCount,color:C.rose,icon:"🏠"},
-                {title:"Trustpilot",rating:trustpilotRating,count:trustpilotCount,setRating:setTrustpilotRating,setCount:setTrustpilotCount,color:C.sage,icon:"⭐"},
+                {title:"Google My Business",rating:gmbRating,count:gmbCount,setRating:setGmbRating,setCount:setGmbCount,color:C.blue,icon:"🔍",live:repLive.google},
+                {title:"Airbnb",rating:airbnbRating,count:airbnbCount,setRating:setAirbnbRating,setCount:setAirbnbCount,color:C.rose,icon:"🏠",live:repLive.airbnb},
+                {title:"Trustpilot",rating:trustpilotRating,count:trustpilotCount,setRating:setTrustpilotRating,setCount:setTrustpilotCount,color:C.sage,icon:"⭐",live:repLive.trustpilot},
               ].map((p,i)=>(
                 <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                     <div>
-                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{ p.icon} {p.title}</p>
+                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{p.icon} {p.title} <span style={{fontSize:9,color:p.live?C.sage:C.muted,marginLeft:4}}>{p.live?"● live":"○ manual"}</span></p>
                     </div>
                   </div>
                   <div style={{marginBottom:12}}>
