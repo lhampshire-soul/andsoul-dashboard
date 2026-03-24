@@ -291,28 +291,74 @@ export default function Dashboard() {
   const [property, setProperty] = useState("southall");
   const [sdTab, setSdTab] = useState("marketing");
   const [preset, setPreset] = useState(30);
-  const [from, setFrom] = useState("2026-02-11");
-  const [to,   setTo]   = useState("2026-03-12");
+  const todayISO = new Date().toISOString().slice(0,10);
+  const [from, setFrom] = useState(()=>{const d=new Date();d.setDate(d.getDate()-29);return d.toISOString().slice(0,10);});
+  const [to,   setTo]   = useState(todayISO);
 
   useEffect(()=>{
     if(!preset) return;
-    const end=new Date("2026-03-12"), start=new Date(end);
+    const end=new Date(), start=new Date(end);
     start.setDate(end.getDate()-preset+1);
     setFrom(start.toISOString().slice(0,10));
-    setTo("2026-03-12");
+    setTo(end.toISOString().slice(0,10));
   },[preset]);
 
   const rangeLabel = preset ? `Last ${preset}d` : `${from} → ${to}`;
 
+  // ─── LIVE DATA: Meta + Google via Windsor.ai ────────────────────────────────
+  const [liveMetaData, setLiveMetaData] = useState(null);
+  const [liveGoogleData, setLiveGoogleData] = useState(null);
+  const [metaIsLive, setMetaIsLive] = useState(false);
+  const [googleIsLive, setGoogleIsLive] = useState(false);
+  const [adLoading, setAdLoading] = useState(false);
+
+  const fetchLiveMeta = useCallback(async (dateFrom, dateTo, prop) => {
+    try {
+      const r = await fetch(`/api/meta?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
+      const j = await r.json();
+      if (j.configured && j.data) { setLiveMetaData(j.data); setMetaIsLive(true); }
+      else { setLiveMetaData(null); setMetaIsLive(false); }
+    } catch(e) { console.log("Meta fetch error:", e.message); setLiveMetaData(null); setMetaIsLive(false); }
+  }, []);
+
+  const fetchLiveGoogle = useCallback(async (dateFrom, dateTo, prop) => {
+    try {
+      const r = await fetch(`/api/google?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
+      const j = await r.json();
+      if (j.configured && j.data) { setLiveGoogleData(j.data); setGoogleIsLive(true); }
+      else { setLiveGoogleData(null); setGoogleIsLive(false); }
+    } catch(e) { console.log("Google fetch error:", e.message); setLiveGoogleData(null); setGoogleIsLive(false); }
+  }, []);
+
+  useEffect(()=>{
+    setAdLoading(true);
+    Promise.all([fetchLiveMeta(from, to, property), fetchLiveGoogle(from, to, property)])
+      .finally(()=>setAdLoading(false));
+  }, [from, to, property]);
+
+  // ─── COMPUTED: prefer live data, fall back to static ────────────────────────
   const metaRows  = useMemo(()=>META_DAILY.filter(r=>r.iso>=from&&r.iso<=to),[from,to]);
-  const chartData = useMemo(()=>metaRows.map(r=>({d:r.d,meta:r.spend,google:GOOGLE_DAILY_SPEND[r.iso]??0,leads:r.leads,cpl:r.cpl})),[metaRows]);
-  const metaSpend = metaRows.reduce((s,r)=>s+r.spend,0);
-  const metaLeads = metaRows.reduce((s,r)=>s+r.leads,0);
+
+  // Chart data: live or static
+  const chartData = useMemo(()=>{
+    if (metaIsLive && liveMetaData?.daily) {
+      return liveMetaData.daily.map(d => {
+        const gDay = googleIsLive && liveGoogleData?.daily ? liveGoogleData.daily.find(g=>g.date===d.date) : null;
+        const dt = new Date(d.date);
+        return { d: `${dt.getDate()}/${dt.getMonth()+1}`, meta: d.spend, google: gDay ? gDay.spend : 0, leads: d.leads, cpl: d.leads > 0 ? d.spend/d.leads : 0 };
+      });
+    }
+    return metaRows.map(r=>({d:r.d,meta:r.spend,google:GOOGLE_DAILY_SPEND[r.iso]??0,leads:r.leads,cpl:r.cpl}));
+  },[metaIsLive, liveMetaData, googleIsLive, liveGoogleData, metaRows]);
+
+  const metaSpend = metaIsLive && liveMetaData ? liveMetaData.totalSpend : metaRows.reduce((s,r)=>s+r.spend,0);
+  const metaLeads = metaIsLive && liveMetaData ? liveMetaData.totalLeads : metaRows.reduce((s,r)=>s+r.leads,0);
   const metaCpl   = metaLeads>0 ? metaSpend/metaLeads : 0;
-  const gSpend    = metaRows.reduce((s,r)=>s+(GOOGLE_DAILY_SPEND[r.iso]??0),0);
-  const gConvs    = GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0);
+  const gSpend    = googleIsLive && liveGoogleData ? liveGoogleData.totalSpend : metaRows.reduce((s,r)=>s+(GOOGLE_DAILY_SPEND[r.iso]??0),0);
+  const gConvs    = googleIsLive && liveGoogleData ? liveGoogleData.totalConversions : GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0);
   const googleCostPerSubmit = gConvs>0 ? gSpend/gConvs : 0;
   const blendedAvgCPL = (metaLeads+gConvs)>0 ? (metaSpend+gSpend)/(metaLeads+gConvs) : 0;
+  const liveCampaigns = googleIsLive && liveGoogleData?.campaigns ? liveGoogleData.campaigns : GOOGLE_CAMPAIGNS;
 
   // GHL
   const [ghlLoading, setGhlLoad] = useState(false);
@@ -576,8 +622,8 @@ export default function Dashboard() {
             </div>
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            <span style={{background:"#d4a84322",color:C.gold,padding:"3px 10px",borderRadius:20,fontSize:11}}>● Meta</span>
-            <span style={{background:"#3d82c422",color:C.blue,padding:"3px 10px",borderRadius:20,fontSize:11}}>● Google Ads</span>
+            <span style={{background:metaIsLive?"#d4a84322":C.border,color:metaIsLive?C.gold:C.muted,padding:"3px 10px",borderRadius:20,fontSize:11}}>{metaIsLive?"● Meta · live":"○ Meta · static"}</span>
+            <span style={{background:googleIsLive?"#3d82c422":C.border,color:googleIsLive?C.blue:C.muted,padding:"3px 10px",borderRadius:20,fontSize:11}}>{googleIsLive?"● Google Ads · live":"○ Google Ads · static"}</span>
             <span style={{background:ghlConn?"#9b72cf22":C.border,color:ghlConn?C.purple:C.muted,padding:"3px 10px",borderRadius:20,fontSize:11}}>{ghlConn?"● GHL CRM · live":"○ GHL CRM"}</span>
             <span style={{background:pmsConn?"#3d9e7522":C.border,color:pmsConn?C.sage:C.muted,padding:"3px 10px",borderRadius:20,fontSize:11}}>{pmsConn?"● Res Harmonics · live":"○ Res Harmonics"}</span>
           </div>
@@ -589,9 +635,9 @@ export default function Dashboard() {
           {PRESETS.map(o=>(
             <button key={o.d} onClick={()=>setPreset(o.d)} style={{padding:"4px 13px",borderRadius:20,border:`1px solid ${preset===o.d?C.gold:C.border}`,background:preset===o.d?C.gold+"22":"transparent",color:preset===o.d?C.gold:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>Last {o.l}</button>
           ))}
-          <input type="date" value={from} min="2026-02-11" max="2026-03-12" onChange={e=>{setFrom(e.target.value);setPreset(null);}} style={dinp}/>
+          <input type="date" value={from} onChange={e=>{setFrom(e.target.value);setPreset(null);}} style={dinp}/>
           <span style={{fontSize:11,color:C.muted}}>→</span>
-          <input type="date" value={to}   min="2026-02-11" max="2026-03-12" onChange={e=>{setTo(e.target.value);setPreset(null);}}   style={dinp}/>
+          <input type="date" value={to} onChange={e=>{setTo(e.target.value);setPreset(null);}} style={dinp}/>
           <span style={{marginLeft:"auto",fontSize:11,color:C.gold,fontFamily:"DM Mono,monospace"}}>{from} → {to}</span>
         </div>
 
@@ -614,7 +660,7 @@ export default function Dashboard() {
         {/* ════ MARKETING ════ */}
         {property==="southall"&&tab==="marketing"&&(
           <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall only · {rangeLabel} · form submit leads only</p>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall only · {rangeLabel} · {metaIsLive||googleIsLive?"live data":"static data"}{adLoading?" · loading…":""}</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
 
             <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
@@ -662,7 +708,7 @@ export default function Dashboard() {
             </div>
 
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,overflowX:"auto"}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Southall Campaigns · 30d · GTM form submits only</p>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Southall Campaigns · {rangeLabel}{googleIsLive?" · live":" · static"}</p>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:600}}>
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
                   {["Campaign","Type","Spend","Form Submits","Avg CPC","Cost/Submit"].map(h=>(
@@ -670,9 +716,9 @@ export default function Dashboard() {
                   ))}
                 </tr></thead>
                 <tbody>
-                  {[...GOOGLE_CAMPAIGNS].sort((a,b)=>b.spend-a.spend).map((c,i)=>{
-                    const max=Math.max(...GOOGLE_CAMPAIGNS.map(x=>x.spend));
-                    const cpc2=c.convs>0?c.spend/c.convs:null;
+                  {[...liveCampaigns].sort((a,b)=>b.spend-a.spend).map((c,i)=>{
+                    const max=Math.max(...liveCampaigns.map(x=>x.spend));
+                    const cpc2=(c.convs||c.leads)>0?c.spend/(c.convs||c.leads):null;
                     const tc={Search:C.blue,GMB:C.sage,Pmax:C.gold,Video:C.rose};
                     return <tr key={i} style={{borderBottom:`1px solid ${C.border}`}} onMouseEnter={e=>e.currentTarget.style.background="#ffffff07"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                       <td style={{padding:"9px 10px"}}>
@@ -689,9 +735,9 @@ export default function Dashboard() {
                 </tbody>
                 <tfoot><tr style={{borderTop:`1px solid ${C.border}`}}>
                   <td colSpan={2} style={{padding:"9px 10px",color:C.muted,fontSize:11}}>Total</td>
-                  <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{fmt(GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.spend,0))}</td>
+                  <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{fmt(liveCampaigns.reduce((s,c)=>s+c.spend,0))}</td>
                   <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{gConvs}</td>
-                  <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.spend,0)/gConvs,"£",2)}/submit</td>
+                  <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(gConvs>0?liveCampaigns.reduce((s,c)=>s+c.spend,0)/gConvs:0,"£",2)}/submit</td>
                 </tr></tfoot>
               </table>
             </div>
