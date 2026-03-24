@@ -127,7 +127,8 @@ async function fetchAirbnb() {
     const res = await fetch(AIRBNB_URL, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-GB,en;q=0.9",
       },
     });
     if (!res.ok) return { error: `HTTP ${res.status}` };
@@ -151,17 +152,44 @@ async function fetchAirbnb() {
       }
     }
 
-    // Try common Airbnb patterns in HTML
-    const ratingMatch = html.match(/(\d+\.?\d*)\s*(?:·|•)\s*(\d+)\s*reviews?/i);
-    if (ratingMatch) {
+    // Airbnb host profile page: look for "X.XX★" rating and "N Reviews"
+    // Pattern: "3.55★" near "11\nReviews"
+    const ratingStarMatch = html.match(/(\d+\.?\d*)★/);
+    const reviewCountMatch = html.match(/(\d+)\s*<[^>]*>\s*Reviews?/i) || html.match(/"reviewCount"\s*:\s*(\d+)/i);
+
+    // Also try: "X.X · Y reviews" pattern
+    const dotPattern = html.match(/(\d+\.?\d*)\s*(?:·|•)\s*(\d+)\s*reviews?/i);
+
+    // Try __NEXT_DATA__ or deferred state JSON (Airbnb uses React SSR)
+    const nextDataMatch = html.match(/"ratingAverage"\s*:\s*(\d+\.?\d*)/);
+    const nextCountMatch = html.match(/"reviewCount"\s*:\s*(\d+)/);
+
+    if (nextDataMatch && nextCountMatch) {
       return {
-        rating: parseFloat(ratingMatch[1]),
-        count: parseInt(ratingMatch[2]),
-        source: "airbnb-html",
+        rating: parseFloat(nextDataMatch[1]),
+        count: parseInt(nextCountMatch[1]),
+        source: "airbnb-nextdata",
       };
     }
 
-    return { error: "Could not parse Airbnb rating" };
+    if (ratingStarMatch) {
+      const count = reviewCountMatch ? parseInt(reviewCountMatch[1]) : (dotPattern ? parseInt(dotPattern[2]) : 0);
+      return {
+        rating: parseFloat(ratingStarMatch[1]),
+        count,
+        source: "airbnb-html-star",
+      };
+    }
+
+    if (dotPattern) {
+      return {
+        rating: parseFloat(dotPattern[1]),
+        count: parseInt(dotPattern[2]),
+        source: "airbnb-html-dot",
+      };
+    }
+
+    return { error: "Could not parse Airbnb rating from page HTML" };
   } catch (err) {
     return { error: err.message };
   }
