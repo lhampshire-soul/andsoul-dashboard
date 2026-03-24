@@ -1,73 +1,30 @@
 // pages/api/google.js
-// Server-side proxy for Google Ads API
+// Server-side proxy for Google Ads data via Windsor.ai
 // Fetches ad spend, conversions, CPC data for date ranges
 //
-// Required env vars:
-//   GOOGLE_ADS_DEVELOPER_TOKEN - from Google Ads API Center
-//   GOOGLE_ADS_CUSTOMER_ID     - Google Ads customer/account ID (no dashes)
-//   GOOGLE_ADS_REFRESH_TOKEN   - OAuth2 refresh token
-//   GOOGLE_ADS_CLIENT_ID       - OAuth2 client ID
-//   GOOGLE_ADS_CLIENT_SECRET   - OAuth2 client secret
-//   GOOGLE_ADS_LOGIN_CUSTOMER_ID - (optional) MCC manager account ID if using MCC
+// Required env var:
+//   WINDSOR_API_KEY — your Windsor.ai API key (from https://app.windsor.ai/settings)
 
-const DEV_TOKEN = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "";
-const CUSTOMER_ID = process.env.GOOGLE_ADS_CUSTOMER_ID || "";
-const REFRESH_TOKEN = process.env.GOOGLE_ADS_REFRESH_TOKEN || "";
-const CLIENT_ID = process.env.GOOGLE_ADS_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.GOOGLE_ADS_CLIENT_SECRET || "";
-const LOGIN_CUSTOMER_ID = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || "";
+const WINDSOR_KEY = process.env.WINDSOR_API_KEY || "";
+const WINDSOR_BASE = "https://connectors.windsor.ai";
+const GOOGLE_ACCOUNT = "635-731-8686"; // &Soul
 
-async function getAccessToken() {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      refresh_token: REFRESH_TOKEN,
-      grant_type: "refresh_token",
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`OAuth error: ${data.error_description || data.error}`);
-  return data.access_token;
-}
-
-async function queryGoogleAds(accessToken, query) {
-  const cleanId = CUSTOMER_ID.replace(/-/g, "");
-  const url = `https://googleads.googleapis.com/v16/customers/${cleanId}/googleAds:searchStream`;
-
-  const headers = {
-    Authorization: `Bearer ${accessToken}`,
-    "developer-token": DEV_TOKEN,
-    "Content-Type": "application/json",
-  };
-  if (LOGIN_CUSTOMER_ID) headers["login-customer-id"] = LOGIN_CUSTOMER_ID.replace(/-/g, "");
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ query }),
-  });
-
-  const data = await res.json();
-  if (!res.ok || data.error) {
-    throw new Error(data.error?.message || `Google Ads API ${res.status}`);
-  }
-
-  const results = [];
-  (Array.isArray(data) ? data : [data]).forEach(batch => {
-    (batch.results || []).forEach(r => results.push(r));
-  });
-  return results;
+// Map campaign names to friendly types
+function getCampaignType(name) {
+  const n = (name || "").toLowerCase();
+  if (n.includes("pmax") || n.includes("performance max") || n.includes("local.")) return "Pmax";
+  if (n.includes("video")) return "Video";
+  if (n.includes("gmb") || n.includes("google my business") || n.includes("my business")) return "GMB";
+  if (n.includes("display")) return "Display";
+  return "Search";
 }
 
 export default async function handler(req, res) {
   const { dateFrom, dateTo, property } = req.query;
 
-  if (!DEV_TOKEN || !CUSTOMER_ID || !REFRESH_TOKEN || !CLIENT_ID || !CLIENT_SECRET) {
+  if (!WINDSOR_KEY) {
     return res.status(200).json({
-      error: "Google Ads API credentials not configured",
+      error: "WINDSOR_API_KEY not configured",
       configured: false,
       data: null,
     });
@@ -78,85 +35,77 @@ export default async function handler(req, res) {
   }
 
   try {
-    const accessToken = await getAccessToken();
     const propertyFilter = (property || "southall").toLowerCase();
 
-    const dailyQuery = `
-      SELECT
-        segments.date,
-        metrics.cost_micros,
-        metrics.conversions,
-        metrics.clicks,
-        metrics.impressions,
-        metrics.average_cpc,
-        campaign.name
-      FROM campaign
-      WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
-        AND campaign.status != 'REMOVED'
-      ORDER BY segments.date
-    `;
-
-    const dailyResults = await queryGoogleAds(accessToken, dailyQuery);
-
-    const filtered = dailyResults.filter(r => {
-      const name = (r.campaign?.name || "").toLowerCase();
-      if (propertyFilter === "shoreditch") return name.includes("shoreditch");
-      return name.includes("southall") || name.includes("&soul");
+    // Fetch daily campaign-level data from Windsor.ai
+    const params = new URLSearchParams({
+      api_key: WINDSOR_KEY,
+      date_from: dateFrom,
+      date_to: dateTo,
+      fields: "date,campaign,spend,impressions,clicks,conversions,cpc",
+      _renderer: "json",
     });
 
+    const url = `${WINDSOR_BASE}/google_ads?${params}`;
+    const windsorRes = await fetch(url);
+
+    if (!windsorRes.ok) {
+      const text = await windsorRes.text();
+      console.error("Windsor Google error:", windsorRes.status, text.slice(0, 500));
+      return res.status(windsorRes.status).json({
+        error: `Windsor API error: ${windsorRes.status}`,
+        configured: true,
+        data: null,
+      });
+    }
+
+    const windsorData = await windsorRes.json();
+    const rows = windsorData.data || windsorData || [];
+
+    // Filter campaigns by property name
+    const filtered = rows.filter(r => {
+      const name = (r.campaign || "").toLowerCase();
+      if (propertyFilter === "shoreditch") {
+        return name.includes("shoreditch") || name.includes("sanctuary");
+      }
+      return (name.includes("southall") || name.includes("&soul") || name.includes("google my business | southall"))
+        && !name.includes("shoreditch") && !name.includes("sanctuary");
+    });
+
+    // Aggregate by date
     const dailyMap = {};
-    let totalSpend = 0, totalConversions = 0, totalClicks = 0;
+    let totalSpend = 0, totalConversions = 0, totalClicks = 0, totalImpressions = 0;
 
     filtered.forEach(r => {
-      const date = r.segments?.date;
-      const spend = (parseInt(r.metrics?.costMicros || 0)) / 1000000;
-      const convs = parseFloat(r.metrics?.conversions || 0);
-      const clicks = parseInt(r.metrics?.clicks || 0);
+      const date = r.date;
+      const spend = parseFloat(r.spend || 0);
+      const convs = parseFloat(r.conversions || 0);
+      const clicks = parseInt(r.clicks || 0);
+      const imps = parseInt(r.impressions || 0);
 
-      if (!dailyMap[date]) dailyMap[date] = { date, spend: 0, convs: 0, clicks: 0 };
+      if (!dailyMap[date]) dailyMap[date] = { date, spend: 0, convs: 0, clicks: 0, impressions: 0 };
       dailyMap[date].spend += spend;
       dailyMap[date].convs += convs;
       dailyMap[date].clicks += clicks;
+      dailyMap[date].impressions += imps;
       totalSpend += spend;
       totalConversions += convs;
       totalClicks += clicks;
+      totalImpressions += imps;
     });
 
     const daily = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
-    const campaignQuery = `
-      SELECT
-        campaign.name,
-        metrics.cost_micros,
-        metrics.conversions,
-        metrics.clicks,
-        metrics.impressions,
-        metrics.average_cpc,
-        campaign.advertising_channel_type
-      FROM campaign
-      WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
-        AND campaign.status != 'REMOVED'
-    `;
-
-    const campResults = await queryGoogleAds(accessToken, campaignQuery);
-
+    // Campaign-level summary
     const campMap = {};
-    campResults
-      .filter(r => {
-        const name = (r.campaign?.name || "").toLowerCase();
-        if (propertyFilter === "shoreditch") return name.includes("shoreditch");
-        return name.includes("southall") || name.includes("&soul");
-      })
-      .forEach(r => {
-        const name = r.campaign?.name || "Unknown";
-        if (!campMap[name]) campMap[name] = { name, spend: 0, convs: 0, clicks: 0, impressions: 0, avgCPC: 0, type: "" };
-        campMap[name].spend += (parseInt(r.metrics?.costMicros || 0)) / 1000000;
-        campMap[name].convs += parseFloat(r.metrics?.conversions || 0);
-        campMap[name].clicks += parseInt(r.metrics?.clicks || 0);
-        campMap[name].impressions += parseInt(r.metrics?.impressions || 0);
-        const ch = r.campaign?.advertisingChannelType || "";
-        campMap[name].type = ch === "SEARCH" ? "Search" : ch === "PERFORMANCE_MAX" ? "Pmax" : ch === "VIDEO" ? "Video" : ch === "LOCAL" ? "Local" : ch;
-      });
+    filtered.forEach(r => {
+      const name = r.campaign || "Unknown";
+      if (!campMap[name]) campMap[name] = { name, spend: 0, convs: 0, clicks: 0, impressions: 0, type: getCampaignType(name) };
+      campMap[name].spend += parseFloat(r.spend || 0);
+      campMap[name].convs += parseFloat(r.conversions || 0);
+      campMap[name].clicks += parseInt(r.clicks || 0);
+      campMap[name].impressions += parseInt(r.impressions || 0);
+    });
 
     const campaigns = Object.values(campMap).map(c => ({
       ...c,
@@ -172,6 +121,7 @@ export default async function handler(req, res) {
         totalSpend,
         totalConversions: Math.round(totalConversions),
         totalClicks,
+        totalImpressions,
         avgCPC: totalClicks > 0 ? totalSpend / totalClicks : 0,
         costPerConv: totalConversions > 0 ? totalSpend / totalConversions : 0,
         dateFrom,
@@ -180,7 +130,11 @@ export default async function handler(req, res) {
       },
     });
   } catch (err) {
-    console.error("Google Ads proxy error:", err);
-    return res.status(500).json({ error: "Proxy error: " + err.message, configured: true, data: null });
+    console.error("Windsor Google proxy error:", err);
+    return res.status(500).json({
+      error: "Proxy error: " + err.message,
+      configured: true,
+      data: null,
+    });
   }
 }
