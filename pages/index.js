@@ -448,14 +448,14 @@ export default function Dashboard() {
       let allFinancials = [];
       try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { console.log("financials error:", e.message); }
 
-      // Count In House Guests — deduplicate by roomStayId to match RH "In House Guests" count
-      // Include both CHECKED_IN and CONFIRMED to match RH's "Include Confirmed" toggle
-      const inHouseGuests = allGuestStays.filter(g => {
+      // Count In House Guests — CHECKED_IN only, deduplicated by roomStayId
+      // (CONFIRMED without date filter includes future bookings, inflating the count)
+      const checkedInGuests = allGuestStays.filter(g => {
         const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-        return status === "CHECKED_IN" || status === "CONFIRMED";
+        return status === "CHECKED_IN";
       });
-      const uniqueInHouseRooms = new Set(inHouseGuests.map(g => g.roomStayId));
-      const inHouseCount = uniqueInHouseRooms.size;
+      const uniqueCheckedInRooms = new Set(checkedInGuests.map(g => g.roomStayId));
+      const inHouseCount = uniqueCheckedInRooms.size;
 
       // Count check-ins in last 7 days — unique roomStayIds only
       const checkInRooms7d = new Set();
