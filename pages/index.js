@@ -386,6 +386,8 @@ export default function Dashboard() {
   const [pmsConn,setPmsConn]=useState(false), [pmsData,setPmsData]=useState(null);
   const [mOcc,setMOcc]=useState(72), [mRate,setMRate]=useState(1450);
   const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
+  const [forecastRenewalRate, setForecastRenewalRate] = useState(75);
+  const [forecastNewPerMonth, setForecastNewPerMonth] = useState(20);
 
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
@@ -446,12 +448,14 @@ export default function Dashboard() {
       let allFinancials = [];
       try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { console.log("financials error:", e.message); }
 
-      // Count CHECKED_IN guests — matches RH "In House Guests" count (individual records, not deduplicated)
-      const checkedInGuests = allGuestStays.filter(g => {
+      // Count In House Guests — deduplicate by roomStayId to match RH "In House Guests" count
+      // Include both CHECKED_IN and CONFIRMED to match RH's "Include Confirmed" toggle
+      const inHouseGuests = allGuestStays.filter(g => {
         const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-        return status === "CHECKED_IN";
+        return status === "CHECKED_IN" || status === "CONFIRMED";
       });
-      const inHouseCount = checkedInGuests.length;
+      const uniqueInHouseRooms = new Set(inHouseGuests.map(g => g.roomStayId));
+      const inHouseCount = uniqueInHouseRooms.size;
 
       // Count check-ins in last 7 days — unique roomStayIds only
       const checkInRooms7d = new Set();
@@ -507,6 +511,74 @@ export default function Dashboard() {
 
       const totalUnits = allUnits.length || BEDS;
 
+      // ── Month-by-month occupancy forecast ──
+      // Build a 6-month forward view based on bookings with status pending/confirmed/checked_in
+      const forecastMonths = [];
+      const nowDate = new Date();
+      for (let m = 0; m < 6; m++) {
+        const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
+        const key = d.toISOString().slice(0, 7); // "YYYY-MM"
+        const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        forecastMonths.push({ key, label, daysInMonth, checkIns: 0, checkOuts: 0, activeStays: 0 });
+      }
+
+      // Count active stays per month: a guest stay is active in a month if dateFrom <= month end AND dateTo >= month start (or no dateTo = ongoing)
+      allGuestStays.forEach(g => {
+        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+        const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
+        const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
+        if (!stayFrom) return;
+
+        forecastMonths.forEach(fm => {
+          const mStart = fm.key + "-01";
+          const mEnd = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+          const overlaps = stayFrom <= mEnd && (!stayTo || stayTo >= mStart);
+          if (overlaps) fm.activeStays++;
+
+          // Count check-ins this month
+          if (stayFrom >= mStart && stayFrom <= mEnd) fm.checkIns++;
+          // Count check-outs this month
+          if (stayTo && stayTo >= mStart && stayTo <= mEnd) fm.checkOuts++;
+        });
+      });
+
+      // Deduplicate active stays by roomStayId per month
+      const forecastByRoom = [];
+      for (let m = 0; m < 6; m++) {
+        const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
+        const key = d.toISOString().slice(0, 7);
+        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        const mStart = key + "-01";
+        const mEnd = key + "-" + String(daysInMonth).padStart(2, "0");
+        const activeRooms = new Set();
+        const checkInRooms = new Set();
+        const checkOutRooms = new Set();
+
+        allGuestStays.forEach(g => {
+          const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
+          if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+          const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
+          const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
+          if (!stayFrom) return;
+          const rid = g.roomStayId ?? g.id ?? stayFrom;
+
+          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) activeRooms.add(rid);
+          if (stayFrom >= mStart && stayFrom <= mEnd) checkInRooms.add(rid);
+          if (stayTo && stayTo >= mStart && stayTo <= mEnd) checkOutRooms.add(rid);
+        });
+
+        forecastByRoom.push({
+          key,
+          label: forecastMonths[m].label,
+          activeStays: activeRooms.size,
+          checkIns: checkInRooms.size,
+          checkOuts: checkOutRooms.size,
+          occupancyPct: Math.round((activeRooms.size / BEDS) * 100),
+        });
+      }
+
       setPmsData({
         occupied: inHouseCount,
         checkInsWeek,
@@ -515,6 +587,7 @@ export default function Dashboard() {
         occupancyPct: Math.round(inHouseCount / BEDS * 100),
         revenue: monthlyRev,
         weeklyRevenue: weeklyRev,
+        forecast: forecastByRoom,
       });
       setPmsConn(true);
     }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
@@ -1012,6 +1085,160 @@ export default function Dashboard() {
                 })()}
               </div>
             </div>
+
+            {/* ── MONTH-BY-MONTH OCCUPANCY FORECAST ── */}
+            {pmsConn && pmsData?.forecast && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginTop:16}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Occupancy Forecast · 6 Months <span style={{color:C.sage}}>● live from Res Harmonics</span></p>
+                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Based on confirmed, pending & checked-in bookings in the system</p>
+
+                {/* Bar chart */}
+                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:160,marginBottom:16,padding:"0 4px"}}>
+                  {pmsData.forecast.map((fm, i) => {
+                    const pct = Math.min(fm.occupancyPct, 100);
+                    const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
+                    return (
+                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}%</span>
+                        <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:120,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
+                          <div style={{width:"100%",height:`${pct}%`,background:barColor,borderRadius:6,transition:"height 0.4s"}}/>
+                        </div>
+                        <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Detail table */}
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Active Stays</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Check-ins</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Check-outs</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Occupancy</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pmsData.forecast.map((fm, i) => (
+                        <tr key={fm.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
+                          <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}{i===0?" (current)":""}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{fm.activeStays}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{fm.checkIns}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{fm.checkOuts}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:fm.occupancyPct>=90?C.sage:fm.occupancyPct>=70?C.gold:C.rose}}>{fm.occupancyPct}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ── RENEWAL RATE PREDICTION ── */}
+            {pmsConn && pmsData?.forecast && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginTop:16}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Occupancy Prediction Model</p>
+                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Adjust renewal rate and new bookings to project future occupancy</p>
+
+                <div style={{display:"flex",gap:16,marginBottom:18,flexWrap:"wrap"}}>
+                  <div style={{flex:"1 1 200px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>Predicted renewal rate</span>
+                      <span style={{fontSize:13,fontWeight:700,color:forecastRenewalRate>=70?C.sage:forecastRenewalRate>=50?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{forecastRenewalRate}%</span>
+                    </div>
+                    <input type="range" min={0} max={100} value={forecastRenewalRate} onChange={e=>setForecastRenewalRate(+e.target.value)} style={{width:"100%",accentColor:C.sage}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>% of guests whose contracts end who will renew</p>
+                  </div>
+                  <div style={{flex:"1 1 200px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>New bookings per month</span>
+                      <span style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{forecastNewPerMonth}</span>
+                    </div>
+                    <input type="range" min={0} max={80} value={forecastNewPerMonth} onChange={e=>setForecastNewPerMonth(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Expected new move-ins per month beyond confirmed</p>
+                  </div>
+                </div>
+
+                {/* Predicted occupancy table */}
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Leaving</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Renewals</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ New</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Occ.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const rows = [];
+                        let runningOcc = pmsData.forecast[0]?.activeStays ?? occupied;
+                        pmsData.forecast.forEach((fm, i) => {
+                          if (i === 0) {
+                            rows.push({ ...fm, renewals: 0, newBookings: 0, predicted: fm.activeStays, predictedPct: fm.occupancyPct });
+                          } else {
+                            const leaving = fm.checkOuts;
+                            const renewals = Math.round(leaving * forecastRenewalRate / 100);
+                            const netChange = -leaving + renewals + forecastNewPerMonth;
+                            runningOcc = Math.max(0, Math.min(BEDS, runningOcc + netChange));
+                            const predictedPct = Math.round((runningOcc / BEDS) * 100);
+                            rows.push({ ...fm, renewals, newBookings: forecastNewPerMonth, predicted: runningOcc, predictedPct });
+                          }
+                        });
+                        return rows.map((r, i) => (
+                          <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
+                            <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{r.label}{i===0?" (actual)":""}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{r.activeStays}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewals}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newBookings}`}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:r.predictedPct>=90?C.sage:r.predictedPct>=70?C.gold:C.rose}}>
+                              {r.predicted} ({r.predictedPct}%)
+                            </td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Predicted bar chart */}
+                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:120,marginTop:16,padding:"0 4px"}}>
+                  {(() => {
+                    let runningOcc = pmsData.forecast[0]?.activeStays ?? occupied;
+                    return pmsData.forecast.map((fm, i) => {
+                      let pct;
+                      if (i === 0) { pct = fm.occupancyPct; }
+                      else {
+                        const leaving = fm.checkOuts;
+                        const renewals = Math.round(leaving * forecastRenewalRate / 100);
+                        runningOcc = Math.max(0, Math.min(BEDS, runningOcc - leaving + renewals + forecastNewPerMonth));
+                        pct = Math.round((runningOcc / BEDS) * 100);
+                      }
+                      const barPct = Math.min(pct, 100);
+                      const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
+                      return (
+                        <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                          <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{pct}%</span>
+                          <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:80,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
+                            <div style={{width:"100%",height:`${barPct}%`,background:`repeating-linear-gradient(45deg,${barColor},${barColor} 4px,${barColor}88 4px,${barColor}88 8px)`,borderRadius:6,transition:"height 0.4s"}}/>
+                          </div>
+                          <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+                <p style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:6}}>Striped bars = predicted (including renewals + new bookings)</p>
+              </div>
+            )}
+
           </div>
         )}
 
