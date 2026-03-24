@@ -446,14 +446,12 @@ export default function Dashboard() {
       let allFinancials = [];
       try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { console.log("financials error:", e.message); }
 
-      // Count CHECKED_IN guests — use unique roomStayIds to match RH "In House Guests"
-      // (guestStays has one record per person; shared rooms have 2+ records per roomStayId)
+      // Count CHECKED_IN guests — matches RH "In House Guests" count (individual records, not deduplicated)
       const checkedInGuests = allGuestStays.filter(g => {
         const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
         return status === "CHECKED_IN";
       });
-      const uniqueCheckedInRooms = new Set(checkedInGuests.map(g => g.roomStayId));
-      const inHouseCount = uniqueCheckedInRooms.size;
+      const inHouseCount = checkedInGuests.length;
 
       // Count check-ins in last 7 days — unique roomStayIds only
       const checkInRooms7d = new Set();
