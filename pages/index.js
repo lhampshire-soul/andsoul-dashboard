@@ -160,11 +160,13 @@ async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
   }
   if (dateFrom || dateTo) {
     all = all.filter(o => {
-      const d = (o.createdAt ?? o.dateAdded ?? o.created_at ?? "").slice(0,10);
-      if (!d) return true;
-      if (dateFrom && d < dateFrom) return false;
-      if (dateTo && d > dateTo) return false;
-      return true;
+      const created = (o.createdAt ?? o.dateAdded ?? o.created_at ?? "").slice(0,10);
+      const updated = (o.updatedAt ?? o.lastStatusChangeAt ?? o.updated_at ?? "").slice(0,10);
+      // Include if created OR updated/won within the date range
+      const createdInRange = created && (!dateFrom || created >= dateFrom) && (!dateTo || created <= dateTo);
+      const updatedInRange = updated && (!dateFrom || updated >= dateFrom) && (!dateTo || updated <= dateTo);
+      if (!created && !updated) return true;
+      return createdInRange || updatedInRange;
     });
   }
   return all;
@@ -202,7 +204,7 @@ async function loadGHL(dateFrom, dateTo) {
       ? o.pipelineStageId === bookedStage.id
       : (o.pipelineStage?.name ?? o.stage?.name ?? "").toLowerCase().includes("booking");
     const won = (o.status??"").toLowerCase() === "won";
-    return inBookedStage || (won && inBookedStage);
+    return inBookedStage || won;
   });
 
   const confirmedValue = confirmed.reduce((s,o) => {
