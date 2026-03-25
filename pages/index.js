@@ -106,6 +106,7 @@ const TARGET_OCC = 0.9;
 const TARGET_RATE = 300;
 const TARGET_ROOMS = Math.round(BEDS * TARGET_OCC);
 const TARGET_MONTHLY = Math.round(TARGET_ROOMS * TARGET_RATE * (52/12));
+const ROOM_TYPES = ['Ensuite', 'Nook', 'Snug', 'Snug plus', 'Cosy', 'Roomy', 'Spacious', 'Deluxe', 'Deluxe Accessible', 'Deluxe Duo'];
 
 // ─── COLOURS ──────────────────────────────────────────────────────────────────
 const C = {
@@ -118,6 +119,14 @@ const C = {
 const fmt = (n, prefix="£", dp=0) =>
   `${prefix}${Number(n).toLocaleString("en-GB",{minimumFractionDigits:dp,maximumFractionDigits:dp})}`;
 const cplColor = v => v < 7 ? C.sage : v < 13 ? C.gold : C.rose;
+
+// Extract base room type from unitTypeName
+const baseRoomType = (typeName) => {
+  if (!typeName) return 'Other';
+  const exclude = ['Bike', 'Corridor', 'Parking', 'Floor 1', 'Shuffle', 'Studios', 'Art Studio', 'Therapy Room', 'Visual Studio'];
+  if (exclude.some(e => typeName.startsWith(e))) return null;
+  return typeName.replace(/ - Flr:.*$/, '').replace(/^Premium - /, '').replace(/^Standard - /, '');
+};
 
 // ─── GHL SETTINGS ─────────────────────────────────────────────────────────────
 const GHL_LOCATION = "PwquLuIhIjj0D80e6jLU";
@@ -388,6 +397,7 @@ export default function Dashboard() {
   const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
   const [forecastRenewalRate, setForecastRenewalRate] = useState(75);
   const [forecastNewPerMonth, setForecastNewPerMonth] = useState(20);
+  const [rateAdjustments, setRateAdjustments] = useState({});
 
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
@@ -579,6 +589,96 @@ export default function Dashboard() {
         });
       }
 
+      // ── Room Type Data Processing ──
+      // Build unit ID → base room type mapping
+      const unitIdToRoomType = {};
+      const roomTypeCounts = {};
+      ROOM_TYPES.forEach(rt => roomTypeCounts[rt] = 0);
+
+      allUnits.forEach(u => {
+        const rt = baseRoomType(u.unitTypeName);
+        if (rt && ROOM_TYPES.includes(rt)) {
+          unitIdToRoomType[u.id] = rt;
+          roomTypeCounts[rt]++;
+        }
+      });
+
+      // Initialize room type data structure: 6 months of data
+      const roomTypeData = {};
+      const nowDate2 = new Date();
+      ROOM_TYPES.forEach(rt => {
+        roomTypeData[rt] = {
+          totalUnits: roomTypeCounts[rt],
+          months: [],
+          awr: 0,
+        };
+        for (let m = 0; m < 6; m++) {
+          roomTypeData[rt].months.push({ booked: 0, available: 0 });
+        }
+      });
+
+      // Count bookings per room type per month
+      allGuestStays.forEach(g => {
+        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+        const unitId = g.unitId;
+        const rt = unitIdToRoomType[unitId];
+        if (!rt) return;
+
+        const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
+        const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
+        if (!stayFrom) return;
+
+        for (let m = 0; m < 6; m++) {
+          const d = new Date(nowDate2.getFullYear(), nowDate2.getMonth() + m, 1);
+          const key = d.toISOString().slice(0, 7);
+          const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+          const mStart = key + "-01";
+          const mEnd = key + "-" + String(daysInMonth).padStart(2, "0");
+
+          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) {
+            roomTypeData[rt].months[m].booked++;
+          }
+        }
+      });
+
+      // Calculate available rooms per type per month
+      ROOM_TYPES.forEach(rt => {
+        for (let m = 0; m < 6; m++) {
+          roomTypeData[rt].months[m].available = roomTypeData[rt].totalUnits - roomTypeData[rt].months[m].booked;
+        }
+      });
+
+      // Calculate AWR (Average Weekly Rate) per room type from active bookings
+      const awrByType = {};
+      ROOM_TYPES.forEach(rt => awrByType[rt] = { sum: 0, count: 0 });
+
+      allBookings.forEach(b => {
+        const status = (b.status ?? "").toString().toUpperCase();
+        if (!["CHECKED_IN", "CONFIRMED"].includes(status)) return;
+
+        const unitId = b.unit?.id ?? b.unitId;
+        const rt = unitIdToRoomType[unitId];
+        if (!rt) return;
+
+        const startDate = b.startDate ?? b.checkInDate ?? "";
+        const endDate = b.endDate ?? b.checkOutDate ?? "";
+        const netAmount = parseFloat(b.netAmount ?? b.grossAmount ?? 0);
+
+        if (!startDate || isNaN(netAmount) || netAmount === 0) return;
+
+        const days = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
+        const weeks = Math.max(1, Math.ceil(days / 7));
+        const weeklyRate = netAmount / weeks;
+
+        awrByType[rt].sum += weeklyRate;
+        awrByType[rt].count++;
+      });
+
+      ROOM_TYPES.forEach(rt => {
+        roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sum / awrByType[rt].count) : 0;
+      });
+
       setPmsData({
         occupied: inHouseCount,
         checkInsWeek,
@@ -588,6 +688,7 @@ export default function Dashboard() {
         revenue: monthlyRev,
         weeklyRevenue: weeklyRev,
         forecast: forecastByRoom,
+        roomTypeData,
       });
       setPmsConn(true);
     }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
@@ -1230,6 +1331,189 @@ export default function Dashboard() {
                   })()}
                 </div>
                 <p style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:6}}>Striped bars = predicted (including renewals + new bookings)</p>
+              </div>
+            )}
+
+            {/* ── SECTION A: Room Type Occupancy — Month by Month ── */}
+            {pmsConn && pmsData?.roomTypeData && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginTop:18,marginBottom:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Room Type Occupancy — Month by Month</h3>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{textAlign:"left",padding:"8px 12px",color:C.muted,fontWeight:600}}>Room Type</th>
+                        {pmsData.forecast.map((fm, i) => (
+                          <th key={fm.key} style={{textAlign:"center",padding:"8px 6px",color:C.muted,fontWeight:600,fontSize:11}}>{fm.label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ROOM_TYPES.map((rt, idx) => {
+                        const data = pmsData.roomTypeData[rt];
+                        if (!data || data.totalUnits === 0) return null;
+                        return (
+                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}`}}>
+                            <td style={{padding:"10px 12px",color:C.text,fontWeight:600,fontSize:12}}>
+                              {rt} <span style={{color:C.muted,fontWeight:400}}>({data.totalUnits})</span>
+                            </td>
+                            {data.months.map((m, mi) => {
+                              const pct = data.totalUnits > 0 ? Math.round((m.booked / data.totalUnits) * 100) : 0;
+                              const occupiedColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
+                              return (
+                                <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:occupiedColor,fontWeight:600}}>
+                                  {m.booked} / {data.totalUnits}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                      <tr style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
+                        <td style={{padding:"10px 12px",color:C.muted,fontWeight:600,fontSize:12}}>Available Rooms</td>
+                        {(() => {
+                          const available = Array(6).fill(0);
+                          ROOM_TYPES.forEach(rt => {
+                            const data = pmsData.roomTypeData[rt];
+                            if (data) {
+                              data.months.forEach((m, mi) => {
+                                available[mi] += m.available;
+                              });
+                            }
+                          });
+                          return available.map((avail, mi) => (
+                            <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:C.sage,fontWeight:600}}>
+                              {avail}
+                            </td>
+                          ));
+                        })()}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION B: Live Average Weekly Rate (AWR) ── */}
+            {pmsConn && pmsData?.roomTypeData && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Live Average Weekly Rate (AWR)</h3>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:12,marginBottom:16}}>
+                  {ROOM_TYPES.map((rt) => {
+                    const data = pmsData.roomTypeData[rt];
+                    if (!data || data.totalUnits === 0) return null;
+                    const awr = data.awr;
+                    const color = awr >= TARGET_RATE ? C.sage : awr >= 250 ? C.gold : C.rose;
+                    return (
+                      <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                        <p style={{fontSize:11,color:C.muted,marginBottom:4}}>{rt}</p>
+                        <p style={{fontSize:20,fontWeight:700,color:color,fontFamily:"DM Mono,monospace",marginBottom:2}}>{fmt(awr)}</p>
+                        <p style={{fontSize:10,color:awr >= TARGET_RATE ? C.sage : C.rose}}>
+                          {awr >= TARGET_RATE ? "✓ Target met" : `£${TARGET_RATE - awr} below target`}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <p style={{fontSize:11,color:C.muted,marginBottom:4}}>Blended AWR (all types)</p>
+                      <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>
+                        {(() => {
+                          let totalRevenue = 0, totalWeeks = 0;
+                          ROOM_TYPES.forEach(rt => {
+                            const data = pmsData.roomTypeData[rt];
+                            if (data && data.awr > 0) {
+                              totalRevenue += data.awr * data.totalUnits;
+                              totalWeeks += data.totalUnits;
+                            }
+                          });
+                          const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
+                          return fmt(blendedAWR);
+                        })()}
+                      </p>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <p style={{fontSize:12,color:C.muted,marginBottom:4}}>Target: {fmt(TARGET_RATE)}</p>
+                      <p style={{fontSize:18,fontWeight:700,color:(() => {
+                        let totalRevenue = 0, totalWeeks = 0;
+                        ROOM_TYPES.forEach(rt => {
+                          const data = pmsData.roomTypeData[rt];
+                          if (data && data.awr > 0) {
+                            totalRevenue += data.awr * data.totalUnits;
+                            totalWeeks += data.totalUnits;
+                          }
+                        });
+                        const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
+                        return blendedAWR >= TARGET_RATE ? C.sage : C.rose;
+                      })(),fontFamily:"DM Mono,monospace"}}>
+                        {(() => {
+                          let totalRevenue = 0, totalWeeks = 0;
+                          ROOM_TYPES.forEach(rt => {
+                            const data = pmsData.roomTypeData[rt];
+                            if (data && data.awr > 0) {
+                              totalRevenue += data.awr * data.totalUnits;
+                              totalWeeks += data.totalUnits;
+                            }
+                          });
+                          const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
+                          const diff = blendedAWR - TARGET_RATE;
+                          return diff >= 0 ? `+${fmt(diff)}` : fmt(diff);
+                        })()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION C: Rate Adjustment & Revenue Predictor ── */}
+            {pmsConn && pmsData?.roomTypeData && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Rate Adjustment & Revenue Predictor</h3>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",gap:16}}>
+                  {ROOM_TYPES.map((rt) => {
+                    const data = pmsData.roomTypeData[rt];
+                    if (!data || data.totalUnits === 0) return null;
+
+                    const currentAWR = data.awr || TARGET_RATE;
+                    const adjustedRate = rateAdjustments[rt] ?? currentAWR;
+                    const available = data.months[0]?.available ?? 0;
+
+                    return (
+                      <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                        <p style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>{rt}</p>
+                        <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Rate for unsold rooms</p>
+                        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                          <input
+                            type="range"
+                            min="150"
+                            max="500"
+                            step="5"
+                            value={adjustedRate}
+                            onChange={(e) => setRateAdjustments(prev => ({...prev, [rt]: parseInt(e.target.value)}))}
+                            style={{flex:1}}
+                          />
+                          <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",minWidth:"45px"}}>{fmt(adjustedRate)}</span>
+                        </div>
+                        <p style={{fontSize:9,color:C.muted,marginBottom:10}}>Current: {fmt(currentAWR)} | Gap: {fmt(Math.abs(adjustedRate - currentAWR))}</p>
+                        <div style={{fontSize:10,color:C.muted,lineHeight:1.5}}>
+                          <p>Booked: {data.months[0]?.booked ?? 0} rooms</p>
+                          <p>Available: {available} rooms</p>
+                          <p style={{marginTop:6,color:C.text,fontWeight:600}}>Predicted Monthly Revenue:</p>
+                          <p style={{fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginTop:4}}>
+                            {(() => {
+                              const bookedRevenue = (data.months[0]?.booked ?? 0) * currentAWR * (52 / 12);
+                              const availableRevenue = available * adjustedRate * (52 / 12) * 0.7; // 70% fill assumption
+                              return fmt(bookedRevenue + availableRevenue);
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
