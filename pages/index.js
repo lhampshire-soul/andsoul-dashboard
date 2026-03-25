@@ -53,7 +53,6 @@ const GOOGLE_DAILY_SPEND = {
 const GOOGLE_CAMPAIGNS = [
   { name:"&Soul - Southall",             spend:3951, convs:85, avgCPC:0.84, type:"Search" },
   { name:"Southall Co Living",            spend:1007, convs:16, avgCPC:1.12, type:"Search" },
-  { name:"Google My Business | Southall", spend: 238, convs: 8, avgCPC:0.23, type:"GMB"   },
   { name:"Southall - Performance Max",    spend:  54, convs: 1, avgCPC:0.62, type:"Pmax"  },
   { name:"Southall - Local Pmax",         spend: 906, convs:42, avgCPC:0.62, type:"Pmax"  },
   { name:"&Soul - Southall Video",        spend:  98, convs: 3, avgCPC:0.88, type:"Video" },
