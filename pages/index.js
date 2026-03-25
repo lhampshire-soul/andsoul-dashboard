@@ -738,9 +738,24 @@ export default function Dashboard() {
   const [sdGhlConn, setSdGhlConn] = useState(false);
   const [sdFlats, setSdFlats] = useState(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));
   const sdGoogleFiltered = useMemo(()=>SD_GOOGLE_DAILY.filter(r=>r.date>=from&&r.date<=to),[from,to]);
-  const sdGSpend = sdGoogleFiltered.reduce((s,r)=>s+r.spend,0);
-  const sdGConvs = sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
+  // Shoreditch live Google data (reuse the same Windsor API, which excludes GMB)
+  const [sdLiveGoogleData, setSdLiveGoogleData] = useState(null);
+  const [sdGoogleIsLive, setSdGoogleIsLive] = useState(false);
+  const fetchSdLiveGoogle = useCallback(async (dateFrom, dateTo) => {
+    try {
+      const r = await fetch(`/api/google?dateFrom=${dateFrom}&dateTo=${dateTo}&property=shoreditch`);
+      const j = await r.json();
+      if (j.configured && j.data) { setSdLiveGoogleData(j.data); setSdGoogleIsLive(true); }
+      else { setSdLiveGoogleData(null); setSdGoogleIsLive(false); }
+    } catch(e) { console.log("SD Google fetch error:", e.message); setSdLiveGoogleData(null); setSdGoogleIsLive(false); }
+  }, []);
+  useEffect(()=>{ fetchSdLiveGoogle(from, to); },[from, to]);
+  // Prefer live data (GMB excluded), fall back to static
+  const sdGSpend = sdGoogleIsLive && sdLiveGoogleData ? sdLiveGoogleData.totalSpend : sdGoogleFiltered.reduce((s,r)=>s+r.spend,0);
+  const sdGConvs = sdGoogleIsLive && sdLiveGoogleData ? sdLiveGoogleData.totalConversions : sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
   const sdGCPC = sdGConvs>0?sdGSpend/sdGConvs:0;
+  const sdLiveCampaigns = sdGoogleIsLive && sdLiveGoogleData?.campaigns ? sdLiveGoogleData.campaigns : [];
+  const sdGoogleDaily = sdGoogleIsLive && sdLiveGoogleData?.daily ? sdLiveGoogleData.daily.map(r=>({date:r.date,spend:r.spend,convs:r.convs})) : sdGoogleFiltered;
   const sdMetaCpl = SD_META.leads>0?SD_META.spend/SD_META.leads:0;
   const sdTotalLeads = SD_META.leads + sdGConvs;
   const sdTotalSpend = SD_META.spend + sdGSpend;
@@ -1865,7 +1880,7 @@ export default function Dashboard() {
       {/* SHOREDITCH MARKETING */}
       {property==="shoreditch"&&sdTab==="marketing"&&(
         <div style={{padding:"22px 26px"}}>
-          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}</p>
+          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}{sdGoogleIsLive?" · live data":""}</p>
           <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
 
           <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
@@ -1879,9 +1894,9 @@ export default function Dashboard() {
 
           <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
             <div style={{flex:"1 1 280px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px",overflowX:"auto"}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Daily Google Spend — Shoreditch (£)</p>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Daily Google Spend — Shoreditch (£){sdGoogleIsLive?" · live (excl. GMB)":""}</p>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={sdGoogleFiltered.map(r=>({d:r.date.slice(5),spend:r.spend,convs:r.convs}))} margin={{top:2,right:6,bottom:0,left:-8}}>
+                <AreaChart data={sdGoogleDaily.map(r=>({d:r.date.slice(5),spend:r.spend,convs:r.convs}))} margin={{top:2,right:6,bottom:0,left:-8}}>
                   <defs>
                     <linearGradient id="gSD" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.blue} stopOpacity={0.25}/><stop offset="95%" stopColor={C.blue} stopOpacity={0}/></linearGradient>
                   </defs>
@@ -1906,6 +1921,45 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+
+          {/* Google Ads Campaign Table — Shoreditch (live, excl GMB) */}
+          {sdGoogleIsLive && sdLiveCampaigns.length > 0 && (
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginTop:16}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Shoreditch Campaigns · {rangeLabel} · live (excl. GMB)</p>
+              <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    {["Campaign","Type","Spend","Conversions","Avg CPC","Cost/Conv"].map(h=>(
+                      <th key={h} style={{textAlign:h==="Campaign"?"left":"right",padding:"8px",color:C.muted,fontWeight:500,fontSize:11}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...sdLiveCampaigns].sort((a,b)=>b.spend-a.spend).map((c,i)=>{
+                    const cpc = c.clicks > 0 ? c.spend/c.clicks : c.avgCPC || 0;
+                    const costConv = c.convs > 0 ? c.spend/c.convs : 0;
+                    return(
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                        <td style={{padding:"8px",color:C.text,maxWidth:200,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name}</td>
+                        <td style={{textAlign:"right",padding:"8px"}}><span style={{fontSize:10,background:c.type==="Search"?C.sage+"22":c.type==="Pmax"?C.gold+"22":C.purple+"22",color:c.type==="Search"?C.sage:c.type==="Pmax"?C.gold:C.purple,padding:"2px 8px",borderRadius:10}}>{c.type}</span></td>
+                        <td style={{textAlign:"right",padding:"8px",color:C.text,fontFamily:"DM Mono,monospace"}}>{fmt(c.spend)}</td>
+                        <td style={{textAlign:"right",padding:"8px",color:C.text,fontFamily:"DM Mono,monospace"}}>{c.convs}</td>
+                        <td style={{textAlign:"right",padding:"8px",color:C.text,fontFamily:"DM Mono,monospace"}}>{fmt(cpc,"£",2)}</td>
+                        <td style={{textAlign:"right",padding:"8px",color:costConv>20?C.rose:C.sage,fontFamily:"DM Mono,monospace"}}>{fmt(costConv,"£",2)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px",color:C.muted,fontWeight:600}}>Total</td>
+                    <td/>
+                    <td style={{textAlign:"right",padding:"8px",color:C.gold,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{fmt(sdGSpend)}</td>
+                    <td style={{textAlign:"right",padding:"8px",color:C.gold,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{sdGConvs}</td>
+                    <td colSpan={2} style={{textAlign:"right",padding:"8px",color:C.muted,fontFamily:"DM Mono,monospace"}}>Avg: {fmt(sdGCPC,"£",2)}/conv</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
