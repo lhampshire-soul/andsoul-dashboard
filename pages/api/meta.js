@@ -53,12 +53,18 @@ export default async function handler(req, res) {
     const rows = windsorData.data || windsorData || [];
 
     // Filter campaigns by property name
+    // Southall: only the main lead gen campaign
+    // Shoreditch: villas lead gen campaign
+    const SOUTHALL_CAMPAIGN = "southall &soul | application | website lead gen";
+    // Log all campaign names for debugging
+    const allCampaigns = [...new Set(rows.map(r => r.campaign))];
+    console.log("Meta campaigns from Windsor:", JSON.stringify(allCampaigns));
     const filtered = rows.filter(r => {
       const name = (r.campaign || "").toLowerCase();
       if (propertyFilter === "shoreditch") {
         return name.includes("shoreditch") || name.includes("villas");
       }
-      return (name.includes("southall") || name.includes("&soul")) && !name.includes("shoreditch");
+      return name === SOUTHALL_CAMPAIGN;
     });
 
     // Aggregate daily data
