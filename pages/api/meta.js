@@ -2,6 +2,9 @@
 // Server-side proxy for Meta (Facebook) ad data via Windsor.ai
 // Fetches ad spend, leads, and CPL data for date ranges at ad set level
 //
+// IMPORTANT: Windsor's Facebook connector cannot combine actions_lead + actions_onsite_conversion_lead_grouped
+// + adset_name in a single request (returns 400). So we make TWO separate requests and merge.
+//
 // Required env var:
 //   WINDSOR_API_KEY — your Windsor.ai API key (from https://app.windsor.ai/settings)
 
@@ -14,6 +17,19 @@ const META_ACCOUNT = "296625156418426"; // AndSoul
 const META_LEADS_ONLY_ADSETS = [
   "broad southall + 80km - lead form",
 ];
+
+async function fetchWindsor(dateFrom, dateTo, fields) {
+  const params = new URLSearchParams({
+    api_key: WINDSOR_KEY,
+    date_from: dateFrom,
+    date_to: dateTo,
+    fields,
+    _renderer: "json",
+  });
+  const url = `${WINDSOR_BASE}/facebook?${params}`;
+  const res = await fetch(url);
+  return res;
+}
 
 export default async function handler(req, res) {
   const { dateFrom, dateTo, property } = req.query;
@@ -33,59 +49,88 @@ export default async function handler(req, res) {
   try {
     const propertyFilter = (property || "southall").toLowerCase();
 
-    // Fetch daily ad-set-level data from Windsor.ai
-    const params = new URLSearchParams({
-      api_key: WINDSOR_KEY,
-      date_from: dateFrom,
-      date_to: dateTo,
-      fields: "date,campaign,adgroup,spend,impressions,clicks,actions_lead,actions_onsite_conversion_lead_grouped",
-      _renderer: "json",
-    });
+    // Make TWO parallel requests to avoid Windsor field combination bug:
+    // Request A: ad set level + website leads (actions_lead)
+    // Request B: ad set level + meta leads (actions_onsite_conversion_lead_grouped)
+    const [resA, resB] = await Promise.all([
+      fetchWindsor(dateFrom, dateTo, "date,campaign,adset_name,spend,impressions,clicks,actions_lead"),
+      fetchWindsor(dateFrom, dateTo, "date,campaign,adset_name,spend,actions_onsite_conversion_lead_grouped"),
+    ]);
 
-    const url = `${WINDSOR_BASE}/facebook?${params}`;
-    const windsorRes = await fetch(url);
-
-    if (!windsorRes.ok) {
-      const text = await windsorRes.text();
-      console.error("Windsor Meta error:", windsorRes.status, text.slice(0, 500));
-      return res.status(windsorRes.status).json({
-        error: `Windsor API error: ${windsorRes.status}`,
+    if (!resA.ok) {
+      const text = await resA.text();
+      console.error("Windsor Meta error (req A):", resA.status, text.slice(0, 500));
+      return res.status(resA.status).json({
+        error: `Windsor API error: ${resA.status}`,
         configured: true,
         data: null,
       });
     }
 
-    const windsorData = await windsorRes.json();
-    const rows = windsorData.data || windsorData || [];
+    const dataA = await resA.json();
+    const rowsA = dataA.data || dataA || [];
+
+    // Build a lookup from request B (meta leads) keyed by date+campaign+adset
+    let metaLeadsMap = {};
+    if (resB.ok) {
+      const dataB = await resB.json();
+      const rowsB = dataB.data || dataB || [];
+      rowsB.forEach(r => {
+        const key = `${r.date}|${r.campaign}|${r.adset_name || ""}`;
+        metaLeadsMap[key] = parseInt(r.actions_onsite_conversion_lead_grouped || 0);
+      });
+    } else {
+      console.warn("Windsor Meta: meta leads request failed, will use website leads only");
+    }
+
+    // Merge: add meta leads to each row from request A
+    const rows = rowsA.map(r => {
+      const key = `${r.date}|${r.campaign}|${r.adset_name || ""}`;
+      return {
+        ...r,
+        actions_onsite_conversion_lead_grouped: metaLeadsMap[key] || 0,
+      };
+    });
+
+    // Log for debugging
+    const allCampaigns = [...new Set(rows.map(r => r.campaign))];
+    console.log("Meta campaigns from Windsor:", JSON.stringify(allCampaigns));
+    const allAdsets = [...new Set(rows.map(r => r.adset_name).filter(Boolean))];
+    console.log("Meta ad sets:", JSON.stringify(allAdsets));
 
     // Filter campaigns by property name
     const SOUTHALL_CAMPAIGN = "southall &soul | application | website lead gen";
-    // Log all campaign names and ad sets for debugging
-    const allCampaigns = [...new Set(rows.map(r => r.campaign))];
-    const allAdsets = [...new Set(rows.map(r => r.adgroup))];
-    console.log("Meta campaigns from Windsor:", JSON.stringify(allCampaigns));
-    console.log("Meta ad sets from Windsor:", JSON.stringify(allAdsets));
-
-    const filtered = rows.filter(r => {
+    const filterRow = (r) => {
       const name = (r.campaign || "").toLowerCase();
       if (propertyFilter === "shoreditch") {
         return name.includes("shoreditch") || name.includes("villas");
       }
       return name === SOUTHALL_CAMPAIGN;
-    });
+    };
 
-    // Helper: count leads for a row, respecting the meta-leads-only rule for certain ad sets
+    const filtered = rows.filter(filterRow);
+
+    // Helper: count leads for a row based on ad set rules
     function getLeads(row) {
-      const adsetName = (row.adgroup || "").toLowerCase();
       const websiteLeads = parseInt(row.actions_lead || 0);
       const metaLeads = parseInt(row.actions_onsite_conversion_lead_grouped || 0);
+      const adsetName = (row.adset_name || "").toLowerCase();
 
-      // For specified ad sets, only count meta leads (on-platform lead forms)
-      if (META_LEADS_ONLY_ADSETS.some(a => adsetName.includes(a))) {
-        return { total: metaLeads, websiteLeads: 0, metaLeads };
+      if (adsetName) {
+        // For specified ad sets, only count meta leads (on-platform lead forms)
+        if (META_LEADS_ONLY_ADSETS.some(a => adsetName.includes(a))) {
+          return { total: metaLeads, websiteLeads: 0, metaLeads, source: "meta_leads_only" };
+        }
+        // For all other ad sets, count website leads only
+        return { total: websiteLeads, websiteLeads, metaLeads: 0, source: "website_leads" };
       }
-      // For all other ad sets, count website leads only (avoid double-counting)
-      return { total: websiteLeads, websiteLeads, metaLeads: 0 };
+
+      // No ad set info — for Southall, use meta leads only as safer default
+      if (propertyFilter === "southall") {
+        return { total: metaLeads, websiteLeads: 0, metaLeads, source: "meta_leads_default" };
+      }
+      // For other properties, use both
+      return { total: websiteLeads + metaLeads, websiteLeads, metaLeads, source: "all" };
     }
 
     // Aggregate daily data
@@ -112,16 +157,16 @@ export default async function handler(req, res) {
     // Ad set level summary
     const adsetMap = {};
     filtered.forEach(row => {
-      const adsetName = row.adgroup || "Unknown";
+      const name = row.adset_name || "Unknown";
       const campaignName = row.campaign || "Unknown";
-      if (!adsetMap[adsetName]) adsetMap[adsetName] = { name: adsetName, campaign: campaignName, spend: 0, websiteLeads: 0, metaLeads: 0, leads: 0, impressions: 0, clicks: 0 };
+      if (!adsetMap[name]) adsetMap[name] = { name, campaign: campaignName, spend: 0, websiteLeads: 0, metaLeads: 0, leads: 0, impressions: 0, clicks: 0 };
       const leads = getLeads(row);
-      adsetMap[adsetName].spend += parseFloat(row.spend || 0);
-      adsetMap[adsetName].websiteLeads += parseInt(row.actions_lead || 0);
-      adsetMap[adsetName].metaLeads += parseInt(row.actions_onsite_conversion_lead_grouped || 0);
-      adsetMap[adsetName].leads += leads.total; // Only the leads that count
-      adsetMap[adsetName].impressions += parseInt(row.impressions || 0);
-      adsetMap[adsetName].clicks += parseInt(row.clicks || 0);
+      adsetMap[name].spend += parseFloat(row.spend || 0);
+      adsetMap[name].websiteLeads += parseInt(row.actions_lead || 0);
+      adsetMap[name].metaLeads += parseInt(row.actions_onsite_conversion_lead_grouped || 0);
+      adsetMap[name].leads += leads.total;
+      adsetMap[name].impressions += parseInt(row.impressions || 0);
+      adsetMap[name].clicks += parseInt(row.clicks || 0);
     });
 
     const adsets = Object.values(adsetMap).map(a => ({
@@ -160,6 +205,7 @@ export default async function handler(req, res) {
         totalWebsiteLeads,
         totalMetaLeads,
         avgCpl: totalLeads > 0 ? totalSpend / totalLeads : 0,
+        adsetFieldFound: "adset_name",
         dateFrom,
         dateTo,
         property: propertyFilter,
