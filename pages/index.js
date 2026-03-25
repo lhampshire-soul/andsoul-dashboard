@@ -654,7 +654,7 @@ export default function Dashboard() {
       ROOM_TYPES.forEach(rt => awrByType[rt] = { sum: 0, count: 0 });
 
       allBookings.forEach(b => {
-        const status = (b.status ?? "").toString().toUpperCase();
+        const status = (b.roomStayStatus ?? b.status ?? "").toString().toUpperCase();
         if (!["CHECKED_IN", "CONFIRMED"].includes(status)) return;
 
         const unitId = b.unit?.id ?? b.unitId;
