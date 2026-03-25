@@ -38,7 +38,7 @@ export default async function handler(req, res) {
       api_key: WINDSOR_KEY,
       date_from: dateFrom,
       date_to: dateTo,
-      fields: "date,campaign,adset,spend,impressions,clicks,actions_lead,actions_onsite_conversion_lead_grouped",
+      fields: "date,campaign,adgroup,spend,impressions,clicks,actions_lead,actions_onsite_conversion_lead_grouped",
       _renderer: "json",
     });
 
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
     const SOUTHALL_CAMPAIGN = "southall &soul | application | website lead gen";
     // Log all campaign names and ad sets for debugging
     const allCampaigns = [...new Set(rows.map(r => r.campaign))];
-    const allAdsets = [...new Set(rows.map(r => r.adset))];
+    const allAdsets = [...new Set(rows.map(r => r.adgroup))];
     console.log("Meta campaigns from Windsor:", JSON.stringify(allCampaigns));
     console.log("Meta ad sets from Windsor:", JSON.stringify(allAdsets));
 
@@ -76,7 +76,7 @@ export default async function handler(req, res) {
 
     // Helper: count leads for a row, respecting the meta-leads-only rule for certain ad sets
     function getLeads(row) {
-      const adsetName = (row.adset || "").toLowerCase();
+      const adsetName = (row.adgroup || "").toLowerCase();
       const websiteLeads = parseInt(row.actions_lead || 0);
       const metaLeads = parseInt(row.actions_onsite_conversion_lead_grouped || 0);
 
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
     // Ad set level summary
     const adsetMap = {};
     filtered.forEach(row => {
-      const adsetName = row.adset || "Unknown";
+      const adsetName = row.adgroup || "Unknown";
       const campaignName = row.campaign || "Unknown";
       if (!adsetMap[adsetName]) adsetMap[adsetName] = { name: adsetName, campaign: campaignName, spend: 0, websiteLeads: 0, metaLeads: 0, leads: 0, impressions: 0, clicks: 0 };
       const leads = getLeads(row);
