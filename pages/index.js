@@ -923,6 +923,61 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Meta Ad Set Breakdown */}
+            {metaIsLive && liveMetaData?.adsets && liveMetaData.adsets.length > 0 && (
+              <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:12,padding:16,overflowX:"auto",marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Meta · Ad Set Breakdown · {rangeLabel} · live</p>
+                  <div style={{display:"flex",gap:8}}>
+                    <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,background:C.sage+"22",color:C.sage}}>Website Leads: {liveMetaData.totalWebsiteLeads ?? 0}</span>
+                    <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,background:C.gold+"22",color:C.gold}}>Meta Leads: {liveMetaData.totalMetaLeads ?? 0}</span>
+                  </div>
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:700}}>
+                  <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    {["Ad Set","Spend","Website Leads","Meta Leads","Counted Leads","Lead Source","CPL"].map(h=>(
+                      <th key={h} style={{padding:"6px 10px",textAlign:h==="Ad Set"?"left":"right",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {[...liveMetaData.adsets].sort((a,b)=>b.spend-a.spend).map((a,i)=>{
+                      const isMetaOnly = a.leadType === "meta_leads_only";
+                      return (
+                        <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"8px 10px",color:C.text,maxWidth:260}}>
+                            <p style={{marginBottom:2}}>{a.name}</p>
+                            {isMetaOnly && <span style={{fontSize:8,padding:"1px 6px",borderRadius:8,background:C.gold+"22",color:C.gold}}>Meta leads only</span>}
+                          </td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(a.spend)}</td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:isMetaOnly ? C.muted : C.sage}}>
+                            {a.websiteLeads}
+                            {isMetaOnly && <span style={{fontSize:8,color:C.rose,marginLeft:4}}>excluded</span>}
+                          </td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:isMetaOnly ? C.gold : C.muted}}>{a.metaLeads}</td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:600}}>{a.leads}</td>
+                          <td style={{textAlign:"right",padding:"8px 10px"}}>
+                            <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:isMetaOnly ? C.gold+"22" : C.sage+"22",color:isMetaOnly ? C.gold : C.sage}}>
+                              {isMetaOnly ? "Meta form" : "Website"}
+                            </span>
+                          </td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:a.cpl > 10 ? C.rose : C.sage}}>{a.leads > 0 ? fmt(a.cpl,"£",2) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot><tr style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:11}}>Total</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{fmt(metaSpend)}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{liveMetaData.totalWebsiteLeads ?? 0}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{liveMetaData.totalMetaLeads ?? 0}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{metaLeads}</td>
+                    <td/>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(metaCpl,"£",2)}/lead</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+            )}
+
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,overflowX:"auto"}}>
               <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Southall Campaigns · {rangeLabel}{googleIsLive?" · live":" · static"}</p>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:600}}>
