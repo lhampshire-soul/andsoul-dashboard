@@ -106,7 +106,6 @@ const TARGET_OCC = 0.9;
 const TARGET_RATE = 300;
 const TARGET_ROOMS = Math.round(BEDS * TARGET_OCC);
 const TARGET_MONTHLY = Math.round(TARGET_ROOMS * TARGET_RATE * (52/12));
-const ROOM_TYPES = ['Ensuite', 'Nook', 'Snug', 'Snug plus', 'Cosy', 'Roomy', 'Spacious', 'Deluxe', 'Deluxe Accessible', 'Deluxe Duo'];
 
 // ─── COLOURS ──────────────────────────────────────────────────────────────────
 const C = {
@@ -119,14 +118,6 @@ const C = {
 const fmt = (n, prefix="£", dp=0) =>
   `${prefix}${Number(n).toLocaleString("en-GB",{minimumFractionDigits:dp,maximumFractionDigits:dp})}`;
 const cplColor = v => v < 7 ? C.sage : v < 13 ? C.gold : C.rose;
-
-// Extract base room type from unitTypeName
-const baseRoomType = (typeName) => {
-  if (!typeName) return 'Other';
-  const exclude = ['Bike', 'Corridor', 'Parking', 'Floor 1', 'Shuffle', 'Studios', 'Art Studio', 'Therapy Room', 'Visual Studio'];
-  if (exclude.some(e => typeName.startsWith(e))) return null;
-  return typeName.replace(/ - Flr:.*$/, '').replace(/^Premium - /, '').replace(/^Standard - /, '');
-};
 
 // ─── GHL SETTINGS ─────────────────────────────────────────────────────────────
 const GHL_LOCATION = "PwquLuIhIjj0D80e6jLU";
@@ -169,13 +160,11 @@ async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
   }
   if (dateFrom || dateTo) {
     all = all.filter(o => {
-      const created = (o.createdAt ?? o.dateAdded ?? o.created_at ?? "").slice(0,10);
-      const updated = (o.updatedAt ?? o.lastStatusChangeAt ?? o.updated_at ?? "").slice(0,10);
-      // Include if created OR updated/won within the date range
-      const createdInRange = created && (!dateFrom || created >= dateFrom) && (!dateTo || created <= dateTo);
-      const updatedInRange = updated && (!dateFrom || updated >= dateFrom) && (!dateTo || updated <= dateTo);
-      if (!created && !updated) return true;
-      return createdInRange || updatedInRange;
+      const d = (o.createdAt ?? o.dateAdded ?? o.created_at ?? "").slice(0,10);
+      if (!d) return true;
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
     });
   }
   return all;
@@ -213,7 +202,7 @@ async function loadGHL(dateFrom, dateTo) {
       ? o.pipelineStageId === bookedStage.id
       : (o.pipelineStage?.name ?? o.stage?.name ?? "").toLowerCase().includes("booking");
     const won = (o.status??"").toLowerCase() === "won";
-    return inBookedStage || won;
+    return inBookedStage || (won && inBookedStage);
   });
 
   const confirmedValue = confirmed.reduce((s,o) => {
@@ -301,10 +290,12 @@ export default function Dashboard() {
   const [tab, setTab] = useState("marketing");
   const [property, setProperty] = useState("southall");
   const [sdTab, setSdTab] = useState("marketing");
-  const [preset, setPreset] = useState(30);
-  const todayISO = new Date().toISOString().slice(0,10);
-  const [from, setFrom] = useState(()=>{const d=new Date();d.setDate(d.getDate()-29);return d.toISOString().slice(0,10);});
-  const [to,   setTo]   = useState(todayISO);
+  const [preset, setPreset] = useState(7);
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 30);
+  const [from, setFrom] = useState(thirtyDaysAgo.toISOString().slice(0,10));
+  const [to,   setTo]   = useState(today.toISOString().slice(0,10));
 
   useEffect(()=>{
     if(!preset) return;
@@ -316,60 +307,96 @@ export default function Dashboard() {
 
   const rangeLabel = preset ? `Last ${preset}d` : `${from} → ${to}`;
 
-  // ─── LIVE DATA: Meta + Google via Windsor.ai ────────────────────────────────
+  // ─── LIVE API STATE ──────────────────────────────────────────────────────────
   const [liveMetaData, setLiveMetaData] = useState(null);
+  const [liveMetaLoading, setLiveMetaLoading] = useState(false);
+  const [liveMetaConfigured, setLiveMetaConfigured] = useState(null); // null=unknown, true/false
   const [liveGoogleData, setLiveGoogleData] = useState(null);
-  const [metaIsLive, setMetaIsLive] = useState(false);
-  const [googleIsLive, setGoogleIsLive] = useState(false);
-  const [adLoading, setAdLoading] = useState(false);
+  const [liveGoogleLoading, setLiveGoogleLoading] = useState(false);
+  const [liveGoogleConfigured, setLiveGoogleConfigured] = useState(null);
 
+  // Fetch live Meta data
   const fetchLiveMeta = useCallback(async (dateFrom, dateTo, prop) => {
+    setLiveMetaLoading(true);
     try {
-      const r = await fetch(`/api/meta?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
-      const j = await r.json();
-      if (j.configured && j.data) { setLiveMetaData(j.data); setMetaIsLive(true); }
-      else { setLiveMetaData(null); setMetaIsLive(false); }
-    } catch(e) { console.log("Meta fetch error:", e.message); setLiveMetaData(null); setMetaIsLive(false); }
+      const res = await fetch(`/api/meta?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
+      const json = await res.json();
+      setLiveMetaConfigured(json.configured ?? false);
+      if (json.configured && json.data) {
+        setLiveMetaData(json.data);
+        console.log("Live Meta data loaded:", json.data);
+      }
+    } catch (e) { console.log("Meta API fetch error:", e.message); }
+    finally { setLiveMetaLoading(false); }
   }, []);
 
+  // Fetch live Google data
   const fetchLiveGoogle = useCallback(async (dateFrom, dateTo, prop) => {
+    setLiveGoogleLoading(true);
     try {
-      const r = await fetch(`/api/google?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
-      const j = await r.json();
-      if (j.configured && j.data) { setLiveGoogleData(j.data); setGoogleIsLive(true); }
-      else { setLiveGoogleData(null); setGoogleIsLive(false); }
-    } catch(e) { console.log("Google fetch error:", e.message); setLiveGoogleData(null); setGoogleIsLive(false); }
+      const res = await fetch(`/api/google?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
+      const json = await res.json();
+      setLiveGoogleConfigured(json.configured ?? false);
+      if (json.configured && json.data) {
+        setLiveGoogleData(json.data);
+        console.log("Live Google data loaded:", json.data);
+      }
+    } catch (e) { console.log("Google API fetch error:", e.message); }
+    finally { setLiveGoogleLoading(false); }
   }, []);
 
-  useEffect(()=>{
-    setAdLoading(true);
-    Promise.all([fetchLiveMeta(from, to, property), fetchLiveGoogle(from, to, property)])
-      .finally(()=>setAdLoading(false));
+  // Auto-fetch live data on mount and when date/property changes
+  useEffect(() => {
+    fetchLiveMeta(from, to, property);
+    fetchLiveGoogle(from, to, property);
   }, [from, to, property]);
 
-  // ─── COMPUTED: prefer live data, fall back to static ────────────────────────
+  // ─── MARKETING DATA (live → fallback to static) ────────────────────────────
   const metaRows  = useMemo(()=>META_DAILY.filter(r=>r.iso>=from&&r.iso<=to),[from,to]);
 
-  // Chart data: live or static
-  const chartData = useMemo(()=>{
-    if (metaIsLive && liveMetaData?.daily) {
-      return liveMetaData.daily.map(d => {
-        const gDay = googleIsLive && liveGoogleData?.daily ? liveGoogleData.daily.find(g=>g.date===d.date) : null;
-        const dt = new Date(d.date);
-        return { d: `${dt.getDate()}/${dt.getMonth()+1}`, meta: d.spend, google: gDay ? gDay.spend : 0, leads: d.leads, cpl: d.leads > 0 ? d.spend/d.leads : 0 };
-      });
-    }
-    return metaRows.map(r=>({d:r.d,meta:r.spend,google:GOOGLE_DAILY_SPEND[r.iso]??0,leads:r.leads,cpl:r.cpl}));
-  },[metaIsLive, liveMetaData, googleIsLive, liveGoogleData, metaRows]);
+  // Use live Meta data if available, otherwise fall back to static
+  const metaSpend = liveMetaData ? liveMetaData.totalSpend : metaRows.reduce((s,r)=>s+r.spend,0);
+  const metaLeads = liveMetaData ? liveMetaData.totalLeads : metaRows.reduce((s,r)=>s+r.leads,0);
+  const metaCpl   = liveMetaData ? liveMetaData.avgCpl : (metaLeads>0 ? metaSpend/metaLeads : 0);
 
-  const metaSpend = metaIsLive && liveMetaData ? liveMetaData.totalSpend : metaRows.reduce((s,r)=>s+r.spend,0);
-  const metaLeads = metaIsLive && liveMetaData ? liveMetaData.totalLeads : metaRows.reduce((s,r)=>s+r.leads,0);
-  const metaCpl   = metaLeads>0 ? metaSpend/metaLeads : 0;
-  const gSpend    = googleIsLive && liveGoogleData ? liveGoogleData.totalSpend : metaRows.reduce((s,r)=>s+(GOOGLE_DAILY_SPEND[r.iso]??0),0);
-  const gConvs    = googleIsLive && liveGoogleData ? liveGoogleData.totalConversions : GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0);
+  // Use live Google data if available, otherwise fall back to static
+  const gSpend    = liveGoogleData ? liveGoogleData.totalSpend : metaRows.reduce((s,r)=>s+(GOOGLE_DAILY_SPEND[r.iso]??0),0);
+  const gConvs    = liveGoogleData ? liveGoogleData.totalConversions : GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0);
   const googleCostPerSubmit = gConvs>0 ? gSpend/gConvs : 0;
   const blendedAvgCPL = (metaLeads+gConvs)>0 ? (metaSpend+gSpend)/(metaLeads+gConvs) : 0;
-  const liveCampaigns = googleIsLive && liveGoogleData?.campaigns ? liveGoogleData.campaigns : GOOGLE_CAMPAIGNS;
+
+  // Chart data — live or static
+  const chartData = useMemo(()=>{
+    if (liveMetaData && liveMetaData.daily?.length > 0) {
+      return liveMetaData.daily.map(r => ({
+        d: r.date.slice(5).replace(/-/g,"/"),
+        meta: r.spend,
+        google: liveGoogleData?.daily?.find(g=>g.date===r.date)?.spend ?? 0,
+        leads: r.leads,
+        cpl: r.cpl,
+      }));
+    }
+    if (liveGoogleData && liveGoogleData.daily?.length > 0 && !liveMetaData) {
+      return liveGoogleData.daily.map(r => ({
+        d: r.date.slice(5).replace(/-/g,"/"),
+        meta: 0,
+        google: r.spend,
+        leads: 0,
+        cpl: 0,
+      }));
+    }
+    return metaRows.map(r=>({d:r.d,meta:r.spend,google:GOOGLE_DAILY_SPEND[r.iso]??0,leads:r.leads,cpl:r.cpl}));
+  },[liveMetaData, liveGoogleData, metaRows]);
+
+  // Google campaigns — live or static
+  const googleCampaigns = useMemo(() => {
+    if (liveGoogleData && liveGoogleData.campaigns?.length > 0) return liveGoogleData.campaigns;
+    return GOOGLE_CAMPAIGNS;
+  }, [liveGoogleData]);
+
+  // Data source indicator
+  const metaIsLive = !!(liveMetaData && liveMetaConfigured);
+  const googleIsLive = !!(liveGoogleData && liveGoogleConfigured);
 
   // GHL
   const [ghlLoading, setGhlLoad] = useState(false);
@@ -395,9 +422,6 @@ export default function Dashboard() {
   const [pmsConn,setPmsConn]=useState(false), [pmsData,setPmsData]=useState(null);
   const [mOcc,setMOcc]=useState(72), [mRate,setMRate]=useState(1450);
   const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
-  const [forecastRenewalRate, setForecastRenewalRate] = useState(75);
-  const [forecastNewPerMonth, setForecastNewPerMonth] = useState(20);
-  const [rateAdjustments, setRateAdjustments] = useState({});
 
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
@@ -458,8 +482,8 @@ export default function Dashboard() {
       let allFinancials = [];
       try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { console.log("financials error:", e.message); }
 
-      // Count In House Guests — CHECKED_IN only, deduplicated by roomStayId
-      // (CONFIRMED without date filter includes future bookings, inflating the count)
+      // Count CHECKED_IN guests — use unique roomStayIds to match RH "In House Guests"
+      // (guestStays has one record per person; shared rooms have 2+ records per roomStayId)
       const checkedInGuests = allGuestStays.filter(g => {
         const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
         return status === "CHECKED_IN";
@@ -521,164 +545,6 @@ export default function Dashboard() {
 
       const totalUnits = allUnits.length || BEDS;
 
-      // ── Month-by-month occupancy forecast ──
-      // Build a 6-month forward view based on bookings with status pending/confirmed/checked_in
-      const forecastMonths = [];
-      const nowDate = new Date();
-      for (let m = 0; m < 6; m++) {
-        const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
-        const key = d.toISOString().slice(0, 7); // "YYYY-MM"
-        const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        forecastMonths.push({ key, label, daysInMonth, checkIns: 0, checkOuts: 0, activeStays: 0 });
-      }
-
-      // Count active stays per month: a guest stay is active in a month if dateFrom <= month end AND dateTo >= month start (or no dateTo = ongoing)
-      allGuestStays.forEach(g => {
-        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-        const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
-        const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
-        if (!stayFrom) return;
-
-        forecastMonths.forEach(fm => {
-          const mStart = fm.key + "-01";
-          const mEnd = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
-          const overlaps = stayFrom <= mEnd && (!stayTo || stayTo >= mStart);
-          if (overlaps) fm.activeStays++;
-
-          // Count check-ins this month
-          if (stayFrom >= mStart && stayFrom <= mEnd) fm.checkIns++;
-          // Count check-outs this month
-          if (stayTo && stayTo >= mStart && stayTo <= mEnd) fm.checkOuts++;
-        });
-      });
-
-      // Deduplicate active stays by roomStayId per month
-      const forecastByRoom = [];
-      for (let m = 0; m < 6; m++) {
-        const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
-        const key = d.toISOString().slice(0, 7);
-        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        const mStart = key + "-01";
-        const mEnd = key + "-" + String(daysInMonth).padStart(2, "0");
-        const activeRooms = new Set();
-        const checkInRooms = new Set();
-        const checkOutRooms = new Set();
-
-        allGuestStays.forEach(g => {
-          const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-          if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-          const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
-          const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
-          if (!stayFrom) return;
-          const rid = g.roomStayId ?? g.id ?? stayFrom;
-
-          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) activeRooms.add(rid);
-          if (stayFrom >= mStart && stayFrom <= mEnd) checkInRooms.add(rid);
-          if (stayTo && stayTo >= mStart && stayTo <= mEnd) checkOutRooms.add(rid);
-        });
-
-        forecastByRoom.push({
-          key,
-          label: forecastMonths[m].label,
-          activeStays: activeRooms.size,
-          checkIns: checkInRooms.size,
-          checkOuts: checkOutRooms.size,
-          occupancyPct: Math.round((activeRooms.size / BEDS) * 100),
-        });
-      }
-
-      // ── Room Type Data Processing ──
-      // Build unit ID → base room type mapping
-      const unitIdToRoomType = {};
-      const roomTypeCounts = {};
-      ROOM_TYPES.forEach(rt => roomTypeCounts[rt] = 0);
-
-      allUnits.forEach(u => {
-        const rt = baseRoomType(u.unitTypeName);
-        if (rt && ROOM_TYPES.includes(rt)) {
-          unitIdToRoomType[u.id] = rt;
-          roomTypeCounts[rt]++;
-        }
-      });
-
-      // Initialize room type data structure: 6 months of data
-      const roomTypeData = {};
-      const nowDate2 = new Date();
-      ROOM_TYPES.forEach(rt => {
-        roomTypeData[rt] = {
-          totalUnits: roomTypeCounts[rt],
-          months: [],
-          awr: 0,
-        };
-        for (let m = 0; m < 6; m++) {
-          roomTypeData[rt].months.push({ booked: 0, available: 0 });
-        }
-      });
-
-      // Count bookings per room type per month
-      allGuestStays.forEach(g => {
-        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-        const unitId = g.unitId;
-        const rt = unitIdToRoomType[unitId];
-        if (!rt) return;
-
-        const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
-        const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
-        if (!stayFrom) return;
-
-        for (let m = 0; m < 6; m++) {
-          const d = new Date(nowDate2.getFullYear(), nowDate2.getMonth() + m, 1);
-          const key = d.toISOString().slice(0, 7);
-          const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-          const mStart = key + "-01";
-          const mEnd = key + "-" + String(daysInMonth).padStart(2, "0");
-
-          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) {
-            roomTypeData[rt].months[m].booked++;
-          }
-        }
-      });
-
-      // Calculate available rooms per type per month
-      ROOM_TYPES.forEach(rt => {
-        for (let m = 0; m < 6; m++) {
-          roomTypeData[rt].months[m].available = roomTypeData[rt].totalUnits - roomTypeData[rt].months[m].booked;
-        }
-      });
-
-      // Calculate AWR (Average Weekly Rate) per room type from active bookings
-      const awrByType = {};
-      ROOM_TYPES.forEach(rt => awrByType[rt] = { sum: 0, count: 0 });
-
-      allBookings.forEach(b => {
-        const status = (b.roomStayStatus ?? b.status ?? "").toString().toUpperCase();
-        if (!["CHECKED_IN", "CONFIRMED"].includes(status)) return;
-
-        const unitId = b.unit?.id ?? b.unitId;
-        const rt = unitIdToRoomType[unitId];
-        if (!rt) return;
-
-        const startDate = b.startDate ?? b.checkInDate ?? "";
-        const endDate = b.endDate ?? b.checkOutDate ?? "";
-        const netAmount = parseFloat(b.netAmount ?? b.grossAmount ?? 0);
-
-        if (!startDate || isNaN(netAmount) || netAmount === 0) return;
-
-        const days = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
-        const weeks = Math.max(1, Math.ceil(days / 7));
-        const weeklyRate = netAmount / weeks;
-
-        awrByType[rt].sum += weeklyRate;
-        awrByType[rt].count++;
-      });
-
-      ROOM_TYPES.forEach(rt => {
-        roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sum / awrByType[rt].count) : 0;
-      });
-
       setPmsData({
         occupied: inHouseCount,
         checkInsWeek,
@@ -687,8 +553,6 @@ export default function Dashboard() {
         occupancyPct: Math.round(inHouseCount / BEDS * 100),
         revenue: monthlyRev,
         weeklyRevenue: weeklyRev,
-        forecast: forecastByRoom,
-        roomTypeData,
       });
       setPmsConn(true);
     }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
@@ -703,34 +567,6 @@ export default function Dashboard() {
   const [trustpilotRating, setTrustpilotRating] = useState(3.55);
   const [trustpilotCount, setTrustpilotCount] = useState(28);
   const [mentions, setMentions] = useState("");
-  const [repLive, setRepLive] = useState({ trustpilot: false, google: false, airbnb: false });
-  const [repLoading, setRepLoading] = useState(false);
-
-  // Fetch live reputation data on mount
-  useEffect(() => {
-    setRepLoading(true);
-    fetch("/api/reputation")
-      .then(r => r.json())
-      .then(data => {
-        if (data.trustpilot && !data.trustpilot.error && data.trustpilot.rating != null) {
-          setTrustpilotRating(data.trustpilot.rating);
-          setTrustpilotCount(data.trustpilot.count || 0);
-          setRepLive(p => ({ ...p, trustpilot: true }));
-        }
-        if (data.google && !data.google.error && data.google.rating != null) {
-          setGmbRating(data.google.rating);
-          setGmbCount(data.google.count || 0);
-          setRepLive(p => ({ ...p, google: true }));
-        }
-        if (data.airbnb && !data.airbnb.error && data.airbnb.rating != null) {
-          setAirbnbRating(data.airbnb.rating);
-          setAirbnbCount(data.airbnb.count || 0);
-          setRepLive(p => ({ ...p, airbnb: true }));
-        }
-      })
-      .catch(e => console.log("Reputation fetch error:", e.message))
-      .finally(() => setRepLoading(false));
-  }, []);
 
   // Shoreditch
   const [sdGhlLoading, setSdGhlLoad] = useState(false);
@@ -739,12 +575,15 @@ export default function Dashboard() {
   const [sdGhlConn, setSdGhlConn] = useState(false);
   const [sdFlats, setSdFlats] = useState(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));
   const sdGoogleFiltered = useMemo(()=>SD_GOOGLE_DAILY.filter(r=>r.date>=from&&r.date<=to),[from,to]);
-  const sdGSpend = sdGoogleFiltered.reduce((s,r)=>s+r.spend,0);
-  const sdGConvs = sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
+  // Shoreditch marketing — live data when property=shoreditch, else fallback to static
+  const sdGSpend = (property==="shoreditch"&&liveGoogleData) ? liveGoogleData.totalSpend : sdGoogleFiltered.reduce((s,r)=>s+r.spend,0);
+  const sdGConvs = (property==="shoreditch"&&liveGoogleData) ? liveGoogleData.totalConversions : sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
   const sdGCPC = sdGConvs>0?sdGSpend/sdGConvs:0;
-  const sdMetaCpl = SD_META.leads>0?SD_META.spend/SD_META.leads:0;
-  const sdTotalLeads = SD_META.leads + sdGConvs;
-  const sdTotalSpend = SD_META.spend + sdGSpend;
+  const sdLiveMetaSpend = (property==="shoreditch"&&liveMetaData) ? liveMetaData.totalSpend : SD_META.spend;
+  const sdLiveMetaLeads = (property==="shoreditch"&&liveMetaData) ? liveMetaData.totalLeads : SD_META.leads;
+  const sdMetaCpl = sdLiveMetaLeads>0?sdLiveMetaSpend/sdLiveMetaLeads:0;
+  const sdTotalLeads = sdLiveMetaLeads + sdGConvs;
+  const sdTotalSpend = sdLiveMetaSpend + sdGSpend;
   const sdBlendedCpl = sdTotalLeads>0 ? sdTotalSpend/sdTotalLeads : 0;
   const sdOcc = useMemo(()=>{
     let o=0,i=0,v=0,t=0;
@@ -773,19 +612,28 @@ export default function Dashboard() {
         ||pipelines.find(p=>p.name?.trim()===SD_GHL_PIPELINE);
       if(!pipeline) throw new Error("Shoreditch pipeline not found. Available: "+pipelines.map(p=>p.name).join(", "));
       const stages=pipeline.stages??[];
-      const opps=await fetchAllOpps(pipeline.id,f,t);
-      // Filter by "applied for villas" tag
+      // Fetch ALL opps (no date filter) so we get the full pipeline picture
+      const opps=await fetchAllOpps(pipeline.id, null, null);
+      // Also fetch date-filtered opps for the "new in range" count
+      const oppsInRange=await fetchAllOpps(pipeline.id,f,t);
+      // Filter by "applied for villas" tag or stage
       const TAG_APPLIED="applied for villas";
-      const appliedByTag=opps.filter(o=>(o.tags??[]).some(tag=>tag.toLowerCase().trim()===TAG_APPLIED));
-      // Also find the applied stage for fallback display
-      const appliedStage=stages.find(s=>(s.name||"").toLowerCase().includes("applied"));
+      const appliedByTag=opps.filter(o=>(o.tags??[]).some(tag=>tag.toLowerCase().trim().includes("applied")));
+      // Find "Applied for Villas" stage (exact or partial match)
+      const appliedStage=stages.find(s=>{
+        const sn=(s.name||"").toLowerCase();
+        return sn.includes("applied for villas")||sn.includes("applied")||sn.includes("villas");
+      });
       const appliedByStage=appliedStage?opps.filter(o=>o.pipelineStageId===appliedStage.id):[];
-      // Use tag-based count as primary, stage as secondary
-      const appliedCount=appliedByTag.length>0?appliedByTag.length:appliedByStage.length;
-      const appliedLabel=appliedByTag.length>0?"applied for villas tag":(appliedStage?.name||"Applied stage");
-      setSdGhlData({pipelineName:pipeline.name,stages:stages.map(s=>({id:s.id,name:s.name})),totalOpps:opps.length,applied:appliedCount,appliedStageName:appliedLabel,appliedByTag:appliedByTag.length,appliedByStage:appliedByStage.length});
+      // Count opps per stage for debugging
+      const perStage=stages.map(s=>({stageName:s.name,count:opps.filter(o=>o.pipelineStageId===s.id).length}));
+      // Use stage-based count as primary (more reliable), tag as secondary
+      const appliedCount=appliedByStage.length>0?appliedByStage.length:(appliedByTag.length>0?appliedByTag.length:0);
+      const appliedLabel=appliedByStage.length>0?(appliedStage?.name||"Applied stage"):(appliedByTag.length>0?"applied tag match":"No match found");
+      console.log("SD GHL Debug:", {totalOpps:opps.length, oppsInRange:oppsInRange.length, appliedByTag:appliedByTag.length, appliedByStage:appliedByStage.length, stages:stages.map(s=>s.name), perStage});
+      setSdGhlData({pipelineName:pipeline.name,stages:stages.map(s=>({id:s.id,name:s.name})),totalOpps:opps.length,totalInRange:oppsInRange.length,applied:appliedCount,appliedStageName:appliedLabel,appliedByTag:appliedByTag.length,appliedByStage:appliedByStage.length,perStage:perStage});
       setSdGhlConn(true);
-    }catch(e){setSdGhlErr(e.message);}
+    }catch(e){setSdGhlErr(e.message);console.error("SD GHL Error:",e);}
     finally{setSdGhlLoad(false);}
   },[]);
 
@@ -839,7 +687,7 @@ export default function Dashboard() {
           ))}
           <input type="date" value={from} onChange={e=>{setFrom(e.target.value);setPreset(null);}} style={dinp}/>
           <span style={{fontSize:11,color:C.muted}}>→</span>
-          <input type="date" value={to} onChange={e=>{setTo(e.target.value);setPreset(null);}} style={dinp}/>
+          <input type="date" value={to}   onChange={e=>{setTo(e.target.value);setPreset(null);}}   style={dinp}/>
           <span style={{marginLeft:"auto",fontSize:11,color:C.gold,fontFamily:"DM Mono,monospace"}}>{from} → {to}</span>
         </div>
 
@@ -862,8 +710,8 @@ export default function Dashboard() {
         {/* ════ MARKETING ════ */}
         {property==="southall"&&tab==="marketing"&&(
           <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall only · {rangeLabel} · {metaIsLive||googleIsLive?"live data":"static data"}{adLoading?" · loading…":""}</p>
-            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall only · {from} → {to} · {metaIsLive||googleIsLive?"live data":"form submit leads only"}</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance {(liveMetaLoading||liveGoogleLoading)&&<span style={{fontSize:12,color:C.muted,fontWeight:400}}>Loading live data…</span>}</h2>
 
             <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
               <KPI label="Total Spend"         value={fmt(metaSpend+gSpend)}  sub="Meta + Google · Southall"         accent={C.gold}/>
@@ -910,7 +758,7 @@ export default function Dashboard() {
             </div>
 
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,overflowX:"auto"}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Southall Campaigns · {rangeLabel}{googleIsLive?" · live":" · static"}</p>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Southall Campaigns · {rangeLabel} {googleIsLive?<span style={{color:C.sage}}>· live</span>:"· static data"}</p>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:600}}>
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
                   {["Campaign","Type","Spend","Form Submits","Avg CPC","Cost/Submit"].map(h=>(
@@ -918,9 +766,9 @@ export default function Dashboard() {
                   ))}
                 </tr></thead>
                 <tbody>
-                  {[...liveCampaigns].sort((a,b)=>b.spend-a.spend).map((c,i)=>{
-                    const max=Math.max(...liveCampaigns.map(x=>x.spend));
-                    const cpc2=(c.convs||c.leads)>0?c.spend/(c.convs||c.leads):null;
+                  {[...googleCampaigns].sort((a,b)=>b.spend-a.spend).map((c,i)=>{
+                    const max=Math.max(...googleCampaigns.map(x=>x.spend));
+                    const cpc2=c.convs>0?c.spend/c.convs:null;
                     const tc={Search:C.blue,GMB:C.sage,Pmax:C.gold,Video:C.rose};
                     return <tr key={i} style={{borderBottom:`1px solid ${C.border}`}} onMouseEnter={e=>e.currentTarget.style.background="#ffffff07"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                       <td style={{padding:"9px 10px"}}>
@@ -937,9 +785,9 @@ export default function Dashboard() {
                 </tbody>
                 <tfoot><tr style={{borderTop:`1px solid ${C.border}`}}>
                   <td colSpan={2} style={{padding:"9px 10px",color:C.muted,fontSize:11}}>Total</td>
-                  <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{fmt(liveCampaigns.reduce((s,c)=>s+c.spend,0))}</td>
+                  <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{fmt(googleCampaigns.reduce((s,c)=>s+c.spend,0))}</td>
                   <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{gConvs}</td>
-                  <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(gConvs>0?liveCampaigns.reduce((s,c)=>s+c.spend,0)/gConvs:0,"£",2)}/submit</td>
+                  <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(googleCampaigns.reduce((s,c)=>s+c.spend,0)/gConvs,"£",2)}/submit</td>
                 </tr></tfoot>
               </table>
             </div>
@@ -1076,57 +924,68 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* ── TODAY'S SNAPSHOT ── */}
-            <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18,marginBottom:16}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                <div>
-                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Today · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</p>
-                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Current in-house occupancy (checked-in guests only)</p>
-                </div>
-                {pmsConn&&<span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>}
-              </div>
-              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:16}}>
-                  <OccRing pct={occPct}/>
+            <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
+              <div style={{flex:"1.5 1 250px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,borderTop:`2px solid ${C.gold}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <div>
-                    <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {BEDS}</span></p>
-                    <p style={{fontSize:12,color:C.muted}}>rooms occupied today</p>
+                    <p style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · Southall</p>
+                    <p style={{color:C.text,fontSize:17,fontWeight:700,marginTop:4}}>{pmsConn ? `${occupied} checked in` : `${occupied} / ${BEDS} beds`} {pmsConn&&<span style={{fontSize:10,color:C.sage}}>● live</span>}</p>
                   </div>
+                  <OccRing pct={occPct}/>
                 </div>
-                <div style={{flex:"1 1 200px",display:"flex",flexDirection:"column",gap:8}}>
-                  {(pmsConn&&pmsData?[
-                    {label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},
-                    {label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},
-                    {label:"Revenue this month",value:fmt(monthRev),color:C.gold},
-                    {label:"Revenue this week",value:fmt(weekRev),color:C.text},
-                  ]:[
-                    {label:"Occupancy %",value:`${mOcc}%`,color:C.gold},
-                    {label:"Est. monthly revenue",value:fmt(monthRev),color:C.gold},
-                  ]).map(x=>(
-                    <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-                      <span style={{fontSize:12,color:C.muted}}>{x.label}</span>
-                      <span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
+                {!pmsConn&&(<>
+                  <div style={{marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
+                    <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
+                    <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                  </div>
+                </>)}
+                <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:13,color:C.muted}}>{pmsConn ? "Revenue this month" : "Est. monthly revenue"}</span>
+                  <span style={{fontSize:16,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(monthRev)}</span>
+                </div>
+                {pmsConn&&<div style={{background:C.bg,borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <span style={{fontSize:13,color:C.muted}}>Revenue this week</span>
+                  <span style={{fontSize:16,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{fmt(weekRev)}</span>
+                </div>}
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
+                  <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.round(BEDS*.95)-occupied} to go`}</span>
+                </div>
+                <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
+                  <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
+                  <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
+                </div>
+              </div>
+
+              <div style={{flex:"1 1 200px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Booking Activity {pmsConn?<span style={{color:C.sage}}>· live</span>:"· manual"}</p>
+                {pmsConn&&pmsData?(
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {[{label:"Checked in",value:pmsData.occupied,color:C.gold},{label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},{label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},{label:"Revenue this month",value:fmt(monthRev),color:C.sage},{label:"Revenue this week",value:fmt(weekRev),color:C.text}].map(x=>(
+                      <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                        <span style={{fontSize:13,color:C.muted}}>{x.label}</span>
+                        <span style={{fontSize:14,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{typeof x.value === 'number' ? x.value : x.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {[{label:"New bookings this week",val:mBook,set:setMBook,max:50,color:C.sage},{label:"Renewals this month",val:mRen,set:setMRen,max:50,color:C.sage},{label:"Move-outs / churn",val:mChurn,set:setMChurn,max:30,color:C.rose}].map(x=>(
+                      <div key={x.label}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>{x.label}</span><span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.val}</span></div>
+                        <input type="range" min={0} max={x.max} value={x.val} onChange={e=>x.set(+e.target.value)} style={{width:"100%",accentColor:x.color}}/>
+                      </div>
+                    ))}
+                    <div style={{background:C.bg,borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between"}}>
+                      <span style={{fontSize:12,color:C.muted}}>Renewal rate</span>
+                      <span style={{fontSize:13,fontWeight:700,fontFamily:"DM Mono,monospace",color:renewRate>=80?C.sage:renewRate>=60?C.gold:C.rose}}>{renewRate}%</span>
                     </div>
-                  ))}
-                </div>
-              </div>
-              {!pmsConn&&(<div style={{marginTop:12,display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div style={{flex:1,minWidth:150}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
-                  <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
-                </div>
-                <div style={{flex:1,minWidth:150}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
-                  <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
-                </div>
-              </div>)}
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:12,marginBottom:4}}>
-                <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
-                <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.round(BEDS*.95)-occupied} to go`}</span>
-              </div>
-              <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
-                <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
-                <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1175,616 +1034,13 @@ export default function Dashboard() {
                 })()}
               </div>
             </div>
-
-            {/* ── MONTH-BY-MONTH OCCUPANCY FORECAST ── */}
-            {pmsConn && pmsData?.forecast && (
-              <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:14,padding:18,marginTop:16}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                  <p style={{fontSize:11,color:C.sage,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Future Occupancy · Month by Month</p>
-                  <span style={{fontSize:10,color:C.sage}}>● LIVE from Res Harmonics</span>
-                </div>
-                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>All pending, confirmed & checked-in bookings out of {BEDS} rooms</p>
-
-                {/* Bar chart with room counts */}
-                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:180,marginBottom:16,padding:"0 4px"}}>
-                  {pmsData.forecast.map((fm, i) => {
-                    const pct = Math.min(fm.occupancyPct, 100);
-                    const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
-                    return (
-                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                        <span style={{fontSize:12,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{fm.activeStays}</span>
-                        <span style={{fontSize:9,color:C.muted}}>/ {BEDS}</span>
-                        <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:120,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
-                          <div style={{width:"100%",height:`${pct}%`,background:barColor,borderRadius:6,transition:"height 0.4s"}}/>
-                        </div>
-                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}%</span>
-                        <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Detail table */}
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead>
-                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked / {BEDS}</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Arrivals</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Departures</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Occupancy</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pmsData.forecast.map((fm, i) => (
-                        <tr key={fm.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
-                          <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}{i===0?" (current)":""}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{fm.activeStays} <span style={{color:C.muted,fontWeight:400}}>/ {BEDS}</span></td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>+{fm.checkIns}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>-{fm.checkOuts}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:fm.occupancyPct>=90?C.sage:fm.occupancyPct>=70?C.gold:C.rose}}>{fm.occupancyPct}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* ── RENEWAL RATE PREDICTION ── */}
-            {pmsConn && pmsData?.forecast && (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginTop:16}}>
-                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Occupancy Prediction Model</p>
-                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Adjust renewal rate and new bookings to project future occupancy</p>
-
-                <div style={{display:"flex",gap:16,marginBottom:18,flexWrap:"wrap"}}>
-                  <div style={{flex:"1 1 200px"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontSize:12,color:C.muted}}>Predicted renewal rate</span>
-                      <span style={{fontSize:13,fontWeight:700,color:forecastRenewalRate>=70?C.sage:forecastRenewalRate>=50?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{forecastRenewalRate}%</span>
-                    </div>
-                    <input type="range" min={0} max={100} value={forecastRenewalRate} onChange={e=>setForecastRenewalRate(+e.target.value)} style={{width:"100%",accentColor:C.sage}}/>
-                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>% of guests whose contracts end who will renew</p>
-                  </div>
-                  <div style={{flex:"1 1 200px"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontSize:12,color:C.muted}}>New bookings per month</span>
-                      <span style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{forecastNewPerMonth}</span>
-                    </div>
-                    <input type="range" min={0} max={80} value={forecastNewPerMonth} onChange={e=>setForecastNewPerMonth(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
-                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Expected new move-ins per month beyond confirmed</p>
-                  </div>
-                </div>
-
-                {/* Predicted occupancy table */}
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead>
-                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Leaving</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Renewals</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ New</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Occ.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        const rows = [];
-                        let runningOcc = pmsData.forecast[0]?.activeStays ?? occupied;
-                        pmsData.forecast.forEach((fm, i) => {
-                          if (i === 0) {
-                            rows.push({ ...fm, renewals: 0, newBookings: 0, predicted: fm.activeStays, predictedPct: fm.occupancyPct });
-                          } else {
-                            const leaving = fm.checkOuts;
-                            const renewals = Math.round(leaving * forecastRenewalRate / 100);
-                            const netChange = -leaving + renewals + forecastNewPerMonth;
-                            runningOcc = Math.max(0, Math.min(BEDS, runningOcc + netChange));
-                            const predictedPct = Math.round((runningOcc / BEDS) * 100);
-                            rows.push({ ...fm, renewals, newBookings: forecastNewPerMonth, predicted: runningOcc, predictedPct });
-                          }
-                        });
-                        return rows.map((r, i) => (
-                          <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
-                            <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{r.label}{i===0?" (actual)":""}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{r.activeStays}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewals}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newBookings}`}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:r.predictedPct>=90?C.sage:r.predictedPct>=70?C.gold:C.rose}}>
-                              {r.predicted} ({r.predictedPct}%)
-                            </td>
-                          </tr>
-                        ));
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Predicted bar chart */}
-                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:120,marginTop:16,padding:"0 4px"}}>
-                  {(() => {
-                    let runningOcc = pmsData.forecast[0]?.activeStays ?? occupied;
-                    return pmsData.forecast.map((fm, i) => {
-                      let pct;
-                      if (i === 0) { pct = fm.occupancyPct; }
-                      else {
-                        const leaving = fm.checkOuts;
-                        const renewals = Math.round(leaving * forecastRenewalRate / 100);
-                        runningOcc = Math.max(0, Math.min(BEDS, runningOcc - leaving + renewals + forecastNewPerMonth));
-                        pct = Math.round((runningOcc / BEDS) * 100);
-                      }
-                      const barPct = Math.min(pct, 100);
-                      const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
-                      return (
-                        <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                          <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{pct}%</span>
-                          <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:80,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
-                            <div style={{width:"100%",height:`${barPct}%`,background:`repeating-linear-gradient(45deg,${barColor},${barColor} 4px,${barColor}88 4px,${barColor}88 8px)`,borderRadius:6,transition:"height 0.4s"}}/>
-                          </div>
-                          <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-                <p style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:6}}>Striped bars = predicted (including renewals + new bookings)</p>
-              </div>
-            )}
-
-            {/* ── SECTION A: Room Type Occupancy — Month by Month ── */}
-            {pmsConn && pmsData?.roomTypeData && (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginTop:18,marginBottom:18}}>
-                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Room Type Occupancy — Month by Month</h3>
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead>
-                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        <th style={{textAlign:"left",padding:"8px 12px",color:C.muted,fontWeight:600}}>Room Type</th>
-                        {pmsData.forecast.map((fm, i) => (
-                          <th key={fm.key} style={{textAlign:"center",padding:"8px 6px",color:C.muted,fontWeight:600,fontSize:11}}>{fm.label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ROOM_TYPES.map((rt, idx) => {
-                        const data = pmsData.roomTypeData[rt];
-                        if (!data || data.totalUnits === 0) return null;
-                        return (
-                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}`}}>
-                            <td style={{padding:"10px 12px",color:C.text,fontWeight:600,fontSize:12}}>
-                              {rt} <span style={{color:C.muted,fontWeight:400}}>({data.totalUnits})</span>
-                            </td>
-                            {data.months.map((m, mi) => {
-                              const pct = data.totalUnits > 0 ? Math.round((m.booked / data.totalUnits) * 100) : 0;
-                              const occupiedColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
-                              return (
-                                <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:occupiedColor,fontWeight:600}}>
-                                  {m.booked} / {data.totalUnits}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                      <tr style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
-                        <td style={{padding:"10px 12px",color:C.muted,fontWeight:600,fontSize:12}}>Available Rooms</td>
-                        {(() => {
-                          const available = Array(6).fill(0);
-                          ROOM_TYPES.forEach(rt => {
-                            const data = pmsData.roomTypeData[rt];
-                            if (data) {
-                              data.months.forEach((m, mi) => {
-                                available[mi] += m.available;
-                              });
-                            }
-                          });
-                          return available.map((avail, mi) => (
-                            <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:C.sage,fontWeight:600}}>
-                              {avail}
-                            </td>
-                          ));
-                        })()}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* ── SECTION B: Live Average Weekly Rate (AWR) ── */}
-            {pmsConn && pmsData?.roomTypeData && (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
-                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Live Average Weekly Rate (AWR)</h3>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:12,marginBottom:16}}>
-                  {ROOM_TYPES.map((rt) => {
-                    const data = pmsData.roomTypeData[rt];
-                    if (!data || data.totalUnits === 0) return null;
-                    const awr = data.awr;
-                    const color = awr >= TARGET_RATE ? C.sage : awr >= 250 ? C.gold : C.rose;
-                    return (
-                      <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                        <p style={{fontSize:11,color:C.muted,marginBottom:4}}>{rt}</p>
-                        <p style={{fontSize:20,fontWeight:700,color:color,fontFamily:"DM Mono,monospace",marginBottom:2}}>{fmt(awr)}</p>
-                        <p style={{fontSize:10,color:awr >= TARGET_RATE ? C.sage : C.rose}}>
-                          {awr >= TARGET_RATE ? "✓ Target met" : `£${TARGET_RATE - awr} below target`}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
-                      <p style={{fontSize:11,color:C.muted,marginBottom:4}}>Blended AWR (all types)</p>
-                      <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>
-                        {(() => {
-                          let totalRevenue = 0, totalWeeks = 0;
-                          ROOM_TYPES.forEach(rt => {
-                            const data = pmsData.roomTypeData[rt];
-                            if (data && data.awr > 0) {
-                              totalRevenue += data.awr * data.totalUnits;
-                              totalWeeks += data.totalUnits;
-                            }
-                          });
-                          const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
-                          return fmt(blendedAWR);
-                        })()}
-                      </p>
-                    </div>
-                    <div style={{textAlign:"right"}}>
-                      <p style={{fontSize:12,color:C.muted,marginBottom:4}}>Target: {fmt(TARGET_RATE)}</p>
-                      <p style={{fontSize:18,fontWeight:700,color:(() => {
-                        let totalRevenue = 0, totalWeeks = 0;
-                        ROOM_TYPES.forEach(rt => {
-                          const data = pmsData.roomTypeData[rt];
-                          if (data && data.awr > 0) {
-                            totalRevenue += data.awr * data.totalUnits;
-                            totalWeeks += data.totalUnits;
-                          }
-                        });
-                        const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
-                        return blendedAWR >= TARGET_RATE ? C.sage : C.rose;
-                      })(),fontFamily:"DM Mono,monospace"}}>
-                        {(() => {
-                          let totalRevenue = 0, totalWeeks = 0;
-                          ROOM_TYPES.forEach(rt => {
-                            const data = pmsData.roomTypeData[rt];
-                            if (data && data.awr > 0) {
-                              totalRevenue += data.awr * data.totalUnits;
-                              totalWeeks += data.totalUnits;
-                            }
-                          });
-                          const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
-                          const diff = blendedAWR - TARGET_RATE;
-                          return diff >= 0 ? `+${fmt(diff)}` : fmt(diff);
-                        })()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── SECTION C: Rate Adjustment & Revenue Predictor ── */}
-            {pmsConn && pmsData?.roomTypeData && (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
-                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Rate Adjustment & Revenue Predictor</h3>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",gap:16}}>
-                  {ROOM_TYPES.map((rt) => {
-                    const data = pmsData.roomTypeData[rt];
-                    if (!data || data.totalUnits === 0) return null;
-
-                    const currentAWR = data.awr || TARGET_RATE;
-                    const adjustedRate = rateAdjustments[rt] ?? currentAWR;
-                    const available = data.months[0]?.available ?? 0;
-
-                    return (
-                      <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                        <p style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>{rt}</p>
-                        <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Rate for unsold rooms</p>
-                        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
-                          <input
-                            type="range"
-                            min="150"
-                            max="500"
-                            step="5"
-                            value={adjustedRate}
-                            onChange={(e) => setRateAdjustments(prev => ({...prev, [rt]: parseInt(e.target.value)}))}
-                            style={{flex:1}}
-                          />
-                          <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",minWidth:"45px"}}>{fmt(adjustedRate)}</span>
-                        </div>
-                        <p style={{fontSize:9,color:C.muted,marginBottom:10}}>Current: {fmt(currentAWR)} | Gap: {fmt(Math.abs(adjustedRate - currentAWR))}</p>
-                        <div style={{fontSize:10,color:C.muted,lineHeight:1.5}}>
-                          <p>Booked: {data.months[0]?.booked ?? 0} rooms</p>
-                          <p>Available: {available} rooms</p>
-                          <p style={{marginTop:6,color:C.text,fontWeight:600}}>Predicted Monthly Revenue:</p>
-                          <p style={{fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginTop:4}}>
-                            {(() => {
-                              const bookedRevenue = (data.months[0]?.booked ?? 0) * currentAWR * (52 / 12);
-                              const availableRevenue = available * adjustedRate * (52 / 12) * 0.7; // 70% fill assumption
-                              return fmt(bookedRevenue + availableRevenue);
-                            })()}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* ── Blended AWR Projection over time ── */}
-                <div style={{marginTop:20,background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                  <h4 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>Projected Blended AWR — Month by Month</h4>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:14}}>Shows how your rate adjustments affect overall AWR across all room types (70% fill on unsold rooms)</p>
-                  {(() => {
-                    const now = new Date();
-                    const FILL_RATE = 0.7;
-                    const monthProjections = [];
-
-                    for (let m = 0; m < 6; m++) {
-                      const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
-                      const label = d.toLocaleString("en-GB", { month: "short", year: "numeric" });
-                      let totalWeightedAWR = 0;
-                      let totalRooms = 0;
-
-                      ROOM_TYPES.forEach(rt => {
-                        const data = pmsData.roomTypeData[rt];
-                        if (!data || data.totalUnits === 0) return;
-                        const currentAWR = data.awr || 0;
-                        const adjustedRate = rateAdjustments[rt] ?? currentAWR;
-                        const booked = data.months[m]?.booked ?? 0;
-                        const available = data.months[m]?.available ?? 0;
-                        const newFill = Math.round(available * FILL_RATE);
-
-                        // Booked rooms contribute at current AWR
-                        totalWeightedAWR += booked * currentAWR;
-                        totalRooms += booked;
-
-                        // Unsold rooms that fill contribute at the adjusted rate
-                        totalWeightedAWR += newFill * adjustedRate;
-                        totalRooms += newFill;
-                      });
-
-                      const blended = totalRooms > 0 ? Math.round(totalWeightedAWR / totalRooms) : 0;
-                      const occupiedRooms = totalRooms;
-                      monthProjections.push({ label, blended, occupiedRooms, month: m });
-                    }
-
-                    const maxAWR = Math.max(TARGET_RATE + 20, ...monthProjections.map(p => p.blended));
-                    const barH = 140;
-
-                    return (
-                      <>
-                        {/* Bar chart */}
-                        <div style={{display:"flex",gap:8,alignItems:"flex-end",justifyContent:"space-around",height:barH + 40,marginBottom:16,position:"relative"}}>
-                          {/* Target line */}
-                          <div style={{position:"absolute",bottom:barH * (TARGET_RATE / maxAWR) + 20,left:0,right:0,borderTop:`2px dashed ${C.rose}`,zIndex:1}}>
-                            <span style={{position:"absolute",right:0,top:-16,fontSize:9,color:C.rose,fontFamily:"DM Mono,monospace"}}>Target £{TARGET_RATE}</span>
-                          </div>
-                          {monthProjections.map((p, i) => {
-                            const h = Math.round(barH * (p.blended / maxAWR));
-                            const meetTarget = p.blended >= TARGET_RATE;
-                            return (
-                              <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1}}>
-                                <span style={{fontSize:11,fontWeight:700,color:meetTarget ? C.sage : C.gold,fontFamily:"DM Mono,monospace",marginBottom:4}}>£{p.blended}</span>
-                                <div style={{width:"60%",height:h,background:meetTarget ? `linear-gradient(to top, ${C.sage}66, ${C.sage}cc)` : `linear-gradient(to top, ${C.gold}44, ${C.gold}aa)`,borderRadius:"6px 6px 0 0",transition:"height 0.3s ease"}} />
-                                <span style={{fontSize:9,color:C.muted,marginTop:6}}>{p.label}</span>
-                                <span style={{fontSize:8,color:C.muted}}>{p.occupiedRooms} rooms</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* Detail table */}
-                        <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
-                          <thead>
-                            <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                              <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:500}}>Month</th>
-                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Booked Rooms</th>
-                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>+ New Fill (70%)</th>
-                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Total Occupied</th>
-                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Projected AWR</th>
-                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>vs Target</th>
-                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Proj. Monthly Rev</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {monthProjections.map((p, i) => {
-                              // Re-calculate breakdown for table
-                              let totalBooked = 0, totalNewFill = 0, totalWeighted = 0;
-                              ROOM_TYPES.forEach(rt => {
-                                const data = pmsData.roomTypeData[rt];
-                                if (!data || data.totalUnits === 0) return;
-                                const currentAWR = data.awr || 0;
-                                const adjustedRate = rateAdjustments[rt] ?? currentAWR;
-                                const booked = data.months[p.month]?.booked ?? 0;
-                                const available = data.months[p.month]?.available ?? 0;
-                                const newFill = Math.round(available * 0.7);
-                                totalBooked += booked;
-                                totalNewFill += newFill;
-                                totalWeighted += booked * currentAWR + newFill * adjustedRate;
-                              });
-                              const diff = p.blended - TARGET_RATE;
-                              const monthlyRev = Math.round(totalWeighted * (52 / 12));
-                              return (
-                                <tr key={i} style={{borderBottom:`1px solid ${C.border}22`,background: i === 0 ? C.card : "transparent"}}>
-                                  <td style={{padding:"8px",color:C.text,fontWeight: i === 0 ? 600 : 400}}>{p.label}{i === 0 ? " (current)" : ""}</td>
-                                  <td style={{textAlign:"right",padding:"8px",color:C.text,fontFamily:"DM Mono,monospace"}}>{totalBooked}</td>
-                                  <td style={{textAlign:"right",padding:"8px",color:C.sage,fontFamily:"DM Mono,monospace"}}>+{totalNewFill}</td>
-                                  <td style={{textAlign:"right",padding:"8px",color:C.gold,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{p.occupiedRooms}</td>
-                                  <td style={{textAlign:"right",padding:"8px",color: p.blended >= TARGET_RATE ? C.sage : C.gold,fontWeight:700,fontFamily:"DM Mono,monospace"}}>£{p.blended}</td>
-                                  <td style={{textAlign:"right",padding:"8px",color: diff >= 0 ? C.sage : C.rose,fontFamily:"DM Mono,monospace"}}>{diff >= 0 ? "+" : ""}{fmt(diff)}</td>
-                                  <td style={{textAlign:"right",padding:"8px",color:C.gold,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{fmt(monthlyRev)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {/* ── SECTION D: Rate Strategy Advisor ── */}
-                <div style={{marginTop:20,background:C.bg,border:`1px solid ${C.blue}44`,borderRadius:12,padding:18}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                    <h4 style={{fontSize:13,fontWeight:700,color:C.blue}}>Rate Strategy Advisor</h4>
-                    <span style={{fontSize:9,padding:"3px 10px",borderRadius:10,background:C.blue+"22",color:C.blue}}>AI Analysis</span>
-                  </div>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:16}}>Three strategies to reach £{TARGET_RATE} blended AWR target based on current room type rates & availability</p>
-                  {(() => {
-                    // Gather current state
-                    const roomData = [];
-                    let totalBookedRooms = 0, totalAvailableRooms = 0, currentBlendedWeighted = 0, currentBlendedCount = 0;
-
-                    ROOM_TYPES.forEach(rt => {
-                      const data = pmsData.roomTypeData[rt];
-                      if (!data || data.totalUnits === 0) return;
-                      const currentAWR = data.awr || 0;
-                      const booked = data.months[0]?.booked ?? 0;
-                      const available = data.months[0]?.available ?? 0;
-                      if (currentAWR > 0) {
-                        currentBlendedWeighted += booked * currentAWR;
-                        currentBlendedCount += booked;
-                      }
-                      totalBookedRooms += booked;
-                      totalAvailableRooms += available;
-                      roomData.push({ rt, currentAWR, booked, available, totalUnits: data.totalUnits });
-                    });
-
-                    const currentBlended = currentBlendedCount > 0 ? Math.round(currentBlendedWeighted / currentBlendedCount) : 0;
-                    const gap = TARGET_RATE - currentBlended;
-
-                    // For each strategy, calculate what rate each unsold room type needs to achieve target
-                    // Target: (sum of booked*currentAWR + sum of fill*newRate) / totalOccupied = TARGET_RATE
-                    // We need: sum of fill*newRate = TARGET_RATE * totalOccupied - sum of booked*currentAWR
-                    const FILL = 0.7;
-                    const totalExpectedFill = roomData.reduce((s, r) => s + Math.round(r.available * FILL), 0);
-                    const totalExpectedOccupied = totalBookedRooms + totalExpectedFill;
-                    const revenueNeeded = TARGET_RATE * totalExpectedOccupied;
-                    const bookedRevenue = roomData.reduce((s, r) => s + r.booked * r.currentAWR, 0);
-                    const unsoldRevenueNeeded = revenueNeeded - bookedRevenue;
-                    const flatUnsoldRate = totalExpectedFill > 0 ? Math.round(unsoldRevenueNeeded / totalExpectedFill) : TARGET_RATE;
-
-                    // Strategy 1: Conservative — small increases spread across all types
-                    const conservative = roomData.map(r => {
-                      const newRate = r.currentAWR > 0 ? Math.round(r.currentAWR + gap * 0.5) : TARGET_RATE;
-                      return { ...r, newRate: Math.max(r.currentAWR, Math.min(500, newRate)), increase: Math.max(0, newRate - r.currentAWR) };
-                    });
-
-                    // Strategy 2: Balanced — increase proportionally, more on underperformers
-                    const balanced = roomData.map(r => {
-                      if (r.available <= 0 || r.currentAWR === 0) return { ...r, newRate: r.currentAWR || TARGET_RATE, increase: 0 };
-                      const typeGap = TARGET_RATE - r.currentAWR;
-                      const newRate = Math.round(r.currentAWR + typeGap * 0.8);
-                      return { ...r, newRate: Math.max(r.currentAWR, Math.min(500, newRate)), increase: Math.max(0, newRate - r.currentAWR) };
-                    });
-
-                    // Strategy 3: Aggressive — push premium rooms hard, price unsold at what's needed
-                    const aggressive = roomData.map(r => {
-                      if (r.available <= 0 || r.currentAWR === 0) return { ...r, newRate: r.currentAWR || TARGET_RATE, increase: 0 };
-                      const newRate = Math.max(r.currentAWR, flatUnsoldRate);
-                      return { ...r, newRate: Math.min(500, newRate), increase: Math.max(0, newRate - r.currentAWR) };
-                    });
-
-                    // Calculate projected blended AWR for each strategy
-                    const calcBlended = (strat) => {
-                      let w = 0, c = 0;
-                      strat.forEach(r => {
-                        w += r.booked * r.currentAWR;
-                        c += r.booked;
-                        const fill = Math.round(r.available * FILL);
-                        w += fill * r.newRate;
-                        c += fill;
-                      });
-                      return c > 0 ? Math.round(w / c) : 0;
-                    };
-                    const calcRevenue = (strat) => {
-                      let w = 0;
-                      strat.forEach(r => {
-                        w += r.booked * r.currentAWR;
-                        const fill = Math.round(r.available * FILL);
-                        w += fill * r.newRate;
-                      });
-                      return Math.round(w * (52 / 12));
-                    };
-
-                    const strategies = [
-                      { name: "Conservative", desc: "Small uplift across all room types — lower risk, gradual improvement", color: C.sage, strat: conservative },
-                      { name: "Balanced", desc: "Close 80% of each type's gap to target — best balance of achievability and impact", color: C.gold, strat: balanced },
-                      { name: "Aggressive", desc: "Price all unsold rooms at the flat rate needed to hit target — maximum impact", color: C.rose, strat: aggressive },
-                    ];
-
-                    return (
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(320px, 1fr))",gap:14}}>
-                        {strategies.map((s, si) => {
-                          const projAWR = calcBlended(s.strat);
-                          const projRev = calcRevenue(s.strat);
-                          const hitsTarget = projAWR >= TARGET_RATE;
-                          return (
-                            <div key={si} style={{background:C.card,border:`1px solid ${s.color}44`,borderRadius:10,padding:14}}>
-                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                                <h5 style={{fontSize:12,fontWeight:700,color:s.color,margin:0}}>{si + 1}. {s.name}</h5>
-                                <span style={{fontSize:18,fontWeight:800,color: hitsTarget ? C.sage : s.color,fontFamily:"DM Mono,monospace"}}>£{projAWR}</span>
-                              </div>
-                              <p style={{fontSize:9,color:C.muted,marginBottom:10,lineHeight:1.4}}>{s.desc}</p>
-                              <div style={{fontSize:10,lineHeight:1.8}}>
-                                {s.strat.filter(r => r.increase > 0 && r.available > 0).map((r, ri) => (
-                                  <div key={ri} style={{display:"flex",justifyContent:"space-between",borderBottom:`1px solid ${C.border}22`,padding:"2px 0"}}>
-                                    <span style={{color:C.text}}>{r.rt}</span>
-                                    <span style={{fontFamily:"DM Mono,monospace"}}>
-                                      <span style={{color:C.muted}}>£{r.currentAWR}</span>
-                                      <span style={{color:s.color,margin:"0 4px"}}>→</span>
-                                      <span style={{color:s.color,fontWeight:600}}>£{r.newRate}</span>
-                                      <span style={{color:C.muted,marginLeft:4}}>(+£{r.increase}/wk)</span>
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                              <div style={{marginTop:10,padding:"8px 10px",background:C.bg,borderRadius:8,display:"flex",justifyContent:"space-between"}}>
-                                <div>
-                                  <p style={{fontSize:9,color:C.muted}}>Projected AWR</p>
-                                  <p style={{fontSize:14,fontWeight:700,color: hitsTarget ? C.sage : s.color,fontFamily:"DM Mono,monospace"}}>£{projAWR}</p>
-                                </div>
-                                <div style={{textAlign:"right"}}>
-                                  <p style={{fontSize:9,color:C.muted}}>Monthly Revenue</p>
-                                  <p style={{fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(projRev)}</p>
-                                </div>
-                              </div>
-                              {hitsTarget && <p style={{fontSize:9,color:C.sage,marginTop:6,textAlign:"center"}}>✓ Hits £{TARGET_RATE} AWR target</p>}
-                              {!hitsTarget && <p style={{fontSize:9,color:C.rose,marginTop:6,textAlign:"center"}}>£{TARGET_RATE - projAWR} short of target — combine with occupancy growth</p>}
-
-                              {/* Apply this strategy button */}
-                              <button
-                                onClick={() => {
-                                  const newAdj = {};
-                                  s.strat.forEach(r => { if (r.increase > 0) newAdj[r.rt] = r.newRate; });
-                                  setRateAdjustments(prev => ({...prev, ...newAdj}));
-                                }}
-                                style={{width:"100%",marginTop:8,padding:"6px 0",fontSize:10,fontWeight:600,color:C.bg,background:s.color,border:"none",borderRadius:6,cursor:"pointer",opacity:0.9}}
-                              >
-                                Apply to sliders ↑
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-
           </div>
         )}
 
         {/* ════ REPUTATION ════ */}
         {property==="southall"&&tab==="reputation"&&(
           <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brand Health{repLoading?" · loading…":""}</p>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brand Health</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Reputation Score</h2>
 
             <div style={{display:"flex",gap:14,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
@@ -1805,14 +1061,14 @@ export default function Dashboard() {
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:12,marginBottom:16}}>
               {[
-                {title:"Google My Business",rating:gmbRating,count:gmbCount,setRating:setGmbRating,setCount:setGmbCount,color:C.blue,icon:"🔍",live:repLive.google},
-                {title:"Airbnb",rating:airbnbRating,count:airbnbCount,setRating:setAirbnbRating,setCount:setAirbnbCount,color:C.rose,icon:"🏠",live:repLive.airbnb},
-                {title:"Trustpilot",rating:trustpilotRating,count:trustpilotCount,setRating:setTrustpilotRating,setCount:setTrustpilotCount,color:C.sage,icon:"⭐",live:repLive.trustpilot},
+                {title:"Google My Business",rating:gmbRating,count:gmbCount,setRating:setGmbRating,setCount:setGmbCount,color:C.blue,icon:"🔍"},
+                {title:"Airbnb",rating:airbnbRating,count:airbnbCount,setRating:setAirbnbRating,setCount:setAirbnbCount,color:C.rose,icon:"🏠"},
+                {title:"Trustpilot",rating:trustpilotRating,count:trustpilotCount,setRating:setTrustpilotRating,setCount:setTrustpilotCount,color:C.sage,icon:"⭐"},
               ].map((p,i)=>(
                 <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                     <div>
-                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{p.icon} {p.title} <span style={{fontSize:9,color:p.live?C.sage:C.muted,marginLeft:4}}>{p.live?"● live":"○ manual"}</span></p>
+                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{ p.icon} {p.title}</p>
                     </div>
                   </div>
                   <div style={{marginBottom:12}}>
@@ -1874,7 +1130,7 @@ export default function Dashboard() {
             <KPI label="Avg CPL (Blended)" value={fmt(sdBlendedCpl,"£",2)} sub={`${sdTotalLeads} total leads`} accent={C.sage} badge="KEY"/>
             <KPI label="Google Spend" value={fmt(sdGSpend)} sub={`${sdGConvs} conversions`} accent={C.blue}/>
             <KPI label="Google Cost/Conv" value={fmt(sdGCPC,"£",2)} sub="Per conversion" accent={C.blue}/>
-            <KPI label="Meta Spend" value={fmt(SD_META.spend)} sub={`${SD_META.leads} leads`} accent={C.gold}/>
+            <KPI label="Meta Spend" value={fmt(sdLiveMetaSpend)} sub={`${sdLiveMetaLeads} leads`} accent={C.gold}/>
             <KPI label="Meta CPL" value={fmt(sdMetaCpl,"£",2)} sub="Per lead" accent={C.sage}/>
           </div>
 
@@ -1882,7 +1138,7 @@ export default function Dashboard() {
             <div style={{flex:"1 1 280px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px",overflowX:"auto"}}>
               <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Daily Google Spend — Shoreditch (£)</p>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={sdGoogleFiltered.map(r=>({d:r.date.slice(5),spend:r.spend,convs:r.convs}))} margin={{top:2,right:6,bottom:0,left:-8}}>
+                <AreaChart data={(property==="shoreditch"&&liveGoogleData?.daily?.length>0?liveGoogleData.daily.map(r=>({d:r.date.slice(5),spend:r.spend,convs:r.convs})):sdGoogleFiltered.map(r=>({d:r.date.slice(5),spend:r.spend,convs:r.convs})))} margin={{top:2,right:6,bottom:0,left:-8}}>
                   <defs>
                     <linearGradient id="gSD" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.blue} stopOpacity={0.25}/><stop offset="95%" stopColor={C.blue} stopOpacity={0}/></linearGradient>
                   </defs>
@@ -1899,7 +1155,7 @@ export default function Dashboard() {
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
             <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Meta · {SD_META.campaign}</p>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:12}}>
-              {[{l:"Campaign Spend",v:fmt(SD_META.spend),c:C.gold},{l:"Leads (period)",v:SD_META.leads,c:C.sage},{l:"Total Leads",v:SD_META.totalLeads,c:C.text},{l:"Link Clicks",v:SD_META.linkClicks,c:C.purple}].map((m,i)=>(
+              {[{l:"Campaign Spend",v:fmt(sdLiveMetaSpend),c:C.gold},{l:"Leads (period)",v:sdLiveMetaLeads,c:C.sage},{l:"Total Leads",v:(property==="shoreditch"&&liveMetaData)?liveMetaData.totalLeads:SD_META.totalLeads,c:C.text},{l:"Link Clicks",v:SD_META.linkClicks,c:C.purple}].map((m,i)=>(
                 <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
                   <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.l}</p>
                   <p style={{fontSize:16,fontWeight:700,color:m.c,fontFamily:"DM Mono,monospace"}}>{m.v}</p>
@@ -1920,13 +1176,31 @@ export default function Dashboard() {
           {sdGhlError&&<div style={{color:C.rose,marginTop:8,padding:"10px 14px",background:C.rose+"18",border:`1px solid ${C.rose}33`,borderRadius:8,fontSize:12}}>{sdGhlError}</div>}
           {sdGhlConn&&sdGhlData&&(
             <div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{width:8,height:8,borderRadius:"50%",background:C.purple,display:"inline-block"}}/>
+                  <span style={{fontSize:12,color:C.purple,fontWeight:600}}>{sdGhlData.pipelineName}</span>
+                  <span style={{fontSize:11,color:C.muted}}>{sdGhlData.totalOpps} total opps · {sdGhlData.totalInRange||0} in range</span>
+                </div>
+                <button onClick={()=>runSDGHL(from,to)} style={{background:"transparent",border:`1px solid ${C.purple}`,color:C.purple,borderRadius:6,padding:"4px 12px",fontSize:11,cursor:"pointer"}}>↻ Refresh</button>
+              </div>
               <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
-                <KPI label="Total Opportunities" value={sdGhlData.totalOpps} sub="All stages" accent={C.purple}/>
-                <KPI label="Applied" value={sdGhlData.applied} sub={sdGhlData.appliedStageName||"Applied stage"} accent={C.sage}/>
+                <KPI label="Total Opportunities" value={sdGhlData.totalOpps} sub="All stages (all time)" accent={C.purple}/>
+                <KPI label="Applied for Villas" value={sdGhlData.applied} sub={`${sdGhlData.appliedStageName} · Tag: ${sdGhlData.appliedByTag}, Stage: ${sdGhlData.appliedByStage}`} accent={C.sage}/>
                 <KPI label="Pipeline" value={sdGhlData.pipelineName} sub="Active pipeline" accent={C.gold}/>
               </div>
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                <p style={{fontSize:11,color:C.muted,marginBottom:6}}>Stages: {sdGhlData.stages.map(s=>s.name).join(" → ")}</p>
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Pipeline Stages — {sdGhlData.pipelineName}</p>
+                <p style={{fontSize:11,color:C.muted,marginBottom:12}}>Stages: {sdGhlData.stages.map(s=>s.name).join(" → ")}</p>
+                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                  {(sdGhlData.perStage||[]).map((s,i)=>{
+                    const isApplied = (s.stageName||"").toLowerCase().includes("applied");
+                    return <div key={i} style={{background:C.bg,border:`1px solid ${isApplied?C.sage:C.border}`,borderRadius:8,padding:"8px 14px",fontSize:12,color:isApplied?C.sage:C.muted,minWidth:120}}>
+                      <p style={{fontSize:10,color:isApplied?C.sage:C.muted,marginBottom:4}}>{s.stageName}</p>
+                      <p style={{fontSize:20,fontWeight:700,fontFamily:"DM Mono,monospace",color:isApplied?C.sage:C.text}}>{s.count}</p>
+                    </div>;
+                  })}
+                </div>
               </div>
             </div>
           )}
