@@ -756,9 +756,13 @@ export default function Dashboard() {
   const sdGCPC = sdGConvs>0?sdGSpend/sdGConvs:0;
   const sdLiveCampaigns = sdGoogleIsLive && sdLiveGoogleData?.campaigns ? sdLiveGoogleData.campaigns : [];
   const sdGoogleDaily = sdGoogleIsLive && sdLiveGoogleData?.daily ? sdLiveGoogleData.daily.map(r=>({date:r.date,spend:r.spend,convs:r.convs})) : sdGoogleFiltered;
-  const sdMetaCpl = SD_META.leads>0?SD_META.spend/SD_META.leads:0;
-  const sdTotalLeads = SD_META.leads + sdGConvs;
-  const sdTotalSpend = SD_META.spend + sdGSpend;
+  // Shoreditch Meta: prefer live data, fall back to static
+  const sdMetaSpend = (property==="shoreditch" && metaIsLive && liveMetaData) ? liveMetaData.totalSpend : SD_META.spend;
+  const sdMetaLeads = (property==="shoreditch" && metaIsLive && liveMetaData) ? liveMetaData.totalLeads : SD_META.leads;
+  const sdMetaIsLive = property==="shoreditch" && metaIsLive && !!liveMetaData;
+  const sdMetaCpl = sdMetaLeads>0?sdMetaSpend/sdMetaLeads:0;
+  const sdTotalLeads = sdMetaLeads + sdGConvs;
+  const sdTotalSpend = sdMetaSpend + sdGSpend;
   const sdBlendedCpl = sdTotalLeads>0 ? sdTotalSpend/sdTotalLeads : 0;
   const sdOcc = useMemo(()=>{
     let o=0,i=0,v=0,t=0;
@@ -1935,7 +1939,7 @@ export default function Dashboard() {
       {/* SHOREDITCH MARKETING */}
       {property==="shoreditch"&&sdTab==="marketing"&&(
         <div style={{padding:"22px 26px"}}>
-          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}{sdGoogleIsLive?" · live data":""}</p>
+          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}{(sdGoogleIsLive||sdMetaIsLive)?" · live data":""}</p>
           <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
 
           <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
@@ -1943,7 +1947,7 @@ export default function Dashboard() {
             <KPI label="Avg CPL (Blended)" value={fmt(sdBlendedCpl,"£",2)} sub={`${sdTotalLeads} total leads`} accent={C.sage} badge="KEY"/>
             <KPI label="Google Spend" value={fmt(sdGSpend)} sub={`${sdGConvs} conversions`} accent={C.blue}/>
             <KPI label="Google Cost/Conv" value={fmt(sdGCPC,"£",2)} sub="Per conversion" accent={C.blue}/>
-            <KPI label="Meta Spend" value={fmt(SD_META.spend)} sub={`${SD_META.leads} leads`} accent={C.gold}/>
+            <KPI label="Meta Spend" value={fmt(sdMetaSpend)} sub={`${sdMetaLeads} leads`} accent={C.gold}/>
             <KPI label="Meta CPL" value={fmt(sdMetaCpl,"£",2)} sub="Per lead" accent={C.sage}/>
           </div>
 
@@ -1965,17 +1969,74 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Meta · {SD_META.campaign}</p>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:12}}>
-              {[{l:"Campaign Spend",v:fmt(SD_META.spend),c:C.gold},{l:"Leads (period)",v:SD_META.leads,c:C.sage},{l:"Total Leads",v:SD_META.totalLeads,c:C.text},{l:"Link Clicks",v:SD_META.linkClicks,c:C.purple}].map((m,i)=>(
-                <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.l}</p>
-                  <p style={{fontSize:16,fontWeight:700,color:m.c,fontFamily:"DM Mono,monospace"}}>{m.v}</p>
+          {/* Meta Ad Set Breakdown — Shoreditch */}
+          {sdMetaIsLive && liveMetaData?.adsets && liveMetaData.adsets.length > 0 && (
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Meta · Ad Set Breakdown · {rangeLabel} · live</p>
+                <div style={{display:"flex",gap:6}}>
+                  <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,background:C.sage+"22",color:C.sage}}>Website Leads: {liveMetaData.totalWebsiteLeads ?? 0}</span>
+                  <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,background:C.gold+"22",color:C.gold}}>Meta Leads: {liveMetaData.totalMetaLeads ?? 0}</span>
                 </div>
-              ))}
+              </div>
+              <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    {["Ad Set","Spend","Website Leads","Meta Leads","Counted Leads","Lead Source","CPL"].map(h=>(
+                      <th key={h} style={{textAlign:h==="Ad Set"?"left":"right",padding:"8px 10px",color:C.muted,fontWeight:500,fontSize:11}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...liveMetaData.adsets].sort((a,b)=>b.spend-a.spend).map((a,i)=>{
+                    const isMetaOnly = a.leadType === "meta_leads_only";
+                    return(
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                        <td style={{padding:"8px 10px",color:C.text,maxWidth:220,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                          {a.name}
+                          {isMetaOnly && <span style={{display:"block",fontSize:9,color:C.gold,background:C.gold+"18",padding:"1px 6px",borderRadius:6,width:"fit-content",marginTop:2}}>Meta leads only</span>}
+                        </td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(a.spend)}</td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:isMetaOnly?C.muted:C.text}}>
+                          {isMetaOnly ? <span>{a.websiteLeads} <span style={{fontSize:9,color:C.rose}}>excluded</span></span> : a.websiteLeads}
+                        </td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:isMetaOnly?C.gold:C.muted}}>{a.metaLeads}</td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",fontWeight:600,color:C.sage}}>{a.leads}</td>
+                        <td style={{textAlign:"right",padding:"8px 10px"}}>
+                          <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:isMetaOnly?C.gold+"22":C.sage+"22",color:isMetaOnly?C.gold:C.sage}}>{isMetaOnly?"Meta form":"Website"}</span>
+                        </td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:a.cpl>15?C.rose:C.sage}}>{fmt(a.cpl,"£",2)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px 10px",color:C.muted,fontWeight:600}}>Total</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:600}}>{fmt(sdMetaSpend)}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{liveMetaData.totalWebsiteLeads ?? 0}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{liveMetaData.totalMetaLeads ?? 0}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",fontWeight:600,color:C.sage}}>{sdMetaLeads}</td>
+                    <td/>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.sage,fontWeight:600}}>{fmt(sdMetaCpl,"£",2)}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-          </div>
+          )}
+
+          {/* Static Meta fallback when not live */}
+          {!sdMetaIsLive && (
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:16}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Meta · {SD_META.campaign} · static</p>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:12}}>
+                {[{l:"Campaign Spend",v:fmt(SD_META.spend),c:C.gold},{l:"Leads (period)",v:SD_META.leads,c:C.sage},{l:"Total Leads",v:SD_META.totalLeads,c:C.text},{l:"Link Clicks",v:SD_META.linkClicks,c:C.purple}].map((m,i)=>(
+                  <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.l}</p>
+                    <p style={{fontSize:16,fontWeight:700,color:m.c,fontFamily:"DM Mono,monospace"}}>{m.v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Google Ads Campaign Table — Shoreditch (live, excl GMB) */}
           {sdGoogleIsLive && sdLiveCampaigns.length > 0 && (

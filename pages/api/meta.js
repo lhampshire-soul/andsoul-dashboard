@@ -16,6 +16,7 @@ const META_ACCOUNT = "296625156418426"; // AndSoul
 // These ad sets have inflated website lead counts
 const META_LEADS_ONLY_ADSETS = [
   "broad southall + 80km - lead form",
+  "broad shoreditch + 60km - lead form",
 ];
 
 async function fetchWindsor(dateFrom, dateTo, fields) {
@@ -125,12 +126,8 @@ export default async function handler(req, res) {
         return { total: websiteLeads, websiteLeads, metaLeads: 0, source: "website_leads" };
       }
 
-      // No ad set info — for Southall, use meta leads only as safer default
-      if (propertyFilter === "southall") {
-        return { total: metaLeads, websiteLeads: 0, metaLeads, source: "meta_leads_default" };
-      }
-      // For other properties, use both
-      return { total: websiteLeads + metaLeads, websiteLeads, metaLeads, source: "all" };
+      // No ad set info — use meta leads only as safer default
+      return { total: metaLeads, websiteLeads: 0, metaLeads, source: "meta_leads_default" };
     }
 
     // Aggregate daily data
