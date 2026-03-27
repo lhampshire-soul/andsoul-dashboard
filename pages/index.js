@@ -340,10 +340,29 @@ export default function Dashboard() {
     } catch(e) { console.log("Google fetch error:", e.message); setLiveGoogleData(null); setGoogleIsLive(false); }
   }, []);
 
+  // ─── LIVE DATA: GA4 Landing Page Analytics ──────────────────────────────────
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [sdAnalyticsData, setSdAnalyticsData] = useState(null);
+
+  const fetchAnalytics = useCallback(async (dateFrom, dateTo, prop) => {
+    try {
+      const r = await fetch(`/api/analytics?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
+      const j = await r.json();
+      if (j.configured && j.data) return j.data;
+      return null;
+    } catch(e) { console.log("Analytics fetch error:", e.message); return null; }
+  }, []);
+
   useEffect(()=>{
     setAdLoading(true);
-    Promise.all([fetchLiveMeta(from, to, property), fetchLiveGoogle(from, to, property)])
-      .finally(()=>setAdLoading(false));
+    setAnalyticsLoading(true);
+    Promise.all([
+      fetchLiveMeta(from, to, property),
+      fetchLiveGoogle(from, to, property),
+      fetchAnalytics(from, to, "southall").then(d => setAnalyticsData(d)),
+      fetchAnalytics(from, to, "shoreditch").then(d => setSdAnalyticsData(d)),
+    ]).finally(()=>{ setAdLoading(false); setAnalyticsLoading(false); });
   }, [from, to, property]);
 
   // ─── COMPUTED: prefer live data, fall back to static ────────────────────────
@@ -979,6 +998,96 @@ export default function Dashboard() {
                     <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(metaCpl,"£",2)}/lead</td>
                   </tr></tfoot>
                 </table>
+              </div>
+            )}
+
+            {/* Landing Page Performance — Southall */}
+            {analyticsData && (
+              <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:12,padding:16,marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div>
+                    <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Landing Page Performance · {rangeLabel} · live</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.landingPage}</p>
+                  </div>
+                  <span style={{fontSize:9,padding:"2px 10px",borderRadius:10,background:C.blue+"22",color:C.blue}}>GA4</span>
+                </div>
+
+                {/* KPI row */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:10,marginBottom:16}}>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.blue}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Sessions</p>
+                    <p style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.totalSessions.toLocaleString()}</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.avgDailySessions.toFixed(0)}/day avg</p>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.avgBounceRate>0.4?C.rose:analyticsData.summary.avgBounceRate>0.3?C.gold:C.sage}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Bounce Rate</p>
+                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.avgBounceRate>0.4?C.rose:analyticsData.summary.avgBounceRate>0.3?C.gold:C.sage,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.avgBounceRate*100).toFixed(1)}%</p>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.avgEngagementRate>=0.7?C.sage:analyticsData.summary.avgEngagementRate>=0.6?C.gold:C.rose}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Engagement Rate</p>
+                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.avgEngagementRate>=0.7?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.avgEngagementRate*100).toFixed(1)}%</p>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.overallConversionRate>=0.1?C.sage:analyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Conversion Rate</p>
+                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.overallConversionRate>=0.1?C.sage:analyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.overallConversionRate*100).toFixed(1)}%</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.totalConfirmations} applications</p>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.purple}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Form Starts</p>
+                    <p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.formStarts}</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{(analyticsData.summary.formStartRate*100).toFixed(1)}% of sessions</p>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.formCompletionRate>=0.5?C.sage:C.rose}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Form Completion</p>
+                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.formCompletionRate>=0.5?C.sage:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.formCompletionRate*100).toFixed(1)}%</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>of form starters</p>
+                  </div>
+                </div>
+
+                {/* Daily trend chart */}
+                {analyticsData.daily && analyticsData.daily.length > 0 && (
+                  <div style={{height:180,marginBottom:16}}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={analyticsData.daily.map(d=>{const dt=new Date(d.date);return{d:`${dt.getDate()}/${dt.getMonth()+1}`,sessions:d.sessions,bounceRate:Math.round(d.bounceRate*100),convRate:Math.round(d.conversionRate*1000)/10,confirmations:d.confirmations};})} margin={{top:5,right:20,left:0,bottom:5}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                        <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                        <YAxis yAxisId="l" tick={{fill:C.blue,fontSize:9}} tickLine={false} axisLine={false}/>
+                        <YAxis yAxisId="r" orientation="right" tick={{fill:C.sage,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`${v}%`}/>
+                        <Tooltip content={({active,payload,label})=>{
+                          if(!active||!payload?.length) return null;
+                          return <div style={{background:"#13161b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12}}>
+                            <p style={{color:C.muted,marginBottom:6,fontFamily:"monospace"}}>{label}</p>
+                            {payload.map((p,i)=><p key={i} style={{color:p.color,margin:"2px 0"}}>{p.name}: <strong>{p.name.includes("Rate")?`${p.value}%`:p.value}</strong></p>)}
+                          </div>;
+                        }}/>
+                        <Bar yAxisId="l" dataKey="sessions" name="Sessions" fill={C.blue} radius={[2,2,0,0]} opacity={0.6}/>
+                        <Line yAxisId="r" type="monotone" dataKey="convRate" name="Conv Rate" stroke={C.sage} strokeWidth={2} dot={false}/>
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Recommendations */}
+                {analyticsData.recommendations && analyticsData.recommendations.length > 0 && (
+                  <div>
+                    <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Recommendations</p>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {analyticsData.recommendations.map((rec,i) => {
+                        const icon = rec.type==="warning" ? "⚠️" : rec.type==="success" ? "✅" : "💡";
+                        const borderColor = rec.type==="warning" ? C.rose : rec.type==="success" ? C.sage : C.gold;
+                        return (
+                          <div key={i} style={{background:C.bg,border:`1px solid ${borderColor}33`,borderLeft:`3px solid ${borderColor}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                              <span style={{color:C.text,fontWeight:600}}>{icon} {rec.metric}: {rec.value}</span>
+                              <span style={{fontSize:9,color:borderColor,background:borderColor+"18",padding:"1px 6px",borderRadius:8}}>{rec.priority}</span>
+                            </div>
+                            <p style={{color:C.muted,lineHeight:1.4}}>{rec.message}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2074,6 +2183,93 @@ export default function Dashboard() {
                   </tr>
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Landing Page Performance — Shoreditch */}
+          {sdAnalyticsData && (
+            <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:12,padding:16,marginTop:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Landing Page Performance · {rangeLabel} · live</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.landingPage}</p>
+                </div>
+                <span style={{fontSize:9,padding:"2px 10px",borderRadius:10,background:C.blue+"22",color:C.blue}}>GA4</span>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:10,marginBottom:16}}>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.blue}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Sessions</p>
+                  <p style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{sdAnalyticsData.summary.totalSessions.toLocaleString()}</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.avgDailySessions.toFixed(0)}/day avg</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.avgBounceRate>0.4?C.rose:sdAnalyticsData.summary.avgBounceRate>0.3?C.gold:C.sage}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Bounce Rate</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.avgBounceRate>0.4?C.rose:sdAnalyticsData.summary.avgBounceRate>0.3?C.gold:C.sage,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.avgBounceRate*100).toFixed(1)}%</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.avgEngagementRate>=0.7?C.sage:sdAnalyticsData.summary.avgEngagementRate>=0.6?C.gold:C.rose}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Engagement Rate</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.avgEngagementRate>=0.7?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.avgEngagementRate*100).toFixed(1)}%</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.overallConversionRate>=0.1?C.sage:sdAnalyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Conversion Rate</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.overallConversionRate>=0.1?C.sage:sdAnalyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.overallConversionRate*100).toFixed(1)}%</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.totalConfirmations} applications</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.purple}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Form Starts</p>
+                  <p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{sdAnalyticsData.summary.formStarts}</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{(sdAnalyticsData.summary.formStartRate*100).toFixed(1)}% of sessions</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.formCompletionRate>=0.5?C.sage:C.rose}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Form Completion</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.formCompletionRate>=0.5?C.sage:C.rose,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.formCompletionRate*100).toFixed(1)}%</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>of form starters</p>
+                </div>
+              </div>
+
+              {sdAnalyticsData.daily && sdAnalyticsData.daily.length > 0 && (
+                <div style={{height:180,marginBottom:16}}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={sdAnalyticsData.daily.map(d=>{const dt=new Date(d.date);return{d:`${dt.getDate()}/${dt.getMonth()+1}`,sessions:d.sessions,bounceRate:Math.round(d.bounceRate*100),convRate:Math.round(d.conversionRate*1000)/10,confirmations:d.confirmations};})} margin={{top:5,right:20,left:0,bottom:5}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                      <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                      <YAxis yAxisId="l" tick={{fill:C.blue,fontSize:9}} tickLine={false} axisLine={false}/>
+                      <YAxis yAxisId="r" orientation="right" tick={{fill:C.sage,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`${v}%`}/>
+                      <Tooltip content={({active,payload,label})=>{
+                        if(!active||!payload?.length) return null;
+                        return <div style={{background:"#13161b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12}}>
+                          <p style={{color:C.muted,marginBottom:6,fontFamily:"monospace"}}>{label}</p>
+                          {payload.map((p,i)=><p key={i} style={{color:p.color,margin:"2px 0"}}>{p.name}: <strong>{p.name.includes("Rate")?`${p.value}%`:p.value}</strong></p>)}
+                        </div>;
+                      }}/>
+                      <Bar yAxisId="l" dataKey="sessions" name="Sessions" fill={C.blue} radius={[2,2,0,0]} opacity={0.6}/>
+                      <Line yAxisId="r" type="monotone" dataKey="convRate" name="Conv Rate" stroke={C.sage} strokeWidth={2} dot={false}/>
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {sdAnalyticsData.recommendations && sdAnalyticsData.recommendations.length > 0 && (
+                <div>
+                  <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Recommendations</p>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {sdAnalyticsData.recommendations.map((rec,i) => {
+                      const icon = rec.type==="warning" ? "⚠️" : rec.type==="success" ? "✅" : "💡";
+                      const borderColor = rec.type==="warning" ? C.rose : rec.type==="success" ? C.sage : C.gold;
+                      return (
+                        <div key={i} style={{background:C.bg,border:`1px solid ${borderColor}33`,borderLeft:`3px solid ${borderColor}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                            <span style={{color:C.text,fontWeight:600}}>{icon} {rec.metric}: {rec.value}</span>
+                            <span style={{fontSize:9,color:borderColor,background:borderColor+"18",padding:"1px 6px",borderRadius:8}}>{rec.priority}</span>
+                          </div>
+                          <p style={{color:C.muted,lineHeight:1.4}}>{rec.message}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
