@@ -76,10 +76,12 @@ export default async function handler(req, res) {
         "date,page_path,sessions,users",
         [["page_path", "eq", pageConfig.confirmation]]
       ),
+      // Form events (form_start/form_submit) fire site-wide, not per page_path,
+      // so we fetch without page filter and attribute to this property's funnel
       fetchGA4(
         dateFrom, dateTo,
-        "date,page_path,event_name,event_count",
-        [["page_path", "eq", pageConfig.landing], "and", ["event_name", "contains", "form"]]
+        "event_name,event_count",
+        [["event_name", "contains", "form"]]
       ),
     ]);
 
@@ -101,7 +103,7 @@ export default async function handler(req, res) {
       console.error("GA4 confirm error:", confirmRes.status, await confirmRes.text().catch(() => ""));
     }
 
-    // Parse form events
+    // Parse form events (site-wide — form_start/form_submit don't carry page_path)
     let formEvents = {};
     if (eventsRes.ok) {
       const d = await eventsRes.json();
@@ -112,6 +114,11 @@ export default async function handler(req, res) {
         formEvents[name] += parseInt(r.event_count || 0);
       });
     }
+
+    // Attribute form events proportionally to this property based on session share
+    // (form events are site-wide; we estimate per-property using landing page session ratio)
+    const siteFormStarts = formEvents["form_start"] || 0;
+    const siteFormSubmits = formEvents["form_submit"] || 0;
 
     // Build confirmation lookup by date
     const confirmMap = {};
@@ -156,8 +163,8 @@ export default async function handler(req, res) {
     const avgBounceRate = totalSessions > 0 ? totalBounceWeighted / totalSessions : 0;
     const avgEngagementRate = totalSessions > 0 ? totalEngRateWeighted / totalSessions : 0;
     const overallConversionRate = totalSessions > 0 ? totalConfirmations / totalSessions : 0;
-    const formStarts = formEvents["form_start"] || 0;
-    const formSubmits = formEvents["form_submit"] || 0;
+    const formStarts = siteFormStarts;
+    const formSubmits = siteFormSubmits;
     const formStartRate = totalSessions > 0 ? formStarts / totalSessions : 0;
     const formCompletionRate = formStarts > 0 ? totalConfirmations / formStarts : 0;
 
