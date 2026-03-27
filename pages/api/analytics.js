@@ -61,11 +61,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Make 3 parallel requests:
+    // Make 4 parallel requests:
     // 1. Landing page daily metrics (sessions, bounce rate, engagement)
     // 2. Confirmation page daily sessions (= completed applications)
-    // 3. Form events (form_start for interaction rate)
-    const [landingRes, confirmRes, eventsRes] = await Promise.all([
+    // 3. Form events site-wide (form_start/form_submit don't carry page_path)
+    // 4. Total site sessions (to calculate this property's share of form events)
+    const [landingRes, confirmRes, eventsRes, siteTotalRes] = await Promise.all([
       fetchGA4(
         dateFrom, dateTo,
         "date,page_path,sessions,users,bounce_rate,engagement_rate,engaged_sessions",
@@ -77,11 +78,17 @@ export default async function handler(req, res) {
         [["page_path", "eq", pageConfig.confirmation]]
       ),
       // Form events (form_start/form_submit) fire site-wide, not per page_path,
-      // so we fetch without page filter and attribute to this property's funnel
+      // so we fetch without page filter and attribute proportionally
       fetchGA4(
         dateFrom, dateTo,
         "event_name,event_count",
         [["event_name", "contains", "form"]]
+      ),
+      // Total site sessions to calculate property session share
+      fetchGA4(
+        dateFrom, dateTo,
+        "sessions",
+        []
       ),
     ]);
 
@@ -113,6 +120,14 @@ export default async function handler(req, res) {
         if (!formEvents[name]) formEvents[name] = 0;
         formEvents[name] += parseInt(r.event_count || 0);
       });
+    }
+
+    // Get total site sessions for proportional attribution
+    let siteTotalSessions = 0;
+    if (siteTotalRes.ok) {
+      const d = await siteTotalRes.json();
+      const rows = d.data || d || [];
+      rows.forEach(r => { siteTotalSessions += parseInt(r.sessions || 0); });
     }
 
     // Attribute form events proportionally to this property based on session share
@@ -163,8 +178,10 @@ export default async function handler(req, res) {
     const avgBounceRate = totalSessions > 0 ? totalBounceWeighted / totalSessions : 0;
     const avgEngagementRate = totalSessions > 0 ? totalEngRateWeighted / totalSessions : 0;
     const overallConversionRate = totalSessions > 0 ? totalConfirmations / totalSessions : 0;
-    const formStarts = siteFormStarts;
-    const formSubmits = siteFormSubmits;
+    // Proportionally attribute form events: this property's landing sessions / total site sessions
+    const sessionShare = siteTotalSessions > 0 ? totalSessions / siteTotalSessions : 0;
+    const formStarts = Math.round(siteFormStarts * sessionShare);
+    const formSubmits = Math.round(siteFormSubmits * sessionShare);
     const formStartRate = totalSessions > 0 ? formStarts / totalSessions : 0;
     const formCompletionRate = formStarts > 0 ? totalConfirmations / formStarts : 0;
 
