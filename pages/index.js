@@ -1033,14 +1033,14 @@ export default function Dashboard() {
                     <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.totalConfirmations} applications</p>
                   </div>
                   <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.purple}`}}>
-                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Form Starts</p>
-                    <p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.formStarts}</p>
-                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{(analyticsData.summary.formStartRate*100).toFixed(1)}% of sessions</p>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Unique Visitors</p>
+                    <p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.totalUsers.toLocaleString()}</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.sessionsPerUser?.toFixed(1)} sessions/user</p>
                   </div>
-                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.formCompletionRate>=0.5?C.sage:C.rose}`}}>
-                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Form Completion</p>
-                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.formCompletionRate>=0.5?C.sage:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.formCompletionRate*100).toFixed(1)}%</p>
-                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>of form starters</p>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.applicationsPerUser>=0.08?C.sage:analyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Applications/Visitor</p>
+                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.applicationsPerUser>=0.08?C.sage:analyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.applicationsPerUser*100).toFixed(1)}%</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.totalConfirmations} from {analyticsData.summary.totalUsers.toLocaleString()} visitors</p>
                   </div>
                 </div>
 
@@ -2217,14 +2217,14 @@ export default function Dashboard() {
                   <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.totalConfirmations} applications</p>
                 </div>
                 <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.purple}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Form Starts</p>
-                  <p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{sdAnalyticsData.summary.formStarts}</p>
-                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{(sdAnalyticsData.summary.formStartRate*100).toFixed(1)}% of sessions</p>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Unique Visitors</p>
+                  <p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{sdAnalyticsData.summary.totalUsers.toLocaleString()}</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.sessionsPerUser?.toFixed(1)} sessions/user</p>
                 </div>
-                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.formCompletionRate>=0.5?C.sage:C.rose}`}}>
-                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Form Completion</p>
-                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.formCompletionRate>=0.5?C.sage:C.rose,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.formCompletionRate*100).toFixed(1)}%</p>
-                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>of form starters</p>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.applicationsPerUser>=0.08?C.sage:sdAnalyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Applications/Visitor</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.applicationsPerUser>=0.08?C.sage:sdAnalyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.applicationsPerUser*100).toFixed(1)}%</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.totalConfirmations} from {sdAnalyticsData.summary.totalUsers.toLocaleString()} visitors</p>
                 </div>
               </div>
 

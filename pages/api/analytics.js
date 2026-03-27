@@ -178,12 +178,13 @@ export default async function handler(req, res) {
     const avgBounceRate = totalSessions > 0 ? totalBounceWeighted / totalSessions : 0;
     const avgEngagementRate = totalSessions > 0 ? totalEngRateWeighted / totalSessions : 0;
     const overallConversionRate = totalSessions > 0 ? totalConfirmations / totalSessions : 0;
-    // Proportionally attribute form events: this property's landing sessions / total site sessions
-    const sessionShare = siteTotalSessions > 0 ? totalSessions / siteTotalSessions : 0;
-    const formStarts = Math.round(siteFormStarts * sessionShare);
-    const formSubmits = Math.round(siteFormSubmits * sessionShare);
-    const formStartRate = totalSessions > 0 ? formStarts / totalSessions : 0;
-    const formCompletionRate = formStarts > 0 ? totalConfirmations / formStarts : 0;
+    // NOTE: GA4 form_start/form_submit are enhanced measurement events that only fire for
+    // native HTML <form> elements. Custom/embedded forms (GHL, Typeform, etc.) don't trigger these.
+    // Instead we use confirmation page views as the reliable conversion signal, and compute
+    // user-level conversion metrics which are more actionable.
+    const sessionsPerUser = totalUsers > 0 ? totalSessions / totalUsers : 0;
+    const applicationsPerUser = totalUsers > 0 ? totalConfirmations / totalUsers : 0;
+    const newVisitorRate = totalSessions > 0 ? totalUsers / totalSessions : 0;
 
     // Generate live recommendations
     const recommendations = [];
@@ -261,25 +262,25 @@ export default async function handler(req, res) {
       });
     }
 
-    // Form funnel analysis
-    if (formStarts > 0 && formCompletionRate < 0.5) {
+    // User conversion analysis
+    if (applicationsPerUser < 0.05 && totalUsers > 50) {
       recommendations.push({
-        type: "warning",
-        metric: "Form Completion",
-        value: `${(formCompletionRate * 100).toFixed(1)}%`,
-        message: `Only ${(formCompletionRate * 100).toFixed(0)}% of form starters complete the application. Consider reducing form fields, adding progress indicators, or saving partial submissions.`,
-        priority: "high",
+        type: "info",
+        metric: "Applications/User",
+        value: `${(applicationsPerUser * 100).toFixed(1)}%`,
+        message: "Less than 5% of unique visitors apply. Test stronger CTAs, add social proof above the fold, or use exit-intent popups to capture leaving visitors.",
+        priority: "medium",
       });
     }
 
-    // Form start rate
-    if (formStartRate < 0.15 && totalSessions > 50) {
+    // Sessions per user (returning visitors)
+    if (sessionsPerUser > 1.5) {
       recommendations.push({
-        type: "info",
-        metric: "Form Start Rate",
-        value: `${(formStartRate * 100).toFixed(1)}%`,
-        message: "Less than 15% of visitors start the form. Make the CTA more prominent, add it above the fold, or use sticky CTA buttons.",
-        priority: "medium",
+        type: "success",
+        metric: "Sessions/User",
+        value: sessionsPerUser.toFixed(1),
+        message: `Users average ${sessionsPerUser.toFixed(1)} sessions — visitors are returning to research. Ensure the page answers all key questions to convert them on return visits.`,
+        priority: "low",
       });
     }
 
@@ -307,10 +308,9 @@ export default async function handler(req, res) {
           avgBounceRate,
           avgEngagementRate,
           overallConversionRate,
-          formStarts,
-          formSubmits,
-          formStartRate,
-          formCompletionRate,
+          sessionsPerUser,
+          applicationsPerUser,
+          newVisitorRate,
           avgDailySessions: daily.length > 0 ? totalSessions / daily.length : 0,
         },
         recommendations,
