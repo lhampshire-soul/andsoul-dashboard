@@ -201,9 +201,17 @@ async function loadGHL(dateFrom, dateTo) {
 
   const opps = await fetchAllOpps(pipeline.id, dateFrom, dateTo);
 
+  // GHL tags live on contact.tags / relations[].tags, NOT on the opportunity directly
+  const getOppTags = (o) => {
+    const contactTags = o.contact?.tags ?? [];
+    const relationTags = (o.relations ?? []).flatMap(r => r.tags ?? []);
+    const oppTags = o.tags ?? [];
+    return [...contactTags, ...relationTags, ...oppTags];
+  };
+
   const tours = opps.filter(o => {
     const inTourStage = tourStage ? o.pipelineStageId === tourStage.id : false;
-    const hasTag = (o.tags??[]).some(t => t.toLowerCase().trim() === TAG_TOUR.toLowerCase());
+    const hasTag = getOppTags(o).some(t => t.toLowerCase().trim() === TAG_TOUR.toLowerCase());
     return inTourStage || hasTag;
   });
 
@@ -811,9 +819,15 @@ export default function Dashboard() {
       if(!pipeline) throw new Error("Shoreditch pipeline not found. Available: "+pipelines.map(p=>p.name).join(", "));
       const stages=pipeline.stages??[];
       const opps=await fetchAllOpps(pipeline.id,f,t);
-      // Filter by "applied for villas" tag
+      // Filter by "applied for villas" tag — tags live on contact.tags, NOT o.tags
       const TAG_APPLIED="applied for villas";
-      const appliedByTag=opps.filter(o=>(o.tags??[]).some(tag=>tag.toLowerCase().trim()===TAG_APPLIED));
+      const getOppTags = (o) => {
+        const contactTags = o.contact?.tags ?? [];
+        const relationTags = (o.relations ?? []).flatMap(r => r.tags ?? []);
+        const oppTags = o.tags ?? [];
+        return [...contactTags, ...relationTags, ...oppTags];
+      };
+      const appliedByTag=opps.filter(o=>getOppTags(o).some(tag=>tag.toLowerCase().trim()===TAG_APPLIED));
       // Also find the applied stage for fallback display
       const appliedStage=stages.find(s=>(s.name||"").toLowerCase().includes("applied"));
       const appliedByStage=appliedStage?opps.filter(o=>o.pipelineStageId===appliedStage.id):[];
@@ -1088,6 +1102,64 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Weekly Recommendations — Southall */}
+            {analyticsData?.weeklyInsights?.actions?.length > 0 && (
+              <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:12,padding:16,marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div>
+                    <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Weekly Landing Page Recommendations · Southall</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Data-driven actions based on this week vs last week performance</p>
+                  </div>
+                  <span style={{fontSize:9,padding:"2px 10px",borderRadius:10,background:C.sage+"22",color:C.sage}}>
+                    {analyticsData.weeklyInsights.actions.filter(a=>a.priority==="high").length} high priority
+                  </span>
+                </div>
+
+                {/* Week-over-week trend badges */}
+                {analyticsData.weeklyInsights.trends && (
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                    {Object.entries(analyticsData.weeklyInsights.trends).filter(([,t])=>t.change!==null).map(([key, t]) => {
+                      const labels = {sessions:"Sessions",confirmations:"Applications",bounceRate:"Bounce",engagementRate:"Engagement",convRate:"Conv Rate"};
+                      const isGood = key==="bounceRate" ? t.change<0 : t.change>0;
+                      const arrow = t.change > 2 ? "↑" : t.change < -2 ? "↓" : "→";
+                      const color = t.change > 2 ? (isGood ? C.sage : C.rose) : t.change < -2 ? (isGood ? C.sage : C.rose) : C.muted;
+                      return (
+                        <div key={key} style={{background:color+"12",border:`1px solid ${color}33`,borderRadius:8,padding:"4px 10px",fontSize:10}}>
+                          <span style={{color:C.muted}}>{labels[key] || key}</span>{" "}
+                          <span style={{color,fontWeight:600}}>{arrow} {t.change > 0 ? "+" : ""}{t.change.toFixed(0)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Action items */}
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {analyticsData.weeklyInsights.actions.map((item, i) => {
+                    const priorityColors = { high: C.rose, medium: C.gold, low: C.muted, success: C.sage };
+                    const priorityIcons = { high: "🔴", medium: "🟡", low: "💡", success: "✅" };
+                    const bc = priorityColors[item.priority] || C.muted;
+                    return (
+                      <div key={i} style={{background:C.bg,border:`1px solid ${bc}33`,borderLeft:`3px solid ${bc}`,borderRadius:8,padding:"10px 14px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:12}}>{priorityIcons[item.priority]}</span>
+                            <span style={{fontSize:12,color:C.text,fontWeight:600}}>{item.title}</span>
+                          </div>
+                          <div style={{display:"flex",gap:6,flexShrink:0}}>
+                            <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:bc+"18",color:bc}}>{item.priority}</span>
+                            <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:C.blue+"18",color:C.blue}}>{item.category}</span>
+                          </div>
+                        </div>
+                        <p style={{fontSize:11,color:C.muted,lineHeight:1.5,marginBottom:4}}>{item.action}</p>
+                        <p style={{fontSize:10,color:bc,fontFamily:"DM Mono,monospace"}}>{item.metric}</p>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -2143,6 +2215,62 @@ export default function Dashboard() {
                     <p style={{fontSize:16,fontWeight:700,color:m.c,fontFamily:"DM Mono,monospace"}}>{m.v}</p>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Weekly Recommendations — Shoreditch */}
+          {sdAnalyticsData?.weeklyInsights?.actions?.length > 0 && (
+            <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:12,padding:16,marginTop:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Weekly Landing Page Recommendations · Shoreditch</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>Data-driven actions based on this week vs last week performance</p>
+                </div>
+                <span style={{fontSize:9,padding:"2px 10px",borderRadius:10,background:C.sage+"22",color:C.sage}}>
+                  {sdAnalyticsData.weeklyInsights.actions.filter(a=>a.priority==="high").length} high priority
+                </span>
+              </div>
+
+              {sdAnalyticsData.weeklyInsights.trends && (
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                  {Object.entries(sdAnalyticsData.weeklyInsights.trends).filter(([,t])=>t.change!==null).map(([key, t]) => {
+                    const labels = {sessions:"Sessions",confirmations:"Applications",bounceRate:"Bounce",engagementRate:"Engagement",convRate:"Conv Rate"};
+                    const isGood = key==="bounceRate" ? t.change<0 : t.change>0;
+                    const arrow = t.change > 2 ? "↑" : t.change < -2 ? "↓" : "→";
+                    const color = t.change > 2 ? (isGood ? C.sage : C.rose) : t.change < -2 ? (isGood ? C.sage : C.rose) : C.muted;
+                    return (
+                      <div key={key} style={{background:color+"12",border:`1px solid ${color}33`,borderRadius:8,padding:"4px 10px",fontSize:10}}>
+                        <span style={{color:C.muted}}>{labels[key] || key}</span>{" "}
+                        <span style={{color,fontWeight:600}}>{arrow} {t.change > 0 ? "+" : ""}{t.change.toFixed(0)}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {sdAnalyticsData.weeklyInsights.actions.map((item, i) => {
+                  const priorityColors = { high: C.rose, medium: C.gold, low: C.muted, success: C.sage };
+                  const priorityIcons = { high: "🔴", medium: "🟡", low: "💡", success: "✅" };
+                  const bc = priorityColors[item.priority] || C.muted;
+                  return (
+                    <div key={i} style={{background:C.bg,border:`1px solid ${bc}33`,borderLeft:`3px solid ${bc}`,borderRadius:8,padding:"10px 14px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:12}}>{priorityIcons[item.priority]}</span>
+                          <span style={{fontSize:12,color:C.text,fontWeight:600}}>{item.title}</span>
+                        </div>
+                        <div style={{display:"flex",gap:6,flexShrink:0}}>
+                          <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:bc+"18",color:bc}}>{item.priority}</span>
+                          <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:C.blue+"18",color:C.blue}}>{item.category}</span>
+                        </div>
+                      </div>
+                      <p style={{fontSize:11,color:C.muted,lineHeight:1.5,marginBottom:4}}>{item.action}</p>
+                      <p style={{fontSize:10,color:bc,fontFamily:"DM Mono,monospace"}}>{item.metric}</p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
