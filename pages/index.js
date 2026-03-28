@@ -290,13 +290,13 @@ const KPI = ({label,value,sub,accent=C.gold,badge}) => (
   </div>
 );
 
-const OccRing = ({pct,color=C.gold}) => {
+const OccRing = ({pct,color=C.gold,label="target"}) => {
   const r=42,c=2*Math.PI*r,d=(pct/100)*c;
   return <svg width={110} height={110} viewBox="0 0 100 100">
     <circle cx="50" cy="50" r={r} fill="none" stroke={C.border} strokeWidth="9"/>
     <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="9" strokeDasharray={`${d} ${c}`} strokeDashoffset={c*0.25} strokeLinecap="round" style={{transition:"stroke-dasharray 0.5s ease"}}/>
     <text x="50" y="47" textAnchor="middle" fill={C.text} fontSize="15" fontWeight="700" fontFamily="DM Mono,monospace">{pct}%</text>
-    <text x="50" y="61" textAnchor="middle" fill={C.muted} fontSize="8">target</text>
+    <text x="50" y="61" textAnchor="middle" fill={C.muted} fontSize="6.5">{label}</text>
   </svg>;
 };
 
@@ -2463,8 +2463,8 @@ export default function Dashboard() {
           </div>
 
           <div style={{display:"flex",gap:24,justifyContent:"center",marginBottom:24}}>
-            <OccRing pct={sdOcc.pct} color={C.gold}/>
-            <OccRing pct={sdOcc.fut} color={C.sage}/>
+            <OccRing pct={sdOcc.pct} color={C.gold} label="Current Occupancy"/>
+            <OccRing pct={sdOcc.fut} color={C.sage} label="Future Occupancy"/>
           </div>
 
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
