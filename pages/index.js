@@ -457,6 +457,185 @@ export default function Dashboard() {
     }
   }, [cid, csec]);
 
+  // Silent background refresh — re-fetches PMS data without showing loading spinner
+  const silentPmsRefresh = useCallback(async()=>{
+    if(!cid||!csec) return;
+    try{
+      console.log("PMS silent refresh started");
+      const tok=await getRHToken(cid,csec);
+      const today = new Date().toISOString().slice(0,10);
+      const mthStart = today.slice(0,7) + "-01";
+      const wkStart = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+      let allGuestStays = [];
+      try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { console.log("silent refresh guestStays error:", e.message); }
+      let allBookings = [];
+      try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) {}
+      let allUnits = [];
+      try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) {}
+      let allFinancials = [];
+      try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) {}
+
+      // Recompute all metrics (same logic as connectPMS)
+      const checkedInGuests = allGuestStays.filter(g => (g.status??"").toString().toUpperCase() === "CHECKED_IN");
+      const uniqueCheckedInRooms = new Set(checkedInGuests.map(g => g.roomStayId));
+      const inHouseCount = uniqueCheckedInRooms.size;
+
+      const checkInRooms7d = new Set();
+      allGuestStays.forEach(g => {
+        if (g.status !== "CHECKED_IN") return;
+        const d = (g.dateFrom ?? "").slice(0,10);
+        if (d >= wkStart && d <= today) checkInRooms7d.add(g.roomStayId);
+      });
+      const checkInsWeek = checkInRooms7d.size;
+
+      const checkOutRooms7d = new Set();
+      allGuestStays.forEach(g => {
+        if (g.status !== "CHECKED_OUT") return;
+        const d = (g.dateTo ?? "").slice(0,10);
+        if (d >= wkStart && d <= today) checkOutRooms7d.add(g.roomStayId);
+      });
+      const checkOutsWeek = checkOutRooms7d.size;
+
+      const sumBookingRevenue = (bookings, dateFrom, dateTo) => {
+        return bookings.reduce((sum, b) => {
+          const bDate = b.startDate ?? b.checkInDate ?? b.arrivalDate ?? b.createdDate ?? "";
+          if (dateFrom && bDate && bDate < dateFrom) return sum;
+          if (dateTo && bDate && bDate > dateTo) return sum;
+          const v = parseFloat(b.netAmount ?? b.grossAmount ?? b.totalAmount ?? b.amount ?? b.vatAmount ?? 0);
+          return sum + (isNaN(v) ? 0 : v);
+        }, 0);
+      };
+      const sumFinancials = (records, dateFrom, dateTo) => {
+        return records.filter(f => {
+          if (f.financialType !== "SALES_INVOICE") return false;
+          const fDate = f.dateCreated ?? "";
+          if (dateFrom && fDate && fDate < dateFrom) return false;
+          if (dateTo && fDate && fDate > dateTo) return false;
+          return true;
+        }).reduce((sum, f) => {
+          const v = parseFloat(f.gross ?? f.net ?? f.amountPaid ?? 0);
+          return sum + (isNaN(v) ? 0 : v);
+        }, 0);
+      };
+      const monthlyRevBkg = sumBookingRevenue(allBookings, mthStart, today);
+      const weeklyRevBkg = sumBookingRevenue(allBookings, wkStart, today);
+      const monthlyRevFin = sumFinancials(allFinancials, mthStart, today);
+      const weeklyRevFin = sumFinancials(allFinancials, wkStart, today);
+      const monthlyRev = monthlyRevBkg > 0 ? monthlyRevBkg : monthlyRevFin;
+      const weeklyRev = weeklyRevBkg > 0 ? weeklyRevBkg : weeklyRevFin;
+      const totalUnits = allUnits.length || BEDS;
+
+      // Forecast
+      const forecastByRoom = [];
+      const nowDate = new Date();
+      const forecastMonths = [];
+      for (let m = 0; m < 6; m++) {
+        const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
+        const key = d.toISOString().slice(0, 7);
+        const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        forecastMonths.push({ key, label, daysInMonth });
+      }
+      for (let m = 0; m < 6; m++) {
+        const fm = forecastMonths[m];
+        const mStart = fm.key + "-01";
+        const mEnd = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+        const activeRooms = new Set();
+        const checkInRooms = new Set();
+        const checkOutRooms = new Set();
+        allGuestStays.forEach(g => {
+          const status = (g.status ?? "").toString().toUpperCase();
+          if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+          const stayFrom = (g.dateFrom ?? "").slice(0, 10);
+          const stayTo = (g.dateTo ?? "").slice(0, 10);
+          if (!stayFrom) return;
+          const rid = g.roomStayId ?? g.id ?? stayFrom;
+          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) activeRooms.add(rid);
+          if (stayFrom >= mStart && stayFrom <= mEnd) checkInRooms.add(rid);
+          if (stayTo && stayTo >= mStart && stayTo <= mEnd) checkOutRooms.add(rid);
+        });
+        forecastByRoom.push({
+          key: fm.key, label: fm.label,
+          activeStays: activeRooms.size, checkIns: checkInRooms.size,
+          checkOuts: checkOutRooms.size,
+          occupancyPct: Math.round((activeRooms.size / BEDS) * 100),
+        });
+      }
+
+      // Room type data
+      const unitIdToRoomType = {};
+      const roomTypeCounts = {};
+      ROOM_TYPES.forEach(rt => roomTypeCounts[rt] = 0);
+      allUnits.forEach(u => {
+        const rt = baseRoomType(u.unitTypeName);
+        if (rt && ROOM_TYPES.includes(rt)) {
+          unitIdToRoomType[u.id] = rt;
+          roomTypeCounts[rt]++;
+        }
+      });
+      const roomTypeData = {};
+      ROOM_TYPES.forEach(rt => {
+        roomTypeData[rt] = { totalUnits: roomTypeCounts[rt], months: [], awr: 0 };
+        for (let m = 0; m < 6; m++) roomTypeData[rt].months.push({ booked: 0, available: 0 });
+      });
+      allGuestStays.forEach(g => {
+        const status = (g.status ?? "").toString().toUpperCase();
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+        const uid = g.unitId;
+        const rt = unitIdToRoomType[uid];
+        if (!rt) return;
+        const stayFrom = (g.dateFrom ?? "").slice(0, 10);
+        const stayTo = (g.dateTo ?? "").slice(0, 10);
+        if (!stayFrom) return;
+        forecastMonths.forEach((fm, mi) => {
+          const mStart = fm.key + "-01";
+          const mEnd = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) {
+            roomTypeData[rt].months[mi].booked++;
+          }
+        });
+      });
+      ROOM_TYPES.forEach(rt => {
+        roomTypeData[rt].months.forEach(m => {
+          m.available = Math.max(0, roomTypeCounts[rt] - m.booked);
+        });
+      });
+      // AWR
+      const awrByType = {};
+      ROOM_TYPES.forEach(rt => awrByType[rt] = { sum: 0, count: 0 });
+      allBookings.forEach(b => {
+        const uid = b.unitId;
+        const rt = unitIdToRoomType[uid];
+        if (!rt) return;
+        const net = parseFloat(b.netAmount ?? b.grossAmount ?? 0);
+        const days = Math.max(1, Math.round((new Date(b.dateTo||b.endDate||"") - new Date(b.dateFrom||b.startDate||""))/(864e5)));
+        const weeklyRate = (net / days) * 7;
+        if (isNaN(weeklyRate) || weeklyRate <= 0) return;
+        awrByType[rt].sum += weeklyRate;
+        awrByType[rt].count++;
+      });
+      ROOM_TYPES.forEach(rt => {
+        roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sum / awrByType[rt].count) : 0;
+      });
+
+      setPmsData({
+        occupied: inHouseCount, checkInsWeek, checkOutsWeek,
+        total: totalUnits,
+        occupancyPct: Math.round(inHouseCount / BEDS * 100),
+        revenue: monthlyRev, weeklyRevenue: weeklyRev,
+        forecast: forecastByRoom, roomTypeData,
+      });
+      console.log("PMS silent refresh complete");
+    }catch(e){ console.log("PMS silent refresh error:", e.message); }
+  },[cid,csec]);
+
+  // Auto-refresh PMS data every 5 minutes so new bookings appear live
+  useEffect(()=>{
+    if (!pmsConn || !cid || !csec) return;
+    const interval = setInterval(silentPmsRefresh, 5 * 60 * 1000);
+    return ()=> clearInterval(interval);
+  }, [pmsConn, cid, csec, silentPmsRefresh]);
+
   const connectPMS = useCallback(async()=>{
     if(!cid||!csec){setPmsErr("Enter both fields.");return;}
     setPmsLoad(true);setPmsErr("");
