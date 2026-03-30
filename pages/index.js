@@ -1610,71 +1610,109 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Predicted occupancy table */}
+                {/* Predicted occupancy table + bars — computed once, used by both */}
+                {(() => {
+                  // ── PREDICTION MODEL ──
+                  // For each month, calculate predicted total booked days:
+                  //   1. Start with ACTUAL booked days from RH (confirmed/checked-in/pending stays ≥28d)
+                  //   2. For leavers whose contracts end this month (checkOuts):
+                  //      - Some will renew (renewal rate slider) → add their remaining days back
+                  //      - The rest leave → their days are already counted up to their end date
+                  //   3. Add new move-ins (new bookings slider) → each new booking adds ~daysInMonth days
+                  //   Predicted occupancy = (actual booked days + renewal days + new days) / total bookable days
+                  const predRows = pmsData.forecast.map((fm, i) => {
+                    const actualDays = fm.bookedDays || 0;
+                    const totalDays = fm.totalBookableDays || (BEDS * 30);
+                    const dim = fm.daysInMonth || 30;
+
+                    if (i === 0) {
+                      // Current month: just show actual
+                      const pct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
+                      return { ...fm, renewalCount: 0, newCount: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct };
+                    }
+
+                    // Leavers: rooms whose contracts end this month
+                    const leaving = fm.checkOuts || 0;
+
+                    // Renewals: these people renew, so we add back ~half the month's days
+                    // (on average a leaver's contract ends mid-month, renewal covers the rest)
+                    const renewalCount = Math.round(leaving * forecastRenewalRate / 100);
+                    const avgRemainingDays = Math.round(dim / 2); // average days left after their end date
+                    const renewalDays = renewalCount * avgRemainingDays;
+
+                    // New move-ins: each adds roughly a full month
+                    const newCount = forecastNewPerMonth;
+                    const newDays = newCount * dim;
+
+                    const predictedDays = Math.min(totalDays, actualDays + renewalDays + newDays);
+                    const predictedPct = totalDays > 0 ? Math.round((predictedDays / totalDays) * 100) : 0;
+                    const actualPct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
+
+                    return { ...fm, renewalCount, newCount, predictedDays, predictedPct, actualPct };
+                  });
+
+                  return (<>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr style={{borderBottom:`1px solid ${C.border}`}}>
                         <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked Days</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed Days</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Leaving</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Renewals</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ New</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Days</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Occ.</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(() => {
-                        const rows = [];
-                        let runningPct = pmsData.forecast[0]?.occupancyPct ?? occPct;
-                        pmsData.forecast.forEach((fm, i) => {
-                          if (i === 0) {
-                            rows.push({ ...fm, renewals: 0, newBookings: 0, predictedPct: fm.occupancyPct });
-                          } else {
-                            const leavingPct = fm.totalBookableDays > 0 ? Math.round((fm.checkOuts / BEDS) * 100) : 0;
-                            const renewalPct = Math.round(leavingPct * forecastRenewalRate / 100);
-                            const newPct = Math.round((forecastNewPerMonth / BEDS) * 100);
-                            const basePct = fm.occupancyPct; // actual booked days %
-                            // Use the higher of: actual booked + predicted new, or running forecast
-                            const predictedPct = Math.min(100, Math.max(basePct, runningPct - leavingPct + renewalPct + newPct));
-                            runningPct = predictedPct;
-                            rows.push({ ...fm, renewals: Math.round(fm.checkOuts * forecastRenewalRate / 100), newBookings: forecastNewPerMonth, predictedPct });
-                          }
-                        });
-                        return rows.map((r, i) => (
-                          <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
-                            <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{r.label}{i===0?" (actual)":""}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{(r.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontSize:10}}>/ {(r.totalBookableDays||0).toLocaleString()}</span></td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewals}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newBookings}`}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:r.predictedPct>=90?C.sage:r.predictedPct>=70?C.gold:C.rose}}>
-                              {r.predictedPct}%
-                            </td>
-                          </tr>
-                        ));
-                      })()}
+                      {predRows.map((r, i) => (
+                        <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
+                          <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{r.label}{i===0?" (actual)":""}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{(r.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontSize:10}}>/ {(r.totalBookableDays||0).toLocaleString()}</span></td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts||0}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewalCount}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newCount}`}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{r.predictedDays.toLocaleString()}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:r.predictedPct>=90?C.sage:r.predictedPct>=70?C.gold:C.rose}}>
+                            {r.predictedPct}%
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
 
-                {/* Predicted bar chart */}
-                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:120,marginTop:16,padding:"0 4px"}}>
-                  {pmsData.forecast.map((fm, i) => {
-                    const pct = Math.min(fm.occupancyPct, 100);
-                    const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
+                {/* Predicted bar chart — shows both actual (solid) and predicted (striped overlay) */}
+                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:140,marginTop:16,padding:"0 4px"}}>
+                  {predRows.map((r, i) => {
+                    const actualPct = Math.min(r.actualPct, 100);
+                    const predPct = Math.min(r.predictedPct, 100);
+                    const barColor = predPct >= 90 ? C.sage : predPct >= 70 ? C.gold : C.rose;
+                    const actualColor = actualPct >= 90 ? C.sage : actualPct >= 70 ? C.gold : C.rose;
                     return (
-                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}%</span>
-                        <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:80,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
-                          <div style={{width:"100%",height:`${pct}%`,background:`repeating-linear-gradient(45deg,${barColor},${barColor} 4px,${barColor}88 4px,${barColor}88 8px)`,borderRadius:6,transition:"height 0.4s"}}/>
+                      <div key={r.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{r.predictedPct}%</span>
+                        {i > 0 && r.predictedPct !== r.actualPct && (
+                          <span style={{fontSize:9,color:C.muted}}>({r.actualPct}% confirmed)</span>
+                        )}
+                        <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:90,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
+                          {/* Predicted (striped, behind) */}
+                          <div style={{position:"absolute",bottom:0,width:"100%",height:`${predPct}%`,background:`repeating-linear-gradient(45deg,${barColor}44,${barColor}44 3px,${barColor}22 3px,${barColor}22 6px)`,borderRadius:6,transition:"height 0.4s"}}/>
+                          {/* Actual (solid, front) */}
+                          <div style={{position:"relative",width:"100%",height:`${actualPct}%`,background:actualColor,borderRadius:6,transition:"height 0.4s"}}/>
                         </div>
-                        <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
+                        <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{r.label}</span>
                       </div>
                     );
                   })}
                 </div>
-                <p style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:6}}>Striped bars = days-based occupancy (28+ day bookings only)</p>
+                <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:8}}>
+                  <span style={{fontSize:10,color:C.muted}}>■ Solid = confirmed bookings</span>
+                  <span style={{fontSize:10,color:C.muted}}>▧ Striped = predicted (renewals + new)</span>
+                </div>
+                  </>);
+                })()}
               </div>
             )}
 
