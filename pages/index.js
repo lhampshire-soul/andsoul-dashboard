@@ -127,6 +127,319 @@ const baseRoomType = (typeName) => {
   return typeName.replace(/ - Flr:.*$/, '').replace(/^Premium - /, '').replace(/^Standard - /, '');
 };
 
+const MIN_STAY_DAYS = 28; // Only count bookings >= 28 days for occupancy & AWR
+
+// ─── Shared PMS metrics computation ──────────────────────────────────────────
+// Used by both connectPMS (initial load) and silentPmsRefresh (background)
+function computePmsMetrics(allGuestStays, allBookings, allUnits) {
+  const today = new Date().toISOString().slice(0,10);
+  const mthStart = today.slice(0,7) + "-01";
+  const mthEnd = today.slice(0,7) + "-" + String(new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate()).padStart(2,"0");
+  const wkStart = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+
+  // ── Build contact history for renewal/move detection ──
+  // Group stays by contactId to detect consecutive bookings
+  const contactStays = {};
+  allGuestStays.forEach(g => {
+    const cid = g.contactId;
+    if (!cid) return;
+    if (!contactStays[cid]) contactStays[cid] = [];
+    contactStays[cid].push({
+      roomStayId: g.roomStayId, unitId: g.unitId,
+      dateFrom: (g.dateFrom ?? "").slice(0,10),
+      dateTo: (g.dateTo ?? "").slice(0,10),
+      status: (g.status ?? "").toUpperCase()
+    });
+  });
+
+  // Build a set of roomStayIds that are renewals or room moves (not genuinely new)
+  const renewalRoomStays = new Set();
+  const roomMoveRoomStays = new Set();
+  Object.values(contactStays).forEach(stays => {
+    if (stays.length < 2) return;
+    const sorted = stays.sort((a,b) => a.dateFrom.localeCompare(b.dateFrom));
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i-1];
+      const curr = sorted[i];
+      const gap = (new Date(curr.dateFrom) - new Date(prev.dateTo)) / 864e5;
+      if (gap >= -1 && gap <= 7) { // consecutive or overlapping
+        if (prev.unitId === curr.unitId) {
+          renewalRoomStays.add(curr.roomStayId); // renewal — same room
+        } else {
+          roomMoveRoomStays.add(curr.roomStayId); // room move — different room
+        }
+      }
+    }
+  });
+
+  // Build a set of roomStayIds that checked back in after checkout (not true departures)
+  // A check-out is "not real" if the same contact checks back in within 7 days
+  const notRealCheckouts = new Set();
+  Object.values(contactStays).forEach(stays => {
+    if (stays.length < 2) return;
+    const sorted = stays.sort((a,b) => a.dateFrom.localeCompare(b.dateFrom));
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const curr = sorted[i];
+      const next = sorted[i+1];
+      if (curr.status === "CHECKED_OUT" || curr.dateTo) {
+        const gap = (new Date(next.dateFrom) - new Date(curr.dateTo)) / 864e5;
+        if (gap >= -1 && gap <= 7) {
+          notRealCheckouts.add(curr.roomStayId); // this person checked back in
+        }
+      }
+    }
+  });
+
+  // ── In House count (CHECKED_IN, deduplicated by roomStayId) ──
+  const checkedInRooms = new Set();
+  allGuestStays.forEach(g => {
+    if ((g.status ?? "").toUpperCase() === "CHECKED_IN") checkedInRooms.add(g.roomStayId);
+  });
+  const inHouseCount = checkedInRooms.size;
+
+  // ── Check-ins (7d) — only genuinely NEW members, not renewals or room moves ──
+  const newCheckInRooms7d = new Set();
+  allGuestStays.forEach(g => {
+    if ((g.status ?? "").toUpperCase() !== "CHECKED_IN") return;
+    const d = (g.dateFrom ?? "").slice(0,10);
+    if (d < wkStart || d > today) return;
+    const rid = g.roomStayId;
+    if (renewalRoomStays.has(rid) || roomMoveRoomStays.has(rid)) return; // skip renewals & moves
+    newCheckInRooms7d.add(rid);
+  });
+  const checkInsWeek = newCheckInRooms7d.size;
+
+  // ── Check-outs (7d) — only if the person does NOT check back in ──
+  const realCheckOutRooms7d = new Set();
+  allGuestStays.forEach(g => {
+    if ((g.status ?? "").toUpperCase() !== "CHECKED_OUT") return;
+    const d = (g.dateTo ?? "").slice(0,10);
+    if (d < wkStart || d > today) return;
+    const rid = g.roomStayId;
+    if (notRealCheckouts.has(rid)) return; // person checked back in
+    realCheckOutRooms7d.add(rid);
+  });
+  const checkOutsWeek = realCheckOutRooms7d.size;
+
+  // ── Revenue — pro-rated for bookings active in current month ──
+  // Only count 28+ day bookings to exclude short stays / desk bookings
+  const proRateRevenue = (bookings, periodStart, periodEnd) => {
+    let total = 0;
+    bookings.forEach(b => {
+      const from = (b.startDate ?? b.dateFrom ?? "").slice(0,10);
+      const to = (b.endDate ?? b.dateTo ?? "").slice(0,10);
+      if (!from || !to) return;
+      const totalDays = Math.max(1, (new Date(to) - new Date(from)) / 864e5);
+      if (totalDays < MIN_STAY_DAYS) return; // skip short stays
+      const net = parseFloat(b.netAmount ?? 0);
+      if (isNaN(net) || net <= 0) return;
+      // Check overlap with period
+      if (from > periodEnd || to < periodStart) return;
+      const overlapStart = from > periodStart ? from : periodStart;
+      const overlapEnd = to < periodEnd ? to : periodEnd;
+      const overlapDays = Math.max(0, (new Date(overlapEnd) - new Date(overlapStart)) / 864e5 + 1);
+      total += (net / totalDays) * overlapDays;
+    });
+    return total;
+  };
+
+  const monthlyRev = proRateRevenue(allBookings, mthStart, mthEnd);
+  const weeklyRev = proRateRevenue(allBookings, wkStart, today);
+
+  // ── Occupancy forecast — DAYS-BASED ──
+  // occupancy = total booked days / (BEDS × daysInMonth)
+  // Only count stays >= 28 days, deduplicate by unit per day
+  const nowDate = new Date();
+  const forecastByRoom = [];
+  const forecastMonths = [];
+  for (let m = 0; m < 6; m++) {
+    const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
+    const key = d.toISOString().slice(0, 7);
+    const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    forecastMonths.push({ key, label, daysInMonth });
+  }
+
+  for (let m = 0; m < 6; m++) {
+    const fm = forecastMonths[m];
+    const mS = fm.key + "-01";
+    const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+    const unitDays = {}; // unitId -> Set of booked day numbers
+    const seenRids = new Set();
+    const checkInRooms = new Set();
+    const checkOutRooms = new Set();
+
+    allGuestStays.forEach(g => {
+      const status = (g.status ?? "").toString().toUpperCase();
+      if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+      const stayFrom = (g.dateFrom ?? "").slice(0, 10);
+      const stayTo = (g.dateTo ?? "").slice(0, 10);
+      if (!stayFrom || !stayTo) return;
+      const totalDays = Math.round((new Date(stayTo) - new Date(stayFrom)) / 864e5);
+      if (totalDays < MIN_STAY_DAYS) return; // skip short stays
+
+      const rid = g.roomStayId ?? g.id;
+      if (seenRids.has(rid)) return; // deduplicate guest entries for same roomStayId
+      seenRids.add(rid);
+
+      // Check overlap
+      if (stayFrom > mE || stayTo < mS) return;
+
+      // Count booked days per unit (prevents double counting overlapping bookings on same unit)
+      const uid = g.unitId;
+      if (!unitDays[uid]) unitDays[uid] = new Set();
+      const overlapStart = new Date(Math.max(new Date(mS), new Date(stayFrom)));
+      const overlapEnd = new Date(Math.min(new Date(mE), new Date(stayTo)));
+      for (let day = new Date(overlapStart); day <= overlapEnd; day.setDate(day.getDate() + 1)) {
+        unitDays[uid].add(day.toISOString().slice(0,10));
+      }
+
+      // Check-ins / check-outs for prediction model
+      if (stayFrom >= mS && stayFrom <= mE) checkInRooms.add(rid);
+      if (stayTo >= mS && stayTo <= mE) checkOutRooms.add(rid);
+    });
+
+    let totalBookedDays = 0;
+    Object.values(unitDays).forEach(daySet => totalBookedDays += daySet.size);
+    const totalBookableDays = BEDS * fm.daysInMonth;
+
+    forecastByRoom.push({
+      key: fm.key, label: fm.label, daysInMonth: fm.daysInMonth,
+      bookedDays: totalBookedDays,
+      totalBookableDays,
+      activeStays: Object.keys(unitDays).length, // unique units with bookings
+      checkIns: checkInRooms.size,
+      checkOuts: checkOutRooms.size,
+      occupancyPct: Math.round((totalBookedDays / totalBookableDays) * 100),
+    });
+  }
+
+  // ── Room Type Data — days-based, deduplicated ──
+  const unitIdToRoomType = {};
+  const roomTypeCounts = {};
+  ROOM_TYPES.forEach(rt => roomTypeCounts[rt] = 0);
+  allUnits.forEach(u => {
+    const rt = baseRoomType(u.unitTypeName);
+    if (rt && ROOM_TYPES.includes(rt)) {
+      unitIdToRoomType[u.id] = rt;
+      roomTypeCounts[rt]++;
+    }
+  });
+
+  const roomTypeData = {};
+  ROOM_TYPES.forEach(rt => {
+    roomTypeData[rt] = { totalUnits: roomTypeCounts[rt], months: [], awr: 0 };
+    for (let m = 0; m < 6; m++) {
+      roomTypeData[rt].months.push({ bookedDays: 0, totalDays: roomTypeCounts[rt] * forecastMonths[m].daysInMonth, booked: 0, available: 0 });
+    }
+  });
+
+  // Count booked days per room type per month (deduplicated by unit+day)
+  const rtUnitDays = {}; // "rt|month|unitId" -> Set of day strings
+  const seenRidsRT = new Set();
+  allGuestStays.forEach(g => {
+    const status = (g.status ?? "").toString().toUpperCase();
+    if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+    const rid = g.roomStayId ?? g.id;
+    if (seenRidsRT.has(rid)) return;
+    seenRidsRT.add(rid);
+
+    const uid = g.unitId;
+    const rt = unitIdToRoomType[uid];
+    if (!rt) return;
+    const stayFrom = (g.dateFrom ?? "").slice(0, 10);
+    const stayTo = (g.dateTo ?? "").slice(0, 10);
+    if (!stayFrom || !stayTo) return;
+    const totalDays = Math.round((new Date(stayTo) - new Date(stayFrom)) / 864e5);
+    if (totalDays < MIN_STAY_DAYS) return;
+
+    forecastMonths.forEach((fm, mi) => {
+      const mS = fm.key + "-01";
+      const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+      if (stayFrom > mE || stayTo < mS) return;
+
+      const mapKey = `${rt}|${mi}|${uid}`;
+      if (!rtUnitDays[mapKey]) rtUnitDays[mapKey] = new Set();
+      const overlapStart = new Date(Math.max(new Date(mS), new Date(stayFrom)));
+      const overlapEnd = new Date(Math.min(new Date(mE), new Date(stayTo)));
+      for (let day = new Date(overlapStart); day <= overlapEnd; day.setDate(day.getDate() + 1)) {
+        rtUnitDays[mapKey].add(day.toISOString().slice(0,10));
+      }
+    });
+  });
+
+  // Aggregate days into roomTypeData
+  Object.entries(rtUnitDays).forEach(([key, daySet]) => {
+    const [rt, miStr] = key.split("|");
+    const mi = parseInt(miStr);
+    roomTypeData[rt].months[mi].bookedDays += daySet.size;
+  });
+
+  // Calculate booked units and available (for backward compat with existing UI)
+  ROOM_TYPES.forEach(rt => {
+    forecastMonths.forEach((fm, mi) => {
+      const md = roomTypeData[rt].months[mi];
+      const totalDaysForType = roomTypeCounts[rt] * fm.daysInMonth;
+      md.totalDays = totalDaysForType;
+      // "booked" as count of equivalent full-month units
+      md.booked = totalDaysForType > 0 ? Math.round((md.bookedDays / totalDaysForType) * roomTypeCounts[rt]) : 0;
+      md.available = Math.max(0, roomTypeCounts[rt] - md.booked);
+      md.occupancyPct = totalDaysForType > 0 ? Math.round((md.bookedDays / totalDaysForType) * 100) : 0;
+    });
+  });
+
+  // ── AWR — only 28+ day bookings, use b.unit.id for room type matching ──
+  const awrByType = {};
+  ROOM_TYPES.forEach(rt => awrByType[rt] = { sum: 0, count: 0 });
+  let globalAwrSum = 0, globalAwrCount = 0;
+
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    if (!["CHECKED_IN", "CONFIRMED"].includes(status)) return;
+    const from = (b.startDate ?? "").slice(0,10);
+    const to = (b.endDate ?? "").slice(0,10);
+    if (!from || !to) return;
+    const days = Math.round((new Date(to) - new Date(from)) / 864e5);
+    if (days < MIN_STAY_DAYS) return; // only long-term stays
+    const net = parseFloat(b.netAmount ?? 0);
+    if (isNaN(net) || net <= 0) return;
+    const weeklyRate = (net / days) * 7;
+    if (weeklyRate <= 0 || weeklyRate > 5000) return; // sanity
+
+    globalAwrSum += weeklyRate;
+    globalAwrCount++;
+
+    // Match to room type via b.unit.id (bookings use unit object, not unitId)
+    const uid = b.unit?.id ?? b.unitId;
+    const rt = unitIdToRoomType[uid];
+    if (rt) {
+      awrByType[rt].sum += weeklyRate;
+      awrByType[rt].count++;
+    }
+  });
+
+  ROOM_TYPES.forEach(rt => {
+    roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sum / awrByType[rt].count) : 0;
+  });
+
+  const globalAwr = globalAwrCount > 0 ? Math.round(globalAwrSum / globalAwrCount) : 0;
+
+  return {
+    occupied: inHouseCount,
+    checkInsWeek,
+    checkOutsWeek,
+    total: allUnits.length || BEDS,
+    occupancyPct: Math.round(inHouseCount / BEDS * 100),
+    revenue: Math.round(monthlyRev),
+    weeklyRevenue: Math.round(weeklyRev),
+    forecast: forecastByRoom,
+    roomTypeData,
+    globalAwr,
+    renewalCount: renewalRoomStays.size,
+    roomMoveCount: roomMoveRoomStays.size,
+  };
+}
+
 // ─── GHL SETTINGS ─────────────────────────────────────────────────────────────
 const GHL_LOCATION = "PwquLuIhIjj0D80e6jLU";
 const GHL_PIPELINE = "Southall &Soul";
@@ -463,168 +776,15 @@ export default function Dashboard() {
     try{
       console.log("PMS silent refresh started");
       const tok=await getRHToken(cid,csec);
-      const today = new Date().toISOString().slice(0,10);
-      const mthStart = today.slice(0,7) + "-01";
-      const wkStart = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
       let allGuestStays = [];
       try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { console.log("silent refresh guestStays error:", e.message); }
       let allBookings = [];
       try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) {}
       let allUnits = [];
       try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) {}
-      let allFinancials = [];
-      try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) {}
 
-      // Recompute all metrics (same logic as connectPMS)
-      const checkedInGuests = allGuestStays.filter(g => (g.status??"").toString().toUpperCase() === "CHECKED_IN");
-      const uniqueCheckedInRooms = new Set(checkedInGuests.map(g => g.roomStayId));
-      const inHouseCount = uniqueCheckedInRooms.size;
-
-      const checkInRooms7d = new Set();
-      allGuestStays.forEach(g => {
-        if (g.status !== "CHECKED_IN") return;
-        const d = (g.dateFrom ?? "").slice(0,10);
-        if (d >= wkStart && d <= today) checkInRooms7d.add(g.roomStayId);
-      });
-      const checkInsWeek = checkInRooms7d.size;
-
-      const checkOutRooms7d = new Set();
-      allGuestStays.forEach(g => {
-        if (g.status !== "CHECKED_OUT") return;
-        const d = (g.dateTo ?? "").slice(0,10);
-        if (d >= wkStart && d <= today) checkOutRooms7d.add(g.roomStayId);
-      });
-      const checkOutsWeek = checkOutRooms7d.size;
-
-      const sumBookingRevenue = (bookings, dateFrom, dateTo) => {
-        return bookings.reduce((sum, b) => {
-          const bDate = b.startDate ?? b.checkInDate ?? b.arrivalDate ?? b.createdDate ?? "";
-          if (dateFrom && bDate && bDate < dateFrom) return sum;
-          if (dateTo && bDate && bDate > dateTo) return sum;
-          const v = parseFloat(b.netAmount ?? b.grossAmount ?? b.totalAmount ?? b.amount ?? b.vatAmount ?? 0);
-          return sum + (isNaN(v) ? 0 : v);
-        }, 0);
-      };
-      const sumFinancials = (records, dateFrom, dateTo) => {
-        return records.filter(f => {
-          if (f.financialType !== "SALES_INVOICE") return false;
-          const fDate = f.dateCreated ?? "";
-          if (dateFrom && fDate && fDate < dateFrom) return false;
-          if (dateTo && fDate && fDate > dateTo) return false;
-          return true;
-        }).reduce((sum, f) => {
-          const v = parseFloat(f.gross ?? f.net ?? f.amountPaid ?? 0);
-          return sum + (isNaN(v) ? 0 : v);
-        }, 0);
-      };
-      const monthlyRevBkg = sumBookingRevenue(allBookings, mthStart, today);
-      const weeklyRevBkg = sumBookingRevenue(allBookings, wkStart, today);
-      const monthlyRevFin = sumFinancials(allFinancials, mthStart, today);
-      const weeklyRevFin = sumFinancials(allFinancials, wkStart, today);
-      const monthlyRev = monthlyRevBkg > 0 ? monthlyRevBkg : monthlyRevFin;
-      const weeklyRev = weeklyRevBkg > 0 ? weeklyRevBkg : weeklyRevFin;
-      const totalUnits = allUnits.length || BEDS;
-
-      // Forecast
-      const forecastByRoom = [];
-      const nowDate = new Date();
-      const forecastMonths = [];
-      for (let m = 0; m < 6; m++) {
-        const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
-        const key = d.toISOString().slice(0, 7);
-        const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        forecastMonths.push({ key, label, daysInMonth });
-      }
-      for (let m = 0; m < 6; m++) {
-        const fm = forecastMonths[m];
-        const mStart = fm.key + "-01";
-        const mEnd = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
-        const activeRooms = new Set();
-        const checkInRooms = new Set();
-        const checkOutRooms = new Set();
-        allGuestStays.forEach(g => {
-          const status = (g.status ?? "").toString().toUpperCase();
-          if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-          const stayFrom = (g.dateFrom ?? "").slice(0, 10);
-          const stayTo = (g.dateTo ?? "").slice(0, 10);
-          if (!stayFrom) return;
-          const rid = g.roomStayId ?? g.id ?? stayFrom;
-          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) activeRooms.add(rid);
-          if (stayFrom >= mStart && stayFrom <= mEnd) checkInRooms.add(rid);
-          if (stayTo && stayTo >= mStart && stayTo <= mEnd) checkOutRooms.add(rid);
-        });
-        forecastByRoom.push({
-          key: fm.key, label: fm.label,
-          activeStays: activeRooms.size, checkIns: checkInRooms.size,
-          checkOuts: checkOutRooms.size,
-          occupancyPct: Math.round((activeRooms.size / BEDS) * 100),
-        });
-      }
-
-      // Room type data
-      const unitIdToRoomType = {};
-      const roomTypeCounts = {};
-      ROOM_TYPES.forEach(rt => roomTypeCounts[rt] = 0);
-      allUnits.forEach(u => {
-        const rt = baseRoomType(u.unitTypeName);
-        if (rt && ROOM_TYPES.includes(rt)) {
-          unitIdToRoomType[u.id] = rt;
-          roomTypeCounts[rt]++;
-        }
-      });
-      const roomTypeData = {};
-      ROOM_TYPES.forEach(rt => {
-        roomTypeData[rt] = { totalUnits: roomTypeCounts[rt], months: [], awr: 0 };
-        for (let m = 0; m < 6; m++) roomTypeData[rt].months.push({ booked: 0, available: 0 });
-      });
-      allGuestStays.forEach(g => {
-        const status = (g.status ?? "").toString().toUpperCase();
-        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-        const uid = g.unitId;
-        const rt = unitIdToRoomType[uid];
-        if (!rt) return;
-        const stayFrom = (g.dateFrom ?? "").slice(0, 10);
-        const stayTo = (g.dateTo ?? "").slice(0, 10);
-        if (!stayFrom) return;
-        forecastMonths.forEach((fm, mi) => {
-          const mStart = fm.key + "-01";
-          const mEnd = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
-          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) {
-            roomTypeData[rt].months[mi].booked++;
-          }
-        });
-      });
-      ROOM_TYPES.forEach(rt => {
-        roomTypeData[rt].months.forEach(m => {
-          m.available = Math.max(0, roomTypeCounts[rt] - m.booked);
-        });
-      });
-      // AWR
-      const awrByType = {};
-      ROOM_TYPES.forEach(rt => awrByType[rt] = { sum: 0, count: 0 });
-      allBookings.forEach(b => {
-        const uid = b.unitId;
-        const rt = unitIdToRoomType[uid];
-        if (!rt) return;
-        const net = parseFloat(b.netAmount ?? b.grossAmount ?? 0);
-        const days = Math.max(1, Math.round((new Date(b.dateTo||b.endDate||"") - new Date(b.dateFrom||b.startDate||""))/(864e5)));
-        const weeklyRate = (net / days) * 7;
-        if (isNaN(weeklyRate) || weeklyRate <= 0) return;
-        awrByType[rt].sum += weeklyRate;
-        awrByType[rt].count++;
-      });
-      ROOM_TYPES.forEach(rt => {
-        roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sum / awrByType[rt].count) : 0;
-      });
-
-      setPmsData({
-        occupied: inHouseCount, checkInsWeek, checkOutsWeek,
-        total: totalUnits,
-        occupancyPct: Math.round(inHouseCount / BEDS * 100),
-        revenue: monthlyRev, weeklyRevenue: weeklyRev,
-        forecast: forecastByRoom, roomTypeData,
-      });
+      const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
+      setPmsData(metrics);
       console.log("PMS silent refresh complete");
     }catch(e){ console.log("PMS silent refresh error:", e.message); }
   },[cid,csec]);
@@ -643,258 +803,16 @@ export default function Dashboard() {
       const tok=await getRHToken(cid,csec);
       localStorage.setItem("rh_creds", JSON.stringify({ cid, csec }));
 
-      const today = new Date().toISOString().slice(0,10);
-      const mthStart = today.slice(0,7) + "-01";
-      const wkStart = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
-
-      // Fetch guestStays
       let allGuestStays = [];
       try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { console.log("guestStays error:", e.message); }
-
-      // Fetch bookings for revenue
       let allBookings = [];
       try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) { console.log("bookings error:", e.message); }
-
-      // Fetch units
       let allUnits = [];
       try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) { console.log("units error:", e.message); }
 
-      // Fetch financials
-      let allFinancials = [];
-      try { allFinancials = await rhFetchAll(tok, "/api/v3/financials"); } catch(e) { console.log("financials error:", e.message); }
-
-      // Count In House Guests — CHECKED_IN only, deduplicated by roomStayId
-      // (CONFIRMED without date filter includes future bookings, inflating the count)
-      const checkedInGuests = allGuestStays.filter(g => {
-        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-        return status === "CHECKED_IN";
-      });
-      const uniqueCheckedInRooms = new Set(checkedInGuests.map(g => g.roomStayId));
-      const inHouseCount = uniqueCheckedInRooms.size;
-
-      // Count check-ins in last 7 days — unique roomStayIds only
-      const checkInRooms7d = new Set();
-      allGuestStays.forEach(g => {
-        if (g.status !== "CHECKED_IN") return;
-        const d = (g.dateFrom ?? "").slice(0,10);
-        if (d >= wkStart && d <= today) checkInRooms7d.add(g.roomStayId);
-      });
-      const checkInsWeek = checkInRooms7d.size;
-
-      // Count check-outs in last 7 days — unique roomStayIds only
-      const checkOutRooms7d = new Set();
-      allGuestStays.forEach(g => {
-        if (g.status !== "CHECKED_OUT") return;
-        const d = (g.dateTo ?? "").slice(0,10);
-        if (d >= wkStart && d <= today) checkOutRooms7d.add(g.roomStayId);
-      });
-      const checkOutsWeek = checkOutRooms7d.size;
-
-      // Revenue calculations
-      const sumBookingRevenue = (bookings, dateFrom, dateTo) => {
-        return bookings.reduce((sum, b) => {
-          const bDate = b.startDate ?? b.checkInDate ?? b.arrivalDate ?? b.createdDate ?? "";
-          if (dateFrom && bDate && bDate < dateFrom) return sum;
-          if (dateTo && bDate && bDate > dateTo) return sum;
-          const v = parseFloat(b.netAmount ?? b.grossAmount ?? b.totalAmount ?? b.amount ?? b.vatAmount ?? 0);
-          return sum + (isNaN(v) ? 0 : v);
-        }, 0);
-      };
-
-      const sumFinancials = (records, dateFrom, dateTo) => {
-        return records.filter(f => {
-          if (f.financialType !== "SALES_INVOICE") return false;
-          const fDate = f.dateCreated ?? "";
-          if (dateFrom && fDate && fDate < dateFrom) return false;
-          if (dateTo && fDate && fDate > dateTo) return false;
-          return true;
-        }).reduce((sum, f) => {
-          const v = parseFloat(f.gross ?? f.net ?? f.amountPaid ?? 0);
-          return sum + (isNaN(v) ? 0 : v);
-        }, 0);
-      };
-
-      const monthlyRevBkg = sumBookingRevenue(allBookings, mthStart, today);
-      const weeklyRevBkg = sumBookingRevenue(allBookings, wkStart, today);
-      const monthlyRevFin = sumFinancials(allFinancials, mthStart, today);
-      const weeklyRevFin = sumFinancials(allFinancials, wkStart, today);
-
-      const monthlyRev = monthlyRevBkg > 0 ? monthlyRevBkg : monthlyRevFin;
-      const weeklyRev = weeklyRevBkg > 0 ? weeklyRevBkg : weeklyRevFin;
-
-      console.log(`RH: occupied=${inHouseCount}, checkIns=${checkInsWeek}, checkOuts=${checkOutsWeek}, monthRev=${monthlyRev}, weekRev=${weeklyRev}`);
-
-      const totalUnits = allUnits.length || BEDS;
-
-      // ── Month-by-month occupancy forecast ──
-      // Build a 6-month forward view based on bookings with status pending/confirmed/checked_in
-      const forecastMonths = [];
-      const nowDate = new Date();
-      for (let m = 0; m < 6; m++) {
-        const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
-        const key = d.toISOString().slice(0, 7); // "YYYY-MM"
-        const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        forecastMonths.push({ key, label, daysInMonth, checkIns: 0, checkOuts: 0, activeStays: 0 });
-      }
-
-      // Count active stays per month: a guest stay is active in a month if dateFrom <= month end AND dateTo >= month start (or no dateTo = ongoing)
-      allGuestStays.forEach(g => {
-        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-        const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
-        const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
-        if (!stayFrom) return;
-
-        forecastMonths.forEach(fm => {
-          const mStart = fm.key + "-01";
-          const mEnd = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
-          const overlaps = stayFrom <= mEnd && (!stayTo || stayTo >= mStart);
-          if (overlaps) fm.activeStays++;
-
-          // Count check-ins this month
-          if (stayFrom >= mStart && stayFrom <= mEnd) fm.checkIns++;
-          // Count check-outs this month
-          if (stayTo && stayTo >= mStart && stayTo <= mEnd) fm.checkOuts++;
-        });
-      });
-
-      // Deduplicate active stays by roomStayId per month
-      const forecastByRoom = [];
-      for (let m = 0; m < 6; m++) {
-        const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
-        const key = d.toISOString().slice(0, 7);
-        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        const mStart = key + "-01";
-        const mEnd = key + "-" + String(daysInMonth).padStart(2, "0");
-        const activeRooms = new Set();
-        const checkInRooms = new Set();
-        const checkOutRooms = new Set();
-
-        allGuestStays.forEach(g => {
-          const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-          if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-          const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
-          const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
-          if (!stayFrom) return;
-          const rid = g.roomStayId ?? g.id ?? stayFrom;
-
-          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) activeRooms.add(rid);
-          if (stayFrom >= mStart && stayFrom <= mEnd) checkInRooms.add(rid);
-          if (stayTo && stayTo >= mStart && stayTo <= mEnd) checkOutRooms.add(rid);
-        });
-
-        forecastByRoom.push({
-          key,
-          label: forecastMonths[m].label,
-          activeStays: activeRooms.size,
-          checkIns: checkInRooms.size,
-          checkOuts: checkOutRooms.size,
-          occupancyPct: Math.round((activeRooms.size / BEDS) * 100),
-        });
-      }
-
-      // ── Room Type Data Processing ──
-      // Build unit ID → base room type mapping
-      const unitIdToRoomType = {};
-      const roomTypeCounts = {};
-      ROOM_TYPES.forEach(rt => roomTypeCounts[rt] = 0);
-
-      allUnits.forEach(u => {
-        const rt = baseRoomType(u.unitTypeName);
-        if (rt && ROOM_TYPES.includes(rt)) {
-          unitIdToRoomType[u.id] = rt;
-          roomTypeCounts[rt]++;
-        }
-      });
-
-      // Initialize room type data structure: 6 months of data
-      const roomTypeData = {};
-      const nowDate2 = new Date();
-      ROOM_TYPES.forEach(rt => {
-        roomTypeData[rt] = {
-          totalUnits: roomTypeCounts[rt],
-          months: [],
-          awr: 0,
-        };
-        for (let m = 0; m < 6; m++) {
-          roomTypeData[rt].months.push({ booked: 0, available: 0 });
-        }
-      });
-
-      // Count bookings per room type per month
-      allGuestStays.forEach(g => {
-        const status = (g.status ?? g.stayStatus ?? g.roomStayStatus ?? g.state ?? "").toString().toUpperCase();
-        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-        const unitId = g.unitId;
-        const rt = unitIdToRoomType[unitId];
-        if (!rt) return;
-
-        const stayFrom = (g.dateFrom ?? g.startDate ?? g.checkInDate ?? "").slice(0, 10);
-        const stayTo = (g.dateTo ?? g.endDate ?? g.checkOutDate ?? "").slice(0, 10);
-        if (!stayFrom) return;
-
-        for (let m = 0; m < 6; m++) {
-          const d = new Date(nowDate2.getFullYear(), nowDate2.getMonth() + m, 1);
-          const key = d.toISOString().slice(0, 7);
-          const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-          const mStart = key + "-01";
-          const mEnd = key + "-" + String(daysInMonth).padStart(2, "0");
-
-          if (stayFrom <= mEnd && (!stayTo || stayTo >= mStart)) {
-            roomTypeData[rt].months[m].booked++;
-          }
-        }
-      });
-
-      // Calculate available rooms per type per month
-      ROOM_TYPES.forEach(rt => {
-        for (let m = 0; m < 6; m++) {
-          roomTypeData[rt].months[m].available = roomTypeData[rt].totalUnits - roomTypeData[rt].months[m].booked;
-        }
-      });
-
-      // Calculate AWR (Average Weekly Rate) per room type from active bookings
-      const awrByType = {};
-      ROOM_TYPES.forEach(rt => awrByType[rt] = { sum: 0, count: 0 });
-
-      allBookings.forEach(b => {
-        const status = (b.roomStayStatus ?? b.status ?? "").toString().toUpperCase();
-        if (!["CHECKED_IN", "CONFIRMED"].includes(status)) return;
-
-        const unitId = b.unit?.id ?? b.unitId;
-        const rt = unitIdToRoomType[unitId];
-        if (!rt) return;
-
-        const startDate = b.startDate ?? b.checkInDate ?? "";
-        const endDate = b.endDate ?? b.checkOutDate ?? "";
-        const netAmount = parseFloat(b.netAmount ?? b.grossAmount ?? 0);
-
-        if (!startDate || isNaN(netAmount) || netAmount === 0) return;
-
-        const days = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
-        const weeks = Math.max(1, Math.ceil(days / 7));
-        const weeklyRate = netAmount / weeks;
-
-        awrByType[rt].sum += weeklyRate;
-        awrByType[rt].count++;
-      });
-
-      ROOM_TYPES.forEach(rt => {
-        roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sum / awrByType[rt].count) : 0;
-      });
-
-      setPmsData({
-        occupied: inHouseCount,
-        checkInsWeek,
-        checkOutsWeek,
-        total: totalUnits,
-        occupancyPct: Math.round(inHouseCount / BEDS * 100),
-        revenue: monthlyRev,
-        weeklyRevenue: weeklyRev,
-        forecast: forecastByRoom,
-        roomTypeData,
-      });
+      const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
+      console.log(`RH: occupied=${metrics.occupied}, checkIns=${metrics.checkInsWeek}, checkOuts=${metrics.checkOutsWeek}, monthRev=${metrics.revenue}, awr=${metrics.globalAwr}`);
+      setPmsData(metrics);
       setPmsConn(true);
     }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
     finally{setPmsLoad(false);}
@@ -1616,17 +1534,17 @@ export default function Dashboard() {
                   <p style={{fontSize:11,color:C.sage,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Future Occupancy · Month by Month</p>
                   <span style={{fontSize:10,color:C.sage}}>● LIVE from Res Harmonics</span>
                 </div>
-                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>All pending, confirmed & checked-in bookings out of {BEDS} rooms</p>
+                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Bookings 28+ days · occupancy = booked days / ({BEDS} rooms × days in month)</p>
 
-                {/* Bar chart with room counts */}
+                {/* Bar chart with days-based occupancy */}
                 <div style={{display:"flex",gap:8,alignItems:"flex-end",height:180,marginBottom:16,padding:"0 4px"}}>
                   {pmsData.forecast.map((fm, i) => {
                     const pct = Math.min(fm.occupancyPct, 100);
                     const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
                     return (
                       <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                        <span style={{fontSize:12,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{fm.activeStays}</span>
-                        <span style={{fontSize:9,color:C.muted}}>/ {BEDS}</span>
+                        <span style={{fontSize:11,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{(fm.bookedDays||0).toLocaleString()}</span>
+                        <span style={{fontSize:9,color:C.muted}}>/ {(fm.totalBookableDays||0).toLocaleString()} days</span>
                         <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:120,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
                           <div style={{width:"100%",height:`${pct}%`,background:barColor,borderRadius:6,transition:"height 0.4s"}}/>
                         </div>
@@ -1643,7 +1561,8 @@ export default function Dashboard() {
                     <thead>
                       <tr style={{borderBottom:`1px solid ${C.border}`}}>
                         <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked / {BEDS}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked Days</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Units</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Arrivals</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Departures</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Occupancy</th>
@@ -1653,7 +1572,8 @@ export default function Dashboard() {
                       {pmsData.forecast.map((fm, i) => (
                         <tr key={fm.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
                           <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}{i===0?" (current)":""}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{fm.activeStays} <span style={{color:C.muted,fontWeight:400}}>/ {BEDS}</span></td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{(fm.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontWeight:400}}>/ {(fm.totalBookableDays||0).toLocaleString()}</span></td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{fm.activeStays}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>+{fm.checkIns}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>-{fm.checkOuts}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:fm.occupancyPct>=90?C.sage:fm.occupancyPct>=70?C.gold:C.rose}}>{fm.occupancyPct}%</td>
@@ -1696,7 +1616,7 @@ export default function Dashboard() {
                     <thead>
                       <tr style={{borderBottom:`1px solid ${C.border}`}}>
                         <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked Days</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Leaving</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Renewals</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ New</th>
@@ -1706,28 +1626,30 @@ export default function Dashboard() {
                     <tbody>
                       {(() => {
                         const rows = [];
-                        let runningOcc = pmsData.forecast[0]?.activeStays ?? occupied;
+                        let runningPct = pmsData.forecast[0]?.occupancyPct ?? occPct;
                         pmsData.forecast.forEach((fm, i) => {
                           if (i === 0) {
-                            rows.push({ ...fm, renewals: 0, newBookings: 0, predicted: fm.activeStays, predictedPct: fm.occupancyPct });
+                            rows.push({ ...fm, renewals: 0, newBookings: 0, predictedPct: fm.occupancyPct });
                           } else {
-                            const leaving = fm.checkOuts;
-                            const renewals = Math.round(leaving * forecastRenewalRate / 100);
-                            const netChange = -leaving + renewals + forecastNewPerMonth;
-                            runningOcc = Math.max(0, Math.min(BEDS, runningOcc + netChange));
-                            const predictedPct = Math.round((runningOcc / BEDS) * 100);
-                            rows.push({ ...fm, renewals, newBookings: forecastNewPerMonth, predicted: runningOcc, predictedPct });
+                            const leavingPct = fm.totalBookableDays > 0 ? Math.round((fm.checkOuts / BEDS) * 100) : 0;
+                            const renewalPct = Math.round(leavingPct * forecastRenewalRate / 100);
+                            const newPct = Math.round((forecastNewPerMonth / BEDS) * 100);
+                            const basePct = fm.occupancyPct; // actual booked days %
+                            // Use the higher of: actual booked + predicted new, or running forecast
+                            const predictedPct = Math.min(100, Math.max(basePct, runningPct - leavingPct + renewalPct + newPct));
+                            runningPct = predictedPct;
+                            rows.push({ ...fm, renewals: Math.round(fm.checkOuts * forecastRenewalRate / 100), newBookings: forecastNewPerMonth, predictedPct });
                           }
                         });
                         return rows.map((r, i) => (
                           <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
                             <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{r.label}{i===0?" (actual)":""}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{r.activeStays}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{(r.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontSize:10}}>/ {(r.totalBookableDays||0).toLocaleString()}</span></td>
                             <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts}</td>
                             <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewals}</td>
                             <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newBookings}`}</td>
                             <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:r.predictedPct>=90?C.sage:r.predictedPct>=70?C.gold:C.rose}}>
-                              {r.predicted} ({r.predictedPct}%)
+                              {r.predictedPct}%
                             </td>
                           </tr>
                         ));
@@ -1738,32 +1660,21 @@ export default function Dashboard() {
 
                 {/* Predicted bar chart */}
                 <div style={{display:"flex",gap:8,alignItems:"flex-end",height:120,marginTop:16,padding:"0 4px"}}>
-                  {(() => {
-                    let runningOcc = pmsData.forecast[0]?.activeStays ?? occupied;
-                    return pmsData.forecast.map((fm, i) => {
-                      let pct;
-                      if (i === 0) { pct = fm.occupancyPct; }
-                      else {
-                        const leaving = fm.checkOuts;
-                        const renewals = Math.round(leaving * forecastRenewalRate / 100);
-                        runningOcc = Math.max(0, Math.min(BEDS, runningOcc - leaving + renewals + forecastNewPerMonth));
-                        pct = Math.round((runningOcc / BEDS) * 100);
-                      }
-                      const barPct = Math.min(pct, 100);
-                      const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
-                      return (
-                        <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                          <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{pct}%</span>
-                          <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:80,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
-                            <div style={{width:"100%",height:`${barPct}%`,background:`repeating-linear-gradient(45deg,${barColor},${barColor} 4px,${barColor}88 4px,${barColor}88 8px)`,borderRadius:6,transition:"height 0.4s"}}/>
-                          </div>
-                          <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
+                  {pmsData.forecast.map((fm, i) => {
+                    const pct = Math.min(fm.occupancyPct, 100);
+                    const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
+                    return (
+                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}%</span>
+                        <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:80,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
+                          <div style={{width:"100%",height:`${pct}%`,background:`repeating-linear-gradient(45deg,${barColor},${barColor} 4px,${barColor}88 4px,${barColor}88 8px)`,borderRadius:6,transition:"height 0.4s"}}/>
                         </div>
-                      );
-                    });
-                  })()}
+                        <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <p style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:6}}>Striped bars = predicted (including renewals + new bookings)</p>
+                <p style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:6}}>Striped bars = days-based occupancy (28+ day bookings only)</p>
               </div>
             )}
 
@@ -1791,11 +1702,11 @@ export default function Dashboard() {
                               {rt} <span style={{color:C.muted,fontWeight:400}}>({data.totalUnits})</span>
                             </td>
                             {data.months.map((m, mi) => {
-                              const pct = data.totalUnits > 0 ? Math.round((m.booked / data.totalUnits) * 100) : 0;
+                              const pct = m.occupancyPct ?? (m.totalDays > 0 ? Math.round((m.bookedDays / m.totalDays) * 100) : 0);
                               const occupiedColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
                               return (
                                 <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:occupiedColor,fontWeight:600}}>
-                                  {m.booked} / {data.totalUnits}
+                                  {pct}% <span style={{color:C.muted,fontWeight:400,fontSize:9}}>({(m.bookedDays||0)}/{(m.totalDays||0)}d)</span>
                                 </td>
                               );
                             })}
@@ -1851,47 +1762,16 @@ export default function Dashboard() {
                 <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
-                      <p style={{fontSize:11,color:C.muted,marginBottom:4}}>Blended AWR (all types)</p>
+                      <p style={{fontSize:11,color:C.muted,marginBottom:4}}>Blended AWR (28+ day bookings)</p>
                       <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>
-                        {(() => {
-                          let totalRevenue = 0, totalWeeks = 0;
-                          ROOM_TYPES.forEach(rt => {
-                            const data = pmsData.roomTypeData[rt];
-                            if (data && data.awr > 0) {
-                              totalRevenue += data.awr * data.totalUnits;
-                              totalWeeks += data.totalUnits;
-                            }
-                          });
-                          const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
-                          return fmt(blendedAWR);
-                        })()}
+                        {fmt(pmsData.globalAwr || 0)}
                       </p>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <p style={{fontSize:12,color:C.muted,marginBottom:4}}>Target: {fmt(TARGET_RATE)}</p>
-                      <p style={{fontSize:18,fontWeight:700,color:(() => {
-                        let totalRevenue = 0, totalWeeks = 0;
-                        ROOM_TYPES.forEach(rt => {
-                          const data = pmsData.roomTypeData[rt];
-                          if (data && data.awr > 0) {
-                            totalRevenue += data.awr * data.totalUnits;
-                            totalWeeks += data.totalUnits;
-                          }
-                        });
-                        const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
-                        return blendedAWR >= TARGET_RATE ? C.sage : C.rose;
-                      })(),fontFamily:"DM Mono,monospace"}}>
+                      <p style={{fontSize:18,fontWeight:700,color:(pmsData.globalAwr||0) >= TARGET_RATE ? C.sage : C.rose,fontFamily:"DM Mono,monospace"}}>
                         {(() => {
-                          let totalRevenue = 0, totalWeeks = 0;
-                          ROOM_TYPES.forEach(rt => {
-                            const data = pmsData.roomTypeData[rt];
-                            if (data && data.awr > 0) {
-                              totalRevenue += data.awr * data.totalUnits;
-                              totalWeeks += data.totalUnits;
-                            }
-                          });
-                          const blendedAWR = totalWeeks > 0 ? Math.round(totalRevenue / totalWeeks) : 0;
-                          const diff = blendedAWR - TARGET_RATE;
+                          const diff = (pmsData.globalAwr||0) - TARGET_RATE;
                           return diff >= 0 ? `+${fmt(diff)}` : fmt(diff);
                         })()}
                       </p>
@@ -2249,18 +2129,13 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div style={{marginBottom:12}}>
-                    <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Rating (1-5)</p>
-                    <input type="number" min="0" max="5" step="0.1" value={p.rating} onChange={e=>p.setRating(parseFloat(e.target.value))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box",marginBottom:4}}/>
-                    <div style={{display:"flex",gap:2}}>
+                    <p style={{fontSize:28,fontWeight:700,color:p.color,fontFamily:"DM Mono,monospace",marginBottom:4}}>{p.rating.toFixed(1)}<span style={{fontSize:14,color:C.muted}}>/5</span></p>
+                    <div style={{display:"flex",gap:2,marginBottom:8}}>
                       {[1,2,3,4,5].map(x=>(
-                        <span key={x} style={{fontSize:14,opacity:x<=Math.floor(p.rating)?1:0.3}}>★</span>
+                        <span key={x} style={{fontSize:16,opacity:x<=Math.floor(p.rating)?1:x<=p.rating?0.6:0.2}}>★</span>
                       ))}
                     </div>
-                  </div>
-                  <div>
-                    <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Review count</p>
-                    <input type="number" min="0" value={p.count} onChange={e=>p.setCount(Math.max(0,parseInt(e.target.value)))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
-                    <p style={{fontSize:10,color:C.muted,marginTop:6}}>{p.rating.toFixed(1)}/5 • {p.count} reviews</p>
+                    <p style={{fontSize:12,color:C.muted}}>{p.count} reviews</p>
                   </div>
                 </div>
               ))}
