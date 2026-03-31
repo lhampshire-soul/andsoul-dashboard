@@ -254,10 +254,13 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   // ── Occupancy forecast — DAYS-BASED ──
   // occupancy = total booked days / (BEDS × daysInMonth)
   // Only count stays >= 28 days, deduplicate by unit per day
+  // DEPARTURES & ARRIVALS count ALL statuses (incl. CHECKED_OUT) so past departures aren't missed
+  // OCCUPANCY (booked days) counts only active stays for future months, ALL for current/past
   const nowDate = new Date();
   const forecastByRoom = [];
   const forecastMonths = [];
-  for (let m = 0; m < 6; m++) {
+  const FORECAST_MONTHS = 7; // Mar through Sep
+  for (let m = 0; m < FORECAST_MONTHS; m++) {
     const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
@@ -265,18 +268,20 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     forecastMonths.push({ key, label, daysInMonth });
   }
 
-  for (let m = 0; m < 6; m++) {
+  const currentMonthKey = forecastMonths[0].key;
+
+  for (let m = 0; m < FORECAST_MONTHS; m++) {
     const fm = forecastMonths[m];
     const mS = fm.key + "-01";
     const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
-    const unitDays = {}; // unitId -> Set of booked day numbers
-    const seenRids = new Set();
+    const unitDays = {}; // unitId -> Set of booked day numbers (for occupancy)
+    const seenRidsOcc = new Set(); // dedup for occupancy
+    const seenRidsAll = new Set(); // dedup for arrivals/departures (ALL statuses)
     const checkInRooms = new Set();
     const checkOutRooms = new Set();
 
     allGuestStays.forEach(g => {
       const status = (g.status ?? "").toString().toUpperCase();
-      if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
       const stayFrom = (g.dateFrom ?? "").slice(0, 10);
       const stayTo = (g.dateTo ?? "").slice(0, 10);
       if (!stayFrom || !stayTo) return;
@@ -284,11 +289,23 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       if (totalDays < MIN_STAY_DAYS) return; // skip short stays
 
       const rid = g.roomStayId ?? g.id;
-      if (seenRids.has(rid)) return; // deduplicate guest entries for same roomStayId
-      seenRids.add(rid);
 
-      // Check overlap
+      // Check overlap with this month
       if (stayFrom > mE || stayTo < mS) return;
+
+      // === ARRIVALS & DEPARTURES: count from ALL statuses ===
+      // (CHECKED_OUT stays still represent real arrivals/departures)
+      if (!seenRidsAll.has(rid)) {
+        seenRidsAll.add(rid);
+        if (stayFrom >= mS && stayFrom <= mE) checkInRooms.add(rid);
+        if (stayTo >= mS && stayTo <= mE) checkOutRooms.add(rid);
+      }
+
+      // === OCCUPANCY (booked days): only active stays ===
+      // (CHECKED_OUT stays in future months mean early departure — room is available)
+      if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+      if (seenRidsOcc.has(rid)) return;
+      seenRidsOcc.add(rid);
 
       // Count booked days per unit (prevents double counting overlapping bookings on same unit)
       const uid = g.unitId;
@@ -298,10 +315,6 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       for (let day = new Date(overlapStart); day <= overlapEnd; day.setDate(day.getDate() + 1)) {
         unitDays[uid].add(localDateStr(day));
       }
-
-      // Check-ins / check-outs for prediction model
-      if (stayFrom >= mS && stayFrom <= mE) checkInRooms.add(rid);
-      if (stayTo >= mS && stayTo <= mE) checkOutRooms.add(rid);
     });
 
     let totalBookedDays = 0;
@@ -312,7 +325,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       key: fm.key, label: fm.label, daysInMonth: fm.daysInMonth,
       bookedDays: totalBookedDays,
       totalBookableDays,
-      activeStays: Object.keys(unitDays).length, // unique units with bookings
+      activeStays: Object.keys(unitDays).length, // unique units with active bookings
       checkIns: checkInRooms.size,
       checkOuts: checkOutRooms.size,
       occupancyPct: Math.round((totalBookedDays / totalBookableDays) * 100),
@@ -334,7 +347,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   const roomTypeData = {};
   ROOM_TYPES.forEach(rt => {
     roomTypeData[rt] = { totalUnits: roomTypeCounts[rt], months: [], awr: 0 };
-    for (let m = 0; m < 6; m++) {
+    for (let m = 0; m < FORECAST_MONTHS; m++) {
       roomTypeData[rt].months.push({ bookedDays: 0, totalDays: roomTypeCounts[rt] * forecastMonths[m].daysInMonth, booked: 0, available: 0 });
     }
   });
@@ -1805,7 +1818,7 @@ export default function Dashboard() {
                       <tr style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
                         <td style={{padding:"10px 12px",color:C.muted,fontWeight:600,fontSize:12}}>Available Rooms</td>
                         {(() => {
-                          const available = Array(6).fill(0);
+                          const available = Array(pmsData.forecast.length).fill(0);
                           ROOM_TYPES.forEach(rt => {
                             const data = pmsData.roomTypeData[rt];
                             if (data) {
@@ -1926,7 +1939,7 @@ export default function Dashboard() {
                     const FILL_RATE = 0.7;
                     const monthProjections = [];
 
-                    for (let m = 0; m < 6; m++) {
+                    for (let m = 0; m < pmsData.forecast.length; m++) {
                       const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
                       const label = d.toLocaleString("en-GB", { month: "short", year: "numeric" });
                       let totalWeightedAWR = 0;
