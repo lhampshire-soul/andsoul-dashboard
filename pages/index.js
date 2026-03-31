@@ -1647,9 +1647,12 @@ export default function Dashboard() {
                     <p style={{fontSize:10,color:C.muted,marginTop:2}}>New contracts signed per month beyond confirmed</p>
                   </div>
                   <div style={{flex:"1 1 200px"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                       <span style={{fontSize:12,color:C.muted}}>Sales cycle</span>
-                      <span style={{fontSize:13,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{salesCycleDays}d</span>
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <input type="number" min={0} max={90} value={salesCycleDays} onChange={e=>{const v=Math.max(0,Math.min(90,+e.target.value||0));setSalesCycleDays(v);}} style={{width:48,fontSize:13,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 6px",textAlign:"right",outline:"none"}}/>
+                        <span style={{fontSize:12,color:C.muted}}>days</span>
+                      </div>
                     </div>
                     <input type="range" min={0} max={90} value={salesCycleDays} onChange={e=>setSalesCycleDays(+e.target.value)} style={{width:"100%",accentColor:C.blue}}/>
                     <p style={{fontSize:10,color:C.muted,marginTop:2}}>Days from booking to move-in (avg 47d current · target 30d)</p>
