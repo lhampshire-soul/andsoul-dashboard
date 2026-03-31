@@ -796,6 +796,17 @@ export default function Dashboard() {
     return ()=> clearInterval(interval);
   }, [pmsConn, cid, csec, silentPmsRefresh]);
 
+  // Auto-refresh GA4 analytics every 5 minutes
+  useEffect(()=>{
+    if (!analyticsData && !sdAnalyticsData) return;
+    const interval = setInterval(()=>{
+      console.log("Analytics silent refresh started");
+      fetchAnalytics(from, to, "southall").then(d => { if (d) setAnalyticsData(d); });
+      fetchAnalytics(from, to, "shoreditch").then(d => { if (d) setSdAnalyticsData(d); });
+    }, 5 * 60 * 1000);
+    return ()=> clearInterval(interval);
+  }, [analyticsData, sdAnalyticsData, from, to, fetchAnalytics]);
+
   const connectPMS = useCallback(async()=>{
     if(!cid||!csec){setPmsErr("Enter both fields.");return;}
     setPmsLoad(true);setPmsErr("");
@@ -1534,21 +1545,24 @@ export default function Dashboard() {
                   <p style={{fontSize:11,color:C.sage,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Future Occupancy · Month by Month</p>
                   <span style={{fontSize:10,color:C.sage}}>● LIVE from Res Harmonics</span>
                 </div>
-                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Bookings 28+ days · occupancy = booked days / ({BEDS} rooms × days in month)</p>
+                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Bookings 28+ days · occupancy by days and rooms / {BEDS}</p>
 
-                {/* Bar chart with days-based occupancy */}
-                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:180,marginBottom:16,padding:"0 4px"}}>
+                {/* Bar chart with dual occupancy — days + rooms */}
+                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:220,marginBottom:16,padding:"0 4px"}}>
                   {pmsData.forecast.map((fm, i) => {
-                    const pct = Math.min(fm.occupancyPct, 100);
-                    const barColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
+                    const daysPct = Math.min(fm.occupancyPct, 100);
+                    const roomsPct = Math.min(Math.round((fm.activeStays / BEDS) * 100), 100);
+                    const barColor = daysPct >= 90 ? C.sage : daysPct >= 70 ? C.gold : C.rose;
                     return (
-                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
                         <span style={{fontSize:11,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{(fm.bookedDays||0).toLocaleString()}</span>
                         <span style={{fontSize:9,color:C.muted}}>/ {(fm.totalBookableDays||0).toLocaleString()} days</span>
+                        <span style={{fontSize:10,fontWeight:600,color:C.blue,fontFamily:"DM Mono,monospace"}}>{fm.activeStays} <span style={{fontWeight:400,color:C.muted}}>/ {BEDS} rooms</span></span>
                         <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:120,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
-                          <div style={{width:"100%",height:`${pct}%`,background:barColor,borderRadius:6,transition:"height 0.4s"}}/>
+                          <div style={{width:"100%",height:`${daysPct}%`,background:barColor,borderRadius:6,transition:"height 0.4s"}}/>
                         </div>
-                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}%</span>
+                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}% <span style={{fontSize:9,fontWeight:400,color:C.muted}}>days</span></span>
+                        <span style={{fontSize:10,fontWeight:600,color:C.blue,fontFamily:"DM Mono,monospace"}}>{roomsPct}% <span style={{fontSize:9,fontWeight:400,color:C.muted}}>rooms</span></span>
                         <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
                       </div>
                     );
@@ -1562,23 +1576,28 @@ export default function Dashboard() {
                       <tr style={{borderBottom:`1px solid ${C.border}`}}>
                         <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked Days</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Units</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Days Occ.</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms Occ.</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Arrivals</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Departures</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Occupancy</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {pmsData.forecast.map((fm, i) => (
+                      {pmsData.forecast.map((fm, i) => {
+                        const roomsPct = Math.round((fm.activeStays / BEDS) * 100);
+                        return (
                         <tr key={fm.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
                           <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}{i===0?" (current)":""}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{(fm.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontWeight:400}}>/ {(fm.totalBookableDays||0).toLocaleString()}</span></td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{fm.activeStays}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:fm.occupancyPct>=90?C.sage:fm.occupancyPct>=70?C.gold:C.rose}}>{fm.occupancyPct}%</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}><span style={{fontWeight:700}}>{fm.activeStays}</span> <span style={{color:C.muted,fontWeight:400}}>/ {BEDS}</span></td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:roomsPct>=90?C.sage:roomsPct>=70?C.gold:C.blue}}>{roomsPct}%</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>+{fm.checkIns}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>-{fm.checkOuts}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:fm.occupancyPct>=90?C.sage:fm.occupancyPct>=70?C.gold:C.rose}}>{fm.occupancyPct}%</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
