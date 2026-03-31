@@ -131,11 +131,16 @@ const MIN_STAY_DAYS = 28; // Only count bookings >= 28 days for occupancy & AWR
 
 // ─── Shared PMS metrics computation ──────────────────────────────────────────
 // Used by both connectPMS (initial load) and silentPmsRefresh (background)
+// Helper: format date as YYYY-MM-DD using LOCAL time (avoids BST/UTC timezone shift)
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function computePmsMetrics(allGuestStays, allBookings, allUnits) {
-  const today = new Date().toISOString().slice(0,10);
+  const now = new Date();
+  const today = localDateStr(now);
   const mthStart = today.slice(0,7) + "-01";
-  const mthEnd = today.slice(0,7) + "-" + String(new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate()).padStart(2,"0");
-  const wkStart = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  const mthEnd = today.slice(0,7) + "-" + String(new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()).padStart(2,"0");
+  const wkStart = localDateStr(new Date(Date.now()-7*864e5));
 
   // ── Build contact history for renewal/move detection ──
   // Group stays by contactId to detect consecutive bookings
@@ -254,7 +259,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   const forecastMonths = [];
   for (let m = 0; m < 6; m++) {
     const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
-    const key = d.toISOString().slice(0, 7);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
     const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     forecastMonths.push({ key, label, daysInMonth });
@@ -291,7 +296,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       const overlapStart = new Date(Math.max(new Date(mS), new Date(stayFrom)));
       const overlapEnd = new Date(Math.min(new Date(mE), new Date(stayTo)));
       for (let day = new Date(overlapStart); day <= overlapEnd; day.setDate(day.getDate() + 1)) {
-        unitDays[uid].add(day.toISOString().slice(0,10));
+        unitDays[uid].add(localDateStr(day));
       }
 
       // Check-ins / check-outs for prediction model
@@ -363,7 +368,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       const overlapStart = new Date(Math.max(new Date(mS), new Date(stayFrom)));
       const overlapEnd = new Date(Math.min(new Date(mE), new Date(stayTo)));
       for (let day = new Date(overlapStart); day <= overlapEnd; day.setDate(day.getDate() + 1)) {
-        rtUnitDays[mapKey].add(day.toISOString().slice(0,10));
+        rtUnitDays[mapKey].add(localDateStr(day));
       }
     });
   });
