@@ -754,6 +754,7 @@ export default function Dashboard() {
   const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
   const [forecastRenewalRate, setForecastRenewalRate] = useState(75);
   const [forecastNewPerMonth, setForecastNewPerMonth] = useState(20);
+  const [salesCycleDays, setSalesCycleDays] = useState(47);
   const [rateAdjustments, setRateAdjustments] = useState({});
 
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
@@ -1643,7 +1644,15 @@ export default function Dashboard() {
                       <span style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{forecastNewPerMonth}</span>
                     </div>
                     <input type="range" min={0} max={80} value={forecastNewPerMonth} onChange={e=>setForecastNewPerMonth(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
-                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Expected new move-ins per month beyond confirmed</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>New contracts signed per month beyond confirmed</p>
+                  </div>
+                  <div style={{flex:"1 1 200px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>Sales cycle</span>
+                      <span style={{fontSize:13,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{salesCycleDays}d</span>
+                    </div>
+                    <input type="range" min={0} max={90} value={salesCycleDays} onChange={e=>setSalesCycleDays(+e.target.value)} style={{width:"100%",accentColor:C.blue}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Days from booking to move-in (avg 47d current · target 30d)</p>
                   </div>
                 </div>
 
@@ -1664,8 +1673,13 @@ export default function Dashboard() {
                   // cumulativeExtraRooms accumulates: each month adds its renewals + new,
                   // and all previous months' extras carry forward.
 
+                  // Sales cycle: new bookings take X days before moving in
+                  // moveInDelay = full months of delay, partialOffset = days into the move-in month
+                  const moveInDelay = Math.floor(salesCycleDays / 30);
+                  const partialOffset = salesCycleDays % 30;
+
                   const predRows = [];
-                  let cumulativeExtraRooms = 0; // rooms from predicted renewals + new from all previous months
+                  let cumulativeExtraRooms = 0; // rooms from renewals + moved-in new from all previous months
 
                   for (let i = 0; i < pmsData.forecast.length; i++) {
                     const fm = pmsData.forecast[i];
@@ -1676,33 +1690,38 @@ export default function Dashboard() {
 
                     if (i === 0) {
                       const pct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
-                      predRows.push({ ...fm, renewalCount: 0, newCount: 0, carryover: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms });
+                      predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryover: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms });
                       continue;
                     }
 
-                    // This month's leavers and renewals
+                    // This month's leavers and renewals (immediate — they already live here)
                     const leaving = fm.checkOuts || 0;
                     const renewalCount = Math.round(leaving * forecastRenewalRate / 100);
-                    const newCount = forecastNewPerMonth;
 
-                    // Days from carry-forward: previous months' predicted extras stay full month
+                    // New bookings: signed this month, but move in after sales cycle delay
+                    // Bookings from month j move in during month (j + moveInDelay)
+                    // In month i, we receive move-ins from bookings made in month (i - moveInDelay)
+                    const bookedMonthAgo = i - moveInDelay;
+                    const newMoveIns = bookedMonthAgo >= 1 ? forecastNewPerMonth : 0;
+
+                    // Days from carry-forward: previous months' settled extras stay full month
                     const carryoverDays = cumulativeExtraRooms * dim;
                     // This month's renewals: they renew mid-month on avg, so ~half month of extra days
                     const renewalDays = renewalCount * Math.round(dim / 2);
-                    // This month's new move-ins: assume they arrive and stay the full month
-                    const newDays = newCount * dim;
+                    // New move-ins this month: they arrive partialOffset days into the month
+                    const newMoveInDays = newMoveIns * Math.max(0, dim - partialOffset);
 
-                    const predictedDays = Math.min(totalDays, actualDays + carryoverDays + renewalDays + newDays);
+                    const predictedDays = Math.min(totalDays, actualDays + carryoverDays + renewalDays + newMoveInDays);
                     const predictedPct = totalDays > 0 ? Math.round((predictedDays / totalDays) * 100) : 0;
                     const actualPct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
 
                     // Predicted rooms = confirmed + all accumulated extras + this month's additions
-                    const predictedRooms = Math.min(BEDS, confirmedRooms + cumulativeExtraRooms + renewalCount + newCount);
+                    const predictedRooms = Math.min(BEDS, confirmedRooms + cumulativeExtraRooms + renewalCount + newMoveIns);
 
-                    predRows.push({ ...fm, renewalCount, newCount, carryover: cumulativeExtraRooms, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms });
+                    predRows.push({ ...fm, renewalCount, newBooked: forecastNewPerMonth, newMoveIns, carryover: cumulativeExtraRooms, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms });
 
-                    // Accumulate for next month: this month's new additions carry forward
-                    cumulativeExtraRooms += renewalCount + newCount;
+                    // Accumulate for next month: renewals (immediate) + new move-ins (just arrived)
+                    cumulativeExtraRooms += renewalCount + newMoveIns;
                   }
 
                   return (<>
@@ -1714,7 +1733,8 @@ export default function Dashboard() {
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed Days</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Leaving</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Renewals</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ New</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ Booked</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Move-ins</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Carryover</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Days</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS}</th>
@@ -1728,7 +1748,8 @@ export default function Dashboard() {
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{(r.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontSize:10}}>/ {(r.totalBookableDays||0).toLocaleString()}</span></td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts||0}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewalCount}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newCount}`}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newBooked}`}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newMoveIns>0?C.blue:C.muted}}>{i===0?"-":r.newMoveIns>0?`+${r.newMoveIns}`:<span style={{fontSize:9}}>({salesCycleDays}d wait)</span>}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{i===0?"-":r.carryover>0?`+${r.carryover}`:"-"}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{r.predictedDays.toLocaleString()}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>
