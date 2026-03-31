@@ -1631,48 +1631,61 @@ export default function Dashboard() {
 
                 {/* Predicted occupancy table + bars — computed once, used by both */}
                 {(() => {
-                  // ── PREDICTION MODEL ──
-                  // For each month, calculate predicted total booked days:
-                  //   1. Start with ACTUAL booked days from RH (confirmed/checked-in/pending stays ≥28d)
-                  //   2. For leavers whose contracts end this month (checkOuts):
-                  //      - Some will renew (renewal rate slider) → add their remaining days back
-                  //      - The rest leave → their days are already counted up to their end date
-                  //   3. Add new move-ins (new bookings slider) → each new booking adds ~daysInMonth days
-                  //   Predicted occupancy = (actual booked days + renewal days + new days) / total bookable days
-                  const predRows = pmsData.forecast.map((fm, i) => {
+                  // ── PREDICTION MODEL (CUMULATIVE) ──
+                  // Key insight: new bookings and renewals from previous months STAY —
+                  // if 20 people move in during April, they're still there in May, June, July...
+                  // Similarly, if someone renews in May, they persist in June, July, August...
+                  //
+                  // For each month i (1..5):
+                  //   predictedDays = confirmedDays
+                  //     + carryover from previous months' extras (full month each)
+                  //     + this month's renewals (~half month, they renew mid-month on avg)
+                  //     + this month's new move-ins (full month)
+                  //   predictedRooms = confirmedRooms + cumulative extra rooms
+                  //
+                  // cumulativeExtraRooms accumulates: each month adds its renewals + new,
+                  // and all previous months' extras carry forward.
+
+                  const predRows = [];
+                  let cumulativeExtraRooms = 0; // rooms from predicted renewals + new from all previous months
+
+                  for (let i = 0; i < pmsData.forecast.length; i++) {
+                    const fm = pmsData.forecast[i];
                     const actualDays = fm.bookedDays || 0;
                     const totalDays = fm.totalBookableDays || (BEDS * 30);
                     const dim = fm.daysInMonth || 30;
-
-                    // Confirmed rooms = unique units with bookings this month
                     const confirmedRooms = fm.activeStays || 0;
 
                     if (i === 0) {
                       const pct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
-                      return { ...fm, renewalCount: 0, newCount: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms };
+                      predRows.push({ ...fm, renewalCount: 0, newCount: 0, carryover: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms });
+                      continue;
                     }
 
-                    // Leavers: rooms whose contracts end this month
+                    // This month's leavers and renewals
                     const leaving = fm.checkOuts || 0;
-
-                    // Renewals: these people renew, so we add back ~half the month's days
                     const renewalCount = Math.round(leaving * forecastRenewalRate / 100);
-                    const avgRemainingDays = Math.round(dim / 2);
-                    const renewalDays = renewalCount * avgRemainingDays;
-
-                    // New move-ins: each adds roughly a full month
                     const newCount = forecastNewPerMonth;
+
+                    // Days from carry-forward: previous months' predicted extras stay full month
+                    const carryoverDays = cumulativeExtraRooms * dim;
+                    // This month's renewals: they renew mid-month on avg, so ~half month of extra days
+                    const renewalDays = renewalCount * Math.round(dim / 2);
+                    // This month's new move-ins: assume they arrive and stay the full month
                     const newDays = newCount * dim;
 
-                    const predictedDays = Math.min(totalDays, actualDays + renewalDays + newDays);
+                    const predictedDays = Math.min(totalDays, actualDays + carryoverDays + renewalDays + newDays);
                     const predictedPct = totalDays > 0 ? Math.round((predictedDays / totalDays) * 100) : 0;
                     const actualPct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
 
-                    // Predicted rooms = confirmed + renewals + new (capped at 300)
-                    const predictedRooms = Math.min(BEDS, confirmedRooms + renewalCount + newCount);
+                    // Predicted rooms = confirmed + all accumulated extras + this month's additions
+                    const predictedRooms = Math.min(BEDS, confirmedRooms + cumulativeExtraRooms + renewalCount + newCount);
 
-                    return { ...fm, renewalCount, newCount, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms };
-                  });
+                    predRows.push({ ...fm, renewalCount, newCount, carryover: cumulativeExtraRooms, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms });
+
+                    // Accumulate for next month: this month's new additions carry forward
+                    cumulativeExtraRooms += renewalCount + newCount;
+                  }
 
                   return (<>
                 <div style={{overflowX:"auto"}}>
@@ -1684,6 +1697,7 @@ export default function Dashboard() {
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Leaving</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Renewals</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ New</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Carryover</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Days</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS}</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Occ.</th>
@@ -1697,6 +1711,7 @@ export default function Dashboard() {
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts||0}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewalCount}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newCount}`}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{i===0?"-":r.carryover>0?`+${r.carryover}`:"-"}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{r.predictedDays.toLocaleString()}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>
                             <span style={{fontWeight:700}}>{r.predictedRooms}</span>
