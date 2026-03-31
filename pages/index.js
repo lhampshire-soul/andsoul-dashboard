@@ -1625,19 +1625,20 @@ export default function Dashboard() {
                     const totalDays = fm.totalBookableDays || (BEDS * 30);
                     const dim = fm.daysInMonth || 30;
 
+                    // Confirmed rooms = unique units with bookings this month
+                    const confirmedRooms = fm.activeStays || 0;
+
                     if (i === 0) {
-                      // Current month: just show actual
                       const pct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
-                      return { ...fm, renewalCount: 0, newCount: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct };
+                      return { ...fm, renewalCount: 0, newCount: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms };
                     }
 
                     // Leavers: rooms whose contracts end this month
                     const leaving = fm.checkOuts || 0;
 
                     // Renewals: these people renew, so we add back ~half the month's days
-                    // (on average a leaver's contract ends mid-month, renewal covers the rest)
                     const renewalCount = Math.round(leaving * forecastRenewalRate / 100);
-                    const avgRemainingDays = Math.round(dim / 2); // average days left after their end date
+                    const avgRemainingDays = Math.round(dim / 2);
                     const renewalDays = renewalCount * avgRemainingDays;
 
                     // New move-ins: each adds roughly a full month
@@ -1648,7 +1649,10 @@ export default function Dashboard() {
                     const predictedPct = totalDays > 0 ? Math.round((predictedDays / totalDays) * 100) : 0;
                     const actualPct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
 
-                    return { ...fm, renewalCount, newCount, predictedDays, predictedPct, actualPct };
+                    // Predicted rooms = confirmed + renewals + new (capped at 300)
+                    const predictedRooms = Math.min(BEDS, confirmedRooms + renewalCount + newCount);
+
+                    return { ...fm, renewalCount, newCount, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms };
                   });
 
                   return (<>
@@ -1662,6 +1666,7 @@ export default function Dashboard() {
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Renewals</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ New</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Days</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS}</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Occ.</th>
                       </tr>
                     </thead>
@@ -1674,6 +1679,13 @@ export default function Dashboard() {
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewalCount}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newCount}`}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{r.predictedDays.toLocaleString()}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>
+                            <span style={{fontWeight:700}}>{r.predictedRooms}</span>
+                            <span style={{color:C.muted,fontWeight:400}}> / {BEDS}</span>
+                            {i > 0 && r.predictedRooms !== r.confirmedRooms && (
+                              <span style={{fontSize:9,color:C.muted,marginLeft:4}}>({r.confirmedRooms} confirmed)</span>
+                            )}
+                          </td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:r.predictedPct>=90?C.sage:r.predictedPct>=70?C.gold:C.rose}}>
                             {r.predictedPct}%
                           </td>
