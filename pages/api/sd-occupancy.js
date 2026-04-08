@@ -1,46 +1,44 @@
-// Shared Shoreditch occupancy state — persisted in Vercel KV for multi-device sync.
+// Shared Shoreditch occupancy state — persisted in Vercel Marketplace Redis.
 //
 // GET  /api/sd-occupancy        → { flats: [...], updatedAt, updatedBy }
 // POST /api/sd-occupancy        → body { flats: [...], updatedBy? } → { ok: true, updatedAt }
 //
-// If Vercel KV is not provisioned (env vars missing) the route returns a
-// { kvConfigured: false } flag so the client can fall back to localStorage.
+// Uses the standard `redis` client with KV_REDIS_URL (TCP connection URL
+// provided by the new Vercel Marketplace Redis integration). Falls back to
+// { kvConfigured: false } if the env var is missing so the client can use
+// localStorage only.
 
 const KEY = "sd_flats_v1";
 
 function kvAvailable() {
-  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+  return !!process.env.KV_REDIS_URL;
 }
 
-async function loadKv() {
-  // Dynamic import so a missing package doesn't blow up the whole build
-  try {
-    const mod = await import("@vercel/kv");
-    return mod.kv;
-  } catch (e) {
-    return null;
-  }
+async function getClient() {
+  const { createClient } = await import("redis");
+  const client = createClient({ url: process.env.KV_REDIS_URL });
+  client.on("error", (err) => console.error("Redis error", err));
+  await client.connect();
+  return client;
 }
 
 export default async function handler(req, res) {
-  // CORS-friendly for the same-origin dashboard
   res.setHeader("Cache-Control", "no-store");
 
   if (!kvAvailable()) {
     return res.status(200).json({
       kvConfigured: false,
-      message: "Vercel KV not provisioned. Set KV_REST_API_URL and KV_REST_API_TOKEN.",
+      message: "Redis not provisioned. Set KV_REDIS_URL.",
     });
   }
 
-  const kv = await loadKv();
-  if (!kv) {
-    return res.status(500).json({ kvConfigured: true, error: "@vercel/kv package not installed" });
-  }
-
+  let client;
   try {
+    client = await getClient();
+
     if (req.method === "GET") {
-      const data = await kv.get(KEY);
+      const raw = await client.get(KEY);
+      const data = raw ? JSON.parse(raw) : null;
       return res.status(200).json({
         kvConfigured: true,
         flats: data?.flats || null,
@@ -64,7 +62,7 @@ export default async function handler(req, res) {
         updatedAt: new Date().toISOString(),
         updatedBy,
       };
-      await kv.set(KEY, record);
+      await client.set(KEY, JSON.stringify(record));
       return res.status(200).json({ kvConfigured: true, ok: true, updatedAt: record.updatedAt });
     }
 
@@ -72,5 +70,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   } catch (e) {
     return res.status(500).json({ kvConfigured: true, error: e.message });
+  } finally {
+    if (client) {
+      try { await client.quit(); } catch (_) {}
+    }
   }
 }
