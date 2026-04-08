@@ -890,7 +890,25 @@ export default function Dashboard() {
   const [sdGhlError, setSdGhlErr] = useState("");
   const [sdGhlData, setSdGhlData] = useState(null);
   const [sdGhlConn, setSdGhlConn] = useState(false);
-  const [sdFlats, setSdFlats] = useState(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));
+  const [sdFlats, setSdFlats] = useState(()=>{
+    // Lazy init: try localStorage first, fall back to defaults
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("sd_flats_v1");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].rooms) return parsed;
+        }
+      } catch(e) { console.log("sdFlats load error:", e.message); }
+    }
+    return SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
+  });
+  // Persist sdFlats changes to localStorage
+  useEffect(()=>{
+    if (typeof window === "undefined") return;
+    try { localStorage.setItem("sd_flats_v1", JSON.stringify(sdFlats)); }
+    catch(e) { console.log("sdFlats save error:", e.message); }
+  },[sdFlats]);
   const sdGoogleFiltered = useMemo(()=>SD_GOOGLE_DAILY.filter(r=>r.date>=from&&r.date<=to),[from,to]);
   // Shoreditch live Google data (reuse the same Windsor API, which excludes GMB)
   const [sdLiveGoogleData, setSdLiveGoogleData] = useState(null);
@@ -2661,10 +2679,12 @@ export default function Dashboard() {
             ))}
           </div>
 
-          <div style={{display:"flex",gap:12,marginTop:16,justifyContent:"center"}}>
+          <div style={{display:"flex",gap:12,marginTop:16,justifyContent:"center",alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:10,color:C.sage,background:C.sage+"22",padding:"3px 10px",borderRadius:12}}>● Occupied</span>
             <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"3px 10px",borderRadius:12}}>● Vacant</span>
             <span style={{fontSize:10,color:C.blue,background:C.blue+"22",padding:"3px 10px",borderRadius:12}}>● Incoming</span>
+            <span style={{fontSize:10,color:C.muted,marginLeft:12}}>Auto-saved to this browser</span>
+            <button onClick={()=>{if(confirm("Reset Shoreditch occupancy to defaults? This will clear your saved changes.")){localStorage.removeItem("sd_flats_v1");setSdFlats(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));}}} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,padding:"3px 10px",borderRadius:12,cursor:"pointer"}}>Reset to defaults</button>
           </div>
         </div>
       )}
