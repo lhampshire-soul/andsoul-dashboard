@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Line, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart
@@ -891,7 +891,7 @@ export default function Dashboard() {
   const [sdGhlData, setSdGhlData] = useState(null);
   const [sdGhlConn, setSdGhlConn] = useState(false);
   const [sdFlats, setSdFlats] = useState(()=>{
-    // Lazy init: try localStorage first, fall back to defaults
+    // Lazy init: localStorage first for instant paint, API will overwrite once it loads
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("sd_flats_v1");
@@ -903,11 +903,74 @@ export default function Dashboard() {
     }
     return SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
   });
-  // Persist sdFlats changes to localStorage
+  // sdFlatsSync state: "loading" | "cloud" | "local" | "saving" | "error"
+  const [sdFlatsSync, setSdFlatsSync] = useState("loading");
+  const [sdFlatsUpdatedAt, setSdFlatsUpdatedAt] = useState(null);
+  const sdFlatsInitialLoad = useRef(true);
+  const sdFlatsSaveTimer = useRef(null);
+
+  // On mount: fetch the canonical state from the API (Vercel KV)
+  useEffect(()=>{
+    let cancelled = false;
+    (async ()=>{
+      try {
+        const r = await fetch("/api/sd-occupancy");
+        const j = await r.json();
+        if (cancelled) return;
+        if (j.kvConfigured === false) {
+          setSdFlatsSync("local");
+          console.log("sdFlats: KV not configured, using localStorage only");
+          return;
+        }
+        if (j.flats && Array.isArray(j.flats) && j.flats.length > 0) {
+          setSdFlats(j.flats);
+          setSdFlatsUpdatedAt(j.updatedAt || null);
+          try { localStorage.setItem("sd_flats_v1", JSON.stringify(j.flats)); } catch(e) {}
+        }
+        setSdFlatsSync("cloud");
+      } catch(e) {
+        if (cancelled) return;
+        console.log("sdFlats fetch error:", e.message);
+        setSdFlatsSync("local");
+      } finally {
+        sdFlatsInitialLoad.current = false;
+      }
+    })();
+    return ()=>{ cancelled = true; };
+  },[]);
+
+  // On sdFlats change: save to localStorage immediately + debounced POST to API
   useEffect(()=>{
     if (typeof window === "undefined") return;
     try { localStorage.setItem("sd_flats_v1", JSON.stringify(sdFlats)); }
     catch(e) { console.log("sdFlats save error:", e.message); }
+
+    // Skip the very first render (API fetch will set state)
+    if (sdFlatsInitialLoad.current) return;
+    if (sdFlatsSync === "local") return; // KV not configured, don't try API
+
+    if (sdFlatsSaveTimer.current) clearTimeout(sdFlatsSaveTimer.current);
+    setSdFlatsSync("saving");
+    sdFlatsSaveTimer.current = setTimeout(async ()=>{
+      try {
+        const r = await fetch("/api/sd-occupancy", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ flats: sdFlats, updatedBy: "dashboard" }),
+        });
+        const j = await r.json();
+        if (j.ok) {
+          setSdFlatsSync("cloud");
+          setSdFlatsUpdatedAt(j.updatedAt || new Date().toISOString());
+        } else {
+          setSdFlatsSync("error");
+          console.log("sdFlats save failed:", j.error || "unknown");
+        }
+      } catch(e) {
+        setSdFlatsSync("error");
+        console.log("sdFlats save error:", e.message);
+      }
+    }, 600);
   },[sdFlats]);
   const sdGoogleFiltered = useMemo(()=>SD_GOOGLE_DAILY.filter(r=>r.date>=from&&r.date<=to),[from,to]);
   // Shoreditch live Google data (reuse the same Windsor API, which excludes GMB)
@@ -2683,8 +2746,14 @@ export default function Dashboard() {
             <span style={{fontSize:10,color:C.sage,background:C.sage+"22",padding:"3px 10px",borderRadius:12}}>● Occupied</span>
             <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"3px 10px",borderRadius:12}}>● Vacant</span>
             <span style={{fontSize:10,color:C.blue,background:C.blue+"22",padding:"3px 10px",borderRadius:12}}>● Incoming</span>
-            <span style={{fontSize:10,color:C.muted,marginLeft:12}}>Auto-saved to this browser</span>
-            <button onClick={()=>{if(confirm("Reset Shoreditch occupancy to defaults? This will clear your saved changes.")){localStorage.removeItem("sd_flats_v1");setSdFlats(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));}}} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,padding:"3px 10px",borderRadius:12,cursor:"pointer"}}>Reset to defaults</button>
+            <span style={{fontSize:10,color:sdFlatsSync==="cloud"?C.sage:sdFlatsSync==="saving"?C.gold:sdFlatsSync==="error"?C.rose:C.muted,marginLeft:12}}>
+              {sdFlatsSync==="loading"&&"◌ Loading…"}
+              {sdFlatsSync==="cloud"&&`● Synced${sdFlatsUpdatedAt?" · "+new Date(sdFlatsUpdatedAt).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):""}`}
+              {sdFlatsSync==="saving"&&"◌ Saving…"}
+              {sdFlatsSync==="error"&&"⚠ Sync failed (using local)"}
+              {sdFlatsSync==="local"&&"◌ Local only (KV not configured)"}
+            </span>
+            <button onClick={()=>{if(confirm("Reset Shoreditch occupancy to defaults? This will clear saved changes across all devices.")){localStorage.removeItem("sd_flats_v1");setSdFlats(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));}}} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,padding:"3px 10px",borderRadius:12,cursor:"pointer"}}>Reset to defaults</button>
           </div>
         </div>
       )}
