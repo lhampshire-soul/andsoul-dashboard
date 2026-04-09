@@ -1765,42 +1765,30 @@ export default function Dashboard() {
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Occupancy Prediction Model</p>
                 <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Cohort-based model: each new booking / renewal stays for its real length-of-stay, then leaves</p>
 
-                {/* ── LoS mix panel — live from Res Harmonics ── */}
+                {/* ── LoS mix panel — fixed business mix ── */}
                 {(() => {
-                  const live = pmsData.losDistribution;
-                  const hasLive = live && live.total > 0;
                   const bands = [
-                    { key:"short",  label:"≤ 31 days",    color:C.rose },
-                    { key:"medium", label:"31–91 days",   color:C.gold },
-                    { key:"long",   label:"92–181 days",  color:C.blue },
-                    { key:"annual", label:"365+ days",    color:C.sage },
+                    { key:"short",  label:"30-day bookings",  share:0.25, avgDays:30,  color:C.rose },
+                    { key:"medium", label:"90-day bookings",  share:0.25, avgDays:90,  color:C.gold },
+                    { key:"long",   label:"180-day bookings", share:0.15, avgDays:180, color:C.blue },
+                    { key:"annual", label:"365-day bookings", share:0.35, avgDays:365, color:C.sage },
                   ];
                   return (
                     <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:14}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                         <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>Length-of-Stay Mix</span>
-                        <span style={{fontSize:10,color:C.muted}}>
-                          {hasLive
-                            ? `Live from Res Harmonics · ${live.total} bookings since ${live.cutoff}`
-                            : "Defaults (no live data yet): 25% / 25% / 15% / 35%"}
-                        </span>
+                        <span style={{fontSize:10,color:C.muted}}>Business mix · applied to every new booking + renewal</span>
                       </div>
                       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                        {bands.map(b => {
-                          const d = hasLive ? live[b.key] : null;
-                          const share = d ? d.share : ({short:0.25,medium:0.25,long:0.15,annual:0.35}[b.key]);
-                          const avgDays = d && d.avgDays ? d.avgDays : ({short:20,medium:60,long:135,annual:540}[b.key]);
-                          return (
-                            <div key={b.key} style={{flex:"1 1 140px",background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px"}}>
-                              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{b.label}</div>
-                              <div style={{display:"flex",alignItems:"baseline",gap:6,marginTop:2}}>
-                                <span style={{fontSize:18,fontWeight:700,color:b.color,fontFamily:"DM Mono,monospace"}}>{Math.round(share*100)}%</span>
-                                <span style={{fontSize:10,color:C.muted}}>· avg {avgDays}d</span>
-                              </div>
-                              {d && <div style={{fontSize:9,color:C.muted,marginTop:2}}>{d.count} bookings</div>}
+                        {bands.map(b => (
+                          <div key={b.key} style={{flex:"1 1 140px",background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px"}}>
+                            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{b.label}</div>
+                            <div style={{display:"flex",alignItems:"baseline",gap:6,marginTop:2}}>
+                              <span style={{fontSize:18,fontWeight:700,color:b.color,fontFamily:"DM Mono,monospace"}}>{Math.round(b.share*100)}%</span>
+                              <span style={{fontSize:10,color:C.muted}}>· {b.avgDays}d stay</span>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
@@ -1845,22 +1833,20 @@ export default function Dashboard() {
                   // contributes days month-by-month until its average LoS is used up —
                   // so short-stay guests naturally churn out while annual cohorts persist.
                   //
-                  // Default LoS mix (user-specified, used only if no live data): 25 / 25 / 15 / 35
-                  const LOS_FALLBACK = {
-                    short:  { share: 0.25, avgDays: 20 },
-                    medium: { share: 0.25, avgDays: 60 },
-                    long:   { share: 0.15, avgDays: 135 },
-                    annual: { share: 0.35, avgDays: 540 },
+                  // Fixed LoS mix per business rules — Res Harmonics live data is
+                  // unreliable for length-of-stay (mixes renewals, room moves, etc.),
+                  // so we use the agreed mix as the source of truth:
+                  //   30-day  bookings → 25%
+                  //   90-day  bookings → 25%
+                  //   180-day bookings → 15%
+                  //   365-day bookings → 35%
+                  const LOS_MIX = {
+                    short:  { share: 0.25, avgDays: 30  },
+                    medium: { share: 0.25, avgDays: 90  },
+                    long:   { share: 0.15, avgDays: 180 },
+                    annual: { share: 0.35, avgDays: 365 },
                   };
-                  const liveLos = pmsData.losDistribution;
-                  const hasLiveLos = liveLos && liveLos.total > 0;
-                  const liveMix = hasLiveLos ? {
-                    short:  { share: liveLos.short.share,  avgDays: liveLos.short.avgDays  || LOS_FALLBACK.short.avgDays  },
-                    medium: { share: liveLos.medium.share, avgDays: liveLos.medium.avgDays || LOS_FALLBACK.medium.avgDays },
-                    long:   { share: liveLos.long.share,   avgDays: liveLos.long.avgDays   || LOS_FALLBACK.long.avgDays   },
-                    annual: { share: liveLos.annual.share, avgDays: liveLos.annual.avgDays || LOS_FALLBACK.annual.avgDays },
-                  } : LOS_FALLBACK;
-                  const losMix = losOverride || liveMix;
+                  const losMix = losOverride || LOS_MIX;
 
                   // Sales cycle: new bookings take X days before moving in
                   const moveInDelay = Math.floor(salesCycleDays / 30);
