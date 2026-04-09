@@ -442,6 +442,57 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
 
   const globalAwr = globalAwrCount > 0 ? Math.round(globalAwrSum / globalAwrCount) : 0;
 
+  // ─── Length-of-stay distribution (from last 12 months of bookings) ───
+  // Bucket: <=31d, 31-91d, 92-181d, 365+d. Bookings that fall 182-364d
+  // (between long and annual) are split proportionally so buckets sum to 100%.
+  // Renewals and room-moves are excluded — they aren't independent "new" stays.
+  const losCutoff = new Date(now);
+  losCutoff.setMonth(losCutoff.getMonth() - 12);
+  const losCutoffStr = localDateStr(losCutoff);
+
+  const losBuckets = {
+    short:  { label: "≤31 days",    min: 0,   max: 31,   count: 0, sumDays: 0 },
+    medium: { label: "31–91 days",  min: 31,  max: 91,   count: 0, sumDays: 0 },
+    long:   { label: "92–181 days", min: 91,  max: 181,  count: 0, sumDays: 0 },
+    annual: { label: "365+ days",   min: 181, max: 9999, count: 0, sumDays: 0 },
+  };
+
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    // Count both completed (CHECKED_OUT) and in-progress (CHECKED_IN / CONFIRMED) so
+    // recent data is represented. This measures the *intended* length of stay.
+    if (!["CHECKED_OUT", "CHECKED_IN", "CONFIRMED"].includes(status)) return;
+    const from = (b.startDate ?? "").slice(0,10);
+    const to = (b.endDate ?? "").slice(0,10);
+    if (!from || !to || from < losCutoffStr) return;
+    // Exclude renewals / room moves — they're chained, not fresh stays
+    const rid = b.roomStayId;
+    if (rid && (renewalRoomStays.has(rid) || roomMoveRoomStays.has(rid))) return;
+    const days = Math.round((new Date(to) - new Date(from)) / 864e5);
+    if (days < 1) return;
+    // Exclude very short desk / hot-room bookings
+    if (days < 1) return;
+    let bucket;
+    if (days <= 31) bucket = losBuckets.short;
+    else if (days <= 91) bucket = losBuckets.medium;
+    else if (days <= 181) bucket = losBuckets.long;
+    else bucket = losBuckets.annual;
+    bucket.count++;
+    bucket.sumDays += days;
+  });
+
+  const totalLosCount = Object.values(losBuckets).reduce((s,b)=>s+b.count, 0);
+  const losDistribution = Object.fromEntries(
+    Object.entries(losBuckets).map(([k,b]) => [k, {
+      label: b.label,
+      count: b.count,
+      share: totalLosCount > 0 ? b.count / totalLosCount : 0,
+      avgDays: b.count > 0 ? Math.round(b.sumDays / b.count) : 0,
+    }])
+  );
+  losDistribution.total = totalLosCount;
+  losDistribution.cutoff = losCutoffStr;
+
   return {
     occupied: inHouseCount,
     checkInsWeek,
@@ -455,6 +506,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     globalAwr,
     renewalCount: renewalRoomStays.size,
     roomMoveCount: roomMoveRoomStays.size,
+    losDistribution,
   };
 }
 
@@ -755,6 +807,9 @@ export default function Dashboard() {
   const [forecastRenewalRate, setForecastRenewalRate] = useState(75);
   const [forecastNewPerMonth, setForecastNewPerMonth] = useState(20);
   const [salesCycleDays, setSalesCycleDays] = useState(47);
+  // LoS mix override — null means "use live distribution from Res Harmonics"
+  // Shape: { short:{share,avgDays}, medium:{...}, long:{...}, annual:{...} }
+  const [losOverride, setLosOverride] = useState(null);
   const [rateAdjustments, setRateAdjustments] = useState({});
 
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
@@ -1708,7 +1763,48 @@ export default function Dashboard() {
             {pmsConn && pmsData?.forecast && (
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginTop:16}}>
                 <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Occupancy Prediction Model</p>
-                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Adjust renewal rate and new bookings to project future occupancy</p>
+                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Cohort-based model: each new booking / renewal stays for its real length-of-stay, then leaves</p>
+
+                {/* ── LoS mix panel — live from Res Harmonics ── */}
+                {(() => {
+                  const live = pmsData.losDistribution;
+                  const hasLive = live && live.total > 0;
+                  const bands = [
+                    { key:"short",  label:"≤ 31 days",    color:C.rose },
+                    { key:"medium", label:"31–91 days",   color:C.gold },
+                    { key:"long",   label:"92–181 days",  color:C.blue },
+                    { key:"annual", label:"365+ days",    color:C.sage },
+                  ];
+                  return (
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:14}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>Length-of-Stay Mix</span>
+                        <span style={{fontSize:10,color:C.muted}}>
+                          {hasLive
+                            ? `Live from Res Harmonics · ${live.total} bookings since ${live.cutoff}`
+                            : "Defaults (no live data yet): 25% / 25% / 15% / 35%"}
+                        </span>
+                      </div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                        {bands.map(b => {
+                          const d = hasLive ? live[b.key] : null;
+                          const share = d ? d.share : ({short:0.25,medium:0.25,long:0.15,annual:0.35}[b.key]);
+                          const avgDays = d && d.avgDays ? d.avgDays : ({short:20,medium:60,long:135,annual:540}[b.key]);
+                          return (
+                            <div key={b.key} style={{flex:"1 1 140px",background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px"}}>
+                              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{b.label}</div>
+                              <div style={{display:"flex",alignItems:"baseline",gap:6,marginTop:2}}>
+                                <span style={{fontSize:18,fontWeight:700,color:b.color,fontFamily:"DM Mono,monospace"}}>{Math.round(share*100)}%</span>
+                                <span style={{fontSize:10,color:C.muted}}>· avg {avgDays}d</span>
+                              </div>
+                              {d && <div style={{fontSize:9,color:C.muted,marginTop:2}}>{d.count} bookings</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div style={{display:"flex",gap:16,marginBottom:18,flexWrap:"wrap"}}>
                   <div style={{flex:"1 1 200px"}}>
@@ -1742,28 +1838,37 @@ export default function Dashboard() {
 
                 {/* Predicted occupancy table + bars — computed once, used by both */}
                 {(() => {
-                  // ── PREDICTION MODEL (CUMULATIVE) ──
-                  // Key insight: new bookings and renewals from previous months STAY —
-                  // if 20 people move in during April, they're still there in May, June, July...
-                  // Similarly, if someone renews in May, they persist in June, July, August...
+                  // ── PREDICTION MODEL (COHORT-BASED) ──
+                  // Every new booking / renewal enters as a cohort with a length-of-stay
+                  // drawn from the real LoS distribution observed in the last 12 months
+                  // of Res Harmonics data (short / medium / long / annual). Each cohort
+                  // contributes days month-by-month until its average LoS is used up —
+                  // so short-stay guests naturally churn out while annual cohorts persist.
                   //
-                  // For each month i (1..5):
-                  //   predictedDays = confirmedDays
-                  //     + carryover from previous months' extras (full month each)
-                  //     + this month's renewals (~half month, they renew mid-month on avg)
-                  //     + this month's new move-ins (full month)
-                  //   predictedRooms = confirmedRooms + cumulative extra rooms
-                  //
-                  // cumulativeExtraRooms accumulates: each month adds its renewals + new,
-                  // and all previous months' extras carry forward.
+                  // Default LoS mix (user-specified, used only if no live data): 25 / 25 / 15 / 35
+                  const LOS_FALLBACK = {
+                    short:  { share: 0.25, avgDays: 20 },
+                    medium: { share: 0.25, avgDays: 60 },
+                    long:   { share: 0.15, avgDays: 135 },
+                    annual: { share: 0.35, avgDays: 540 },
+                  };
+                  const liveLos = pmsData.losDistribution;
+                  const hasLiveLos = liveLos && liveLos.total > 0;
+                  const liveMix = hasLiveLos ? {
+                    short:  { share: liveLos.short.share,  avgDays: liveLos.short.avgDays  || LOS_FALLBACK.short.avgDays  },
+                    medium: { share: liveLos.medium.share, avgDays: liveLos.medium.avgDays || LOS_FALLBACK.medium.avgDays },
+                    long:   { share: liveLos.long.share,   avgDays: liveLos.long.avgDays   || LOS_FALLBACK.long.avgDays   },
+                    annual: { share: liveLos.annual.share, avgDays: liveLos.annual.avgDays || LOS_FALLBACK.annual.avgDays },
+                  } : LOS_FALLBACK;
+                  const losMix = losOverride || liveMix;
 
                   // Sales cycle: new bookings take X days before moving in
-                  // moveInDelay = full months of delay, partialOffset = days into the move-in month
                   const moveInDelay = Math.floor(salesCycleDays / 30);
                   const partialOffset = salesCycleDays % 30;
 
                   const predRows = [];
-                  let cumulativeExtraRooms = 0; // rooms from renewals + moved-in new from all previous months
+                  // Active cohorts from previous months: { size, remainingDays }
+                  const activeCohorts = [];
 
                   for (let i = 0; i < pmsData.forecast.length; i++) {
                     const fm = pmsData.forecast[i];
@@ -1774,38 +1879,66 @@ export default function Dashboard() {
 
                     if (i === 0) {
                       const pct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
-                      predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryover: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms });
+                      predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryoverRooms: 0, carryoverDays: 0, leavingFromCohorts: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms });
                       continue;
                     }
 
-                    // This month's leavers and renewals (immediate — they already live here)
+                    // Step 1: roll forward existing cohorts a full month each.
+                    // A cohort with remainingDays >= dim survives into next month; otherwise it expires.
+                    let carryoverDays = 0;
+                    let carryoverRooms = 0;
+                    let leavingFromCohorts = 0;
+                    const surviving = [];
+                    for (const c of activeCohorts) {
+                      const take = Math.min(c.remainingDays, dim);
+                      carryoverDays += c.size * take;
+                      if (c.remainingDays > dim) {
+                        surviving.push({ size: c.size, remainingDays: c.remainingDays - dim });
+                        carryoverRooms += c.size;
+                      } else {
+                        leavingFromCohorts += c.size;
+                      }
+                    }
+
+                    // Step 2: this month's renewals (immediate) and new move-ins
                     const leaving = fm.checkOuts || 0;
                     const renewalCount = Math.round(leaving * forecastRenewalRate / 100);
-
-                    // New bookings: signed this month, but move in after sales cycle delay
-                    // Bookings from month j move in during month (j + moveInDelay)
-                    // In month i, we receive move-ins from bookings made in month (i - moveInDelay)
                     const bookedMonthAgo = i - moveInDelay;
                     const newMoveIns = bookedMonthAgo >= 1 ? forecastNewPerMonth : 0;
 
-                    // Days from carry-forward: previous months' settled extras stay full month
-                    const carryoverDays = cumulativeExtraRooms * dim;
-                    // This month's renewals: they renew mid-month on avg, so ~half month of extra days
-                    const renewalDays = renewalCount * Math.round(dim / 2);
-                    // New move-ins this month: they arrive partialOffset days into the month
-                    const newMoveInDays = newMoveIns * Math.max(0, dim - partialOffset);
+                    // Step 3: split new entrants into LoS cohorts and add their first-month days
+                    const newCohorts = [];
+                    const addCohort = (count, firstMonthDays) => {
+                      if (count <= 0 || firstMonthDays <= 0) return 0;
+                      let daysAdded = 0;
+                      for (const key of ["short","medium","long","annual"]) {
+                        const band = losMix[key];
+                        if (!band || band.share <= 0) continue;
+                        const size = count * band.share;
+                        const firstDays = Math.min(band.avgDays, firstMonthDays);
+                        daysAdded += size * firstDays;
+                        const remaining = band.avgDays - firstDays;
+                        if (remaining > 0) {
+                          newCohorts.push({ size, remainingDays: remaining });
+                        }
+                      }
+                      return daysAdded;
+                    };
+                    // Renewals: on average they "switch" mid-month → ~half month of extra days
+                    const renewalDays = addCohort(renewalCount, Math.round(dim / 2));
+                    // New move-ins: arrive partialOffset days into the month
+                    const newMoveInDays = addCohort(newMoveIns, Math.max(0, dim - partialOffset));
 
                     const predictedDays = Math.min(totalDays, actualDays + carryoverDays + renewalDays + newMoveInDays);
                     const predictedPct = totalDays > 0 ? Math.round((predictedDays / totalDays) * 100) : 0;
                     const actualPct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
+                    const predictedRooms = Math.min(BEDS, confirmedRooms + carryoverRooms + renewalCount + newMoveIns);
 
-                    // Predicted rooms = confirmed + all accumulated extras + this month's additions
-                    const predictedRooms = Math.min(BEDS, confirmedRooms + cumulativeExtraRooms + renewalCount + newMoveIns);
+                    predRows.push({ ...fm, renewalCount, newBooked: forecastNewPerMonth, newMoveIns, carryoverRooms, carryoverDays, leavingFromCohorts, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms });
 
-                    predRows.push({ ...fm, renewalCount, newBooked: forecastNewPerMonth, newMoveIns, carryover: cumulativeExtraRooms, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms });
-
-                    // Accumulate for next month: renewals (immediate) + new move-ins (just arrived)
-                    cumulativeExtraRooms += renewalCount + newMoveIns;
+                    // Commit surviving + new cohorts for next month
+                    activeCohorts.length = 0;
+                    activeCohorts.push(...surviving, ...newCohorts);
                   }
 
                   return (<>
@@ -1834,7 +1967,7 @@ export default function Dashboard() {
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewalCount}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newBooked}`}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newMoveIns>0?C.blue:C.muted}}>{i===0?"-":r.newMoveIns>0?`+${r.newMoveIns}`:<span style={{fontSize:9}}>({salesCycleDays}d wait)</span>}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{i===0?"-":r.carryover>0?`+${r.carryover}`:"-"}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{i===0?"-":r.carryoverRooms>0?`+${r.carryoverRooms}${r.leavingFromCohorts>0?` / -${Math.round(r.leavingFromCohorts)}`:""}`:"-"}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{r.predictedDays.toLocaleString()}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>
                             <span style={{fontWeight:700}}>{r.predictedRooms}</span>
