@@ -621,6 +621,7 @@ async function loadGHL(dateFrom, dateTo) {
     confirmedValue,
     convRate:        tours.length > 0 ? Math.round(confirmed.length/tours.length*100) : null,
     totalOpps:       opps.length,
+    allOpps:         opps,
   };
 }
 
@@ -780,6 +781,137 @@ export default function Dashboard() {
   const blendedAvgCPL = (metaLeads+gConvs)>0 ? (metaSpend+gSpend)/(metaLeads+gConvs) : 0;
   const liveCampaigns = googleIsLive && liveGoogleData?.campaigns ? liveGoogleData.campaigns : GOOGLE_CAMPAIGNS;
 
+  // ─── COST PER BOOKING (Southall) ──────────────────────────────────────────
+  // Joins RH bookings (by email) ↔ GHL opps (utmSource in attributions) ↔ Meta/Google spend.
+  // A "booking" = any RH record whose booking-reference date falls in [from,to]
+  // and whose building is Southall. Bookings are attributed to a channel only
+  // if we find the guest's email on a GHL opp with a Facebook/Google utmSource;
+  // otherwise they count as "Other" for blended CAC.
+  const cacStats = useMemo(() => {
+    const opps = ghlData?.allOpps || [];
+    const bookings = rhAllBookings || [];
+    if (!opps.length || !bookings.length) return null;
+
+    const classifyChannel = (s) => {
+      const v = (s || "").toLowerCase();
+      if (v === "facebook" || v === "meta" || v === "ig" || v === "instagram") return "meta";
+      if (v === "adwords" || v === "google") return "google";
+      return "other";
+    };
+    const getOppChannel = (o) => {
+      const attrs = o.attributions || [];
+      const pick = attrs.find(a => a.isLast) || attrs[attrs.length - 1] || attrs[0] || null;
+      return classifyChannel(pick?.utmSource || o.source || "");
+    };
+
+    // Email → latest-opp channel lookup
+    const emailMap = {};
+    for (const o of opps) {
+      const email = (o.contact?.email || "").toLowerCase().trim();
+      if (!email) continue;
+      const ch = getOppChannel(o);
+      const oppDate = o.createdAt || o.dateAdded || "";
+      const existing = emailMap[email];
+      if (!existing || oppDate > existing.oppDate) emailMap[email] = { channel: ch, oppDate };
+    }
+
+    // "YYYYMMDD-NNNN" → ISO
+    const refToIso = (ref) => {
+      if (!ref || ref.length < 8) return null;
+      return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+    };
+    // LoS bands per user spec: 28–92 / 93–182 / 183–360 / 361+
+    const banding = (d) => {
+      if (d == null || d < 0) return null;
+      if (d <= 92) return "1m";
+      if (d <= 182) return "3m";
+      if (d <= 360) return "6m";
+      return "12m";
+    };
+    const bandLabel = { "1m":"1m (≤92d)", "3m":"3m (93–182d)", "6m":"6m (183–360d)", "12m":"12m+ (361d+)" };
+
+    const rows = [];
+    const lags = [];
+    for (const b of bookings) {
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) continue;
+      const refIso = refToIso(b.bookingReference);
+      const email = (b.bookingContact?.emailAddress || "").toLowerCase().trim();
+      const losDays = (b.startDate && b.endDate)
+        ? Math.round((new Date(b.endDate) - new Date(b.startDate)) / 86400000)
+        : null;
+      const band = banding(losDays);
+      const value = parseFloat(b.netAmount || 0) + parseFloat(b.vatAmount || 0);
+      const match = email ? emailMap[email] : null;
+      const channel = match?.channel || "other";
+
+      // lag (historical, all matched — independent of window)
+      if (match && refIso && match.oppDate) {
+        const oppIso = (match.oppDate || "").slice(0,10);
+        if (oppIso) {
+          const lag = Math.round((new Date(refIso) - new Date(oppIso)) / 86400000);
+          if (lag >= 0 && lag <= 365) lags.push(lag);
+        }
+      }
+
+      // in-window filter
+      if (!refIso) continue;
+      if (from && refIso < from) continue;
+      if (to && refIso > to) continue;
+
+      rows.push({
+        bookingId: b.bookingId, ref: b.bookingReference, refIso,
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        email, start: b.startDate, end: b.endDate,
+        losDays, band, value, channel,
+        status: b.roomStayStatus, unit: b.unit?.name,
+      });
+    }
+
+    const counts = { meta:0, google:0, other:0, total: rows.length };
+    const valueByChannel = { meta:0, google:0, other:0 };
+    const losBandCounts = { "1m":0, "3m":0, "6m":0, "12m":0 };
+    const losBandValue  = { "1m":0, "3m":0, "6m":0, "12m":0 };
+    const losBandChannel = { "1m":{meta:0,google:0,other:0}, "3m":{meta:0,google:0,other:0}, "6m":{meta:0,google:0,other:0}, "12m":{meta:0,google:0,other:0} };
+    for (const r of rows) {
+      counts[r.channel]++;
+      valueByChannel[r.channel] += r.value;
+      if (r.band) { losBandCounts[r.band]++; losBandValue[r.band] += r.value; losBandChannel[r.band][r.channel]++; }
+    }
+
+    const totalSpend = metaSpend + gSpend;
+    const blendedCAC = counts.total > 0 ? totalSpend / counts.total : 0;
+    const metaCAC    = counts.meta  > 0 ? metaSpend   / counts.meta  : 0;
+    const googleCAC  = counts.google> 0 ? gSpend      / counts.google: 0;
+
+    const bandCAC = {}, bandAvgValue = {}, bandCacPctValue = {};
+    for (const band of ["1m","3m","6m","12m"]) {
+      const c = losBandChannel[band], total = losBandCounts[band];
+      if (total > 0) {
+        const costAttributed = (c.meta * metaCAC) + (c.google * googleCAC) + (c.other * blendedCAC);
+        bandCAC[band] = costAttributed / total;
+        bandAvgValue[band] = losBandValue[band] / total;
+        bandCacPctValue[band] = bandAvgValue[band] > 0 ? (bandCAC[band] / bandAvgValue[band]) * 100 : 0;
+      } else {
+        bandCAC[band] = 0; bandAvgValue[band] = 0; bandCacPctValue[band] = 0;
+      }
+    }
+
+    let medianLag = null;
+    if (lags.length) {
+      const sorted = lags.slice().sort((a,b)=>a-b);
+      medianLag = sorted[Math.floor(sorted.length/2)];
+    }
+
+    return {
+      counts, valueByChannel,
+      totalSpend, blendedCAC, metaCAC, googleCAC,
+      losBandCounts, losBandValue, losBandChannel, bandCAC, bandAvgValue, bandCacPctValue, bandLabel,
+      medianLag, lagSampleSize: lags.length,
+      rows: rows.sort((a,b) => (b.refIso || "").localeCompare(a.refIso || "")),
+    };
+  }, [ghlData, rhAllBookings, from, to, metaSpend, gSpend]);
+
   // GHL
   const [ghlLoading, setGhlLoad] = useState(false);
   const [ghlError,   setGhlErr]  = useState("");
@@ -802,6 +934,7 @@ export default function Dashboard() {
   const [cid,setCid]=useState("5n3lgu73rc3jqus4fur3c58fbb"), [csec,setCsec]=useState("1bfob7es3ge16bmjs8t4i0ah2ica4t1ujt8aeqa4b3rs9cmsa7uh");
   const [pmsLoad,setPmsLoad]=useState(false), [pmsErr,setPmsErr]=useState("");
   const [pmsConn,setPmsConn]=useState(false), [pmsData,setPmsData]=useState(null);
+  const [rhAllBookings, setRhAllBookings] = useState([]);
   const [mOcc,setMOcc]=useState(72), [mRate,setMRate]=useState(1450);
   const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
   const [forecastRenewalRate, setForecastRenewalRate] = useState(75);
@@ -859,6 +992,7 @@ export default function Dashboard() {
 
       const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
       setPmsData(metrics);
+      setRhAllBookings(allBookings);
       console.log("PMS silent refresh complete");
     }catch(e){ console.log("PMS silent refresh error:", e.message); }
   },[cid,csec]);
@@ -898,6 +1032,7 @@ export default function Dashboard() {
       const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
       console.log(`RH: occupied=${metrics.occupied}, checkIns=${metrics.checkInsWeek}, checkOuts=${metrics.checkOutsWeek}, monthRev=${metrics.revenue}, awr=${metrics.globalAwr}`);
       setPmsData(metrics);
+      setRhAllBookings(allBookings);
       setPmsConn(true);
     }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
     finally{setPmsLoad(false);}
@@ -1459,6 +1594,101 @@ export default function Dashboard() {
                   <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(gConvs>0?liveCampaigns.reduce((s,c)=>s+c.spend,0)/gConvs:0,"£",2)}/submit</td>
                 </tr></tfoot>
               </table>
+            </div>
+
+            {/* ── COST PER BOOKING ── */}
+            <div style={{marginTop:24}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall · {rangeLabel} · GHL × RH × Ad spend</p>
+              <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Cost Per Booking</h2>
+
+              {!cacStats && (
+                <div style={{padding:"16px 18px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,color:C.muted,fontSize:13}}>
+                  {!ghlData?.allOpps ? "Connect Go High Level to attribute bookings to channels." : ""}
+                  {!rhAllBookings?.length ? " Connect Res Harmonics to pull bookings." : ""}
+                </div>
+              )}
+
+              {cacStats && (
+                <>
+                  {/* Core CAC cards */}
+                  <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                    <KPI label="Total Bookings" value={cacStats.counts.total} sub={`${cacStats.counts.meta} Meta · ${cacStats.counts.google} Google · ${cacStats.counts.other} Other`} accent={C.text}/>
+                    <KPI label="Blended CAC" value={fmt(cacStats.blendedCAC,"£",0)} sub={`${fmt(cacStats.totalSpend)} spend ÷ ${cacStats.counts.total} bookings`} accent={C.rose}/>
+                    <KPI label="Meta CAC" value={cacStats.counts.meta>0?fmt(cacStats.metaCAC,"£",0):"—"} sub={`${cacStats.counts.meta} Meta-attributed bookings`} accent={C.gold}/>
+                    <KPI label="Google CAC" value={cacStats.counts.google>0?fmt(cacStats.googleCAC,"£",0):"—"} sub={`${cacStats.counts.google} Google-attributed bookings`} accent={C.blue}/>
+                    <KPI label="Median Lead→Booking" value={cacStats.medianLag!=null?`${cacStats.medianLag}d`:"—"} sub={`Actual attribution window · n=${cacStats.lagSampleSize}`} accent={C.purple}/>
+                  </div>
+
+                  {/* LoS band cards */}
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Cost Per Booking · by length of stay</p>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12,marginBottom:18}}>
+                    {["1m","3m","6m","12m"].map(band => {
+                      const n = cacStats.losBandCounts[band];
+                      const cac = cacStats.bandCAC[band];
+                      const avgV = cacStats.bandAvgValue[band];
+                      const pct = cacStats.bandCacPctValue[band];
+                      const ch = cacStats.losBandChannel[band];
+                      const accent = band==="1m"?C.gold:band==="3m"?C.sage:band==="6m"?C.blue:C.purple;
+                      return (
+                        <div key={band} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 14px 12px",borderLeft:`3px solid ${accent}`}}>
+                          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{cacStats.bandLabel[band]}</div>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+                            <span style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{n>0?fmt(cac,"£",0):"—"}</span>
+                            <span style={{fontSize:11,color:C.muted}}>CAC</span>
+                          </div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{n} bookings · avg {fmt(avgV)}</div>
+                          <div style={{fontSize:11,color:pct>0&&pct<10?C.sage:pct>=10&&pct<25?C.gold:pct>=25?C.rose:C.muted}}>{n>0?`${pct.toFixed(1)}% of contract value`:"no bookings"}</div>
+                          <div style={{fontSize:10,color:C.muted,marginTop:6,paddingTop:6,borderTop:`1px dashed ${C.border}`}}>M:{ch.meta} · G:{ch.google} · O:{ch.other}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Bookings table */}
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 14px 10px",overflowX:"auto"}}>
+                    <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Bookings created in window — {cacStats.rows.length} total</p>
+                    <table style={{width:"100%",minWidth:760,fontSize:12,borderCollapse:"collapse"}}>
+                      <thead><tr style={{color:C.muted,textAlign:"left",borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{padding:"8px 10px"}}>Booked</th>
+                        <th style={{padding:"8px 10px"}}>Guest</th>
+                        <th style={{padding:"8px 10px"}}>Stay</th>
+                        <th style={{padding:"8px 10px"}}>LoS</th>
+                        <th style={{padding:"8px 10px"}}>Band</th>
+                        <th style={{padding:"8px 10px"}}>Value</th>
+                        <th style={{padding:"8px 10px"}}>Channel</th>
+                        <th style={{padding:"8px 10px"}}>CAC</th>
+                        <th style={{padding:"8px 10px"}}>CAC %</th>
+                      </tr></thead>
+                      <tbody>
+                        {cacStats.rows.slice(0,40).map(r => {
+                          const cac = r.channel==="meta"?cacStats.metaCAC : r.channel==="google"?cacStats.googleCAC : cacStats.blendedCAC;
+                          const pct = r.value>0 ? (cac/r.value)*100 : 0;
+                          const chCol = r.channel==="meta"?C.gold : r.channel==="google"?C.blue : C.muted;
+                          return (
+                            <tr key={r.bookingId} style={{borderBottom:`1px solid ${C.border}`}}>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{r.refIso}</td>
+                              <td style={{padding:"8px 10px",color:C.text}}>{r.name||r.email||"—"}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted,fontSize:11}}>{r.start}→{r.end}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{r.losDays??"—"}d</td>
+                              <td style={{padding:"8px 10px",color:C.muted}}>{r.band||"—"}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(r.value)}</td>
+                              <td style={{padding:"8px 10px",color:chCol,fontWeight:600,textTransform:"capitalize"}}>{r.channel}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(cac,"£",0)}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:pct<10?C.sage:pct<25?C.gold:C.rose}}>{pct.toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })}
+                        {cacStats.rows.length===0 && (
+                          <tr><td colSpan={9} style={{padding:"18px 10px",textAlign:"center",color:C.muted}}>No bookings created in this window.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                    {cacStats.rows.length > 40 && (
+                      <div style={{fontSize:11,color:C.muted,marginTop:8,textAlign:"center"}}>Showing 40 of {cacStats.rows.length}</div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
