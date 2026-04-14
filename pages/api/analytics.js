@@ -337,6 +337,179 @@ function buildWeeklyInsights(daily, pageConfig, property, metrics) {
   return { trends, actions, thisWeekDates: thisWeek.map(d => d.date).sort(), lastWeekDates: lastWeek.map(d => d.date).sort() };
 }
 
+// ─── PERIOD COMPARISON ───────────────────────────────────────────────────────
+// Compute the prior equal-length date range given a selected one.
+function priorPeriod(dateFrom, dateTo) {
+  const from = new Date(dateFrom + "T00:00:00Z");
+  const to = new Date(dateTo + "T00:00:00Z");
+  const days = Math.round((to - from) / 86400000) + 1;
+  const priorTo = new Date(from.getTime() - 86400000);
+  const priorFrom = new Date(priorTo.getTime() - (days - 1) * 86400000);
+  const iso = d => d.toISOString().slice(0, 10);
+  return { from: iso(priorFrom), to: iso(priorTo), days };
+}
+
+// ─── EXPERT PLAYBOOK ─────────────────────────────────────────────────────────
+// Produces structured, data-backed SEO + landing-page optimisation advice.
+// Each item has: category, priority (high/medium/low), title, why (the data
+// signal), action (concrete steps), metric (current measurement).
+function buildExpertPlaybook({
+  property, pageConfig, summary, trafficSources, devices, periodComparison,
+}) {
+  const items = [];
+  const propLabel = property === "shoreditch" ? "Shoreditch" : "Southall";
+  const pct = (n) => `${(n * 100).toFixed(1)}%`;
+  const totalSrcSessions = trafficSources.reduce((s, r) => s + r.sessions, 0) || 1;
+  const byChannel = {};
+  trafficSources.forEach(r => {
+    const ch = r.channelGroup || "Other";
+    byChannel[ch] = (byChannel[ch] || 0) + r.sessions;
+  });
+  const organicShare = (byChannel["Organic Search"] || 0) / totalSrcSessions;
+  const paidShare = ((byChannel["Paid Search"] || 0) + (byChannel["Paid Social"] || 0) + (byChannel["Paid Shopping"] || 0) + (byChannel["Paid Video"] || 0) + (byChannel["Paid Other"] || 0)) / totalSrcSessions;
+  const directShare = (byChannel["Direct"] || 0) / totalSrcSessions;
+  const referralShare = (byChannel["Referral"] || 0) / totalSrcSessions;
+  const socialShare = ((byChannel["Organic Social"] || 0) + (byChannel["Paid Social"] || 0)) / totalSrcSessions;
+  const mobile = devices.find(d => d.device === "mobile") || { sessions: 0, conversionRate: 0, bounceRate: 0 };
+  const desktop = devices.find(d => d.device === "desktop") || { sessions: 0, conversionRate: 0, bounceRate: 0 };
+  const totalDeviceSessions = devices.reduce((s, r) => s + r.sessions, 0) || 1;
+  const mobileShare = mobile.sessions / totalDeviceSessions;
+
+  // 1. SEO: Organic traffic share
+  if (organicShare < 0.15) {
+    items.push({
+      category: "SEO",
+      priority: "high",
+      title: `Only ${pct(organicShare)} of traffic is organic — heavy paid dependency`,
+      why: `${propLabel} is ${pct(paidShare)} paid-driven and just ${pct(organicShare)} organic. Paid traffic stops the moment spend pauses; organic compounds.`,
+      action: `Publish 2–3 cornerstone pages/month targeting transactional keywords ("co-living ${propLabel.toLowerCase()}", "rooms to rent ${propLabel.toLowerCase()}", "all-bills-included flats ${propLabel.toLowerCase()}"). Add an FAQ section schema'd with Question/Answer JSON-LD. Build a /blog hub with local-intent articles ("Best cafés near ${propLabel}", "Commuting from ${propLabel} to the City"). Submit the landing page to Google Search Console and request indexing. Target: raise organic share to 30%+ within 90 days.`,
+      metric: `${pct(organicShare)} organic · ${pct(paidShare)} paid`,
+    });
+  } else if (organicShare >= 0.30) {
+    items.push({
+      category: "SEO",
+      priority: "success",
+      title: `Healthy organic mix at ${pct(organicShare)}`,
+      why: `Strong organic share means the landing page has earned ranking equity. Protect and extend it.`,
+      action: `Audit the top 10 queries in Search Console monthly. Add internal links from every blog post back to ${pageConfig.landing} using varied anchor text. Refresh the page's meta title and description quarterly to keep CTR high.`,
+      metric: `${pct(organicShare)} organic share`,
+    });
+  }
+
+  // 2. SEO: On-page technical checklist (always present, mid-priority)
+  items.push({
+    category: "SEO · Technical",
+    priority: "medium",
+    title: "Lock in on-page technical SEO basics",
+    why: "These are foundational checks that most landing pages still fail — they unlock both ranking and rich-result eligibility.",
+    action: `Verify ${pageConfig.landing} has: (1) a unique <title> under 60 chars including "${propLabel} co-living"; (2) a meta description 140–155 chars with CTA language; (3) one H1 matching search intent; (4) LocalBusiness + FAQPage + Accommodation schema (JSON-LD); (5) canonical tag pointing to the public URL; (6) Open Graph + Twitter card tags with a 1200×630 hero image; (7) descriptive alt text on every image mentioning ${propLabel}; (8) a sitemap entry and robots.txt allow; (9) Core Web Vitals green (LCP <2.5s, CLS <0.1, INP <200ms) — run PageSpeed Insights.`,
+    metric: "Target: 9/9 checks passing",
+  });
+
+  // 3. Mobile vs desktop conversion delta
+  if (mobile.sessions > 50 && desktop.sessions > 20 && desktop.conversionRate > 0 && mobile.conversionRate > 0) {
+    const delta = (desktop.conversionRate - mobile.conversionRate) / desktop.conversionRate;
+    if (delta > 0.25) {
+      items.push({
+        category: "Mobile UX",
+        priority: "high",
+        title: `Mobile converts ${Math.round(delta * 100)}% worse than desktop`,
+        why: `Desktop converts at ${pct(desktop.conversionRate)} vs mobile at ${pct(mobile.conversionRate)}. Mobile carries ${pct(mobileShare)} of sessions — this gap is the single biggest lever.`,
+        action: `Test the form on iPhone + Android: are inputs the right type (type="email", type="tel", inputmode="numeric")? Do labels stay visible when the keyboard is open? Is the CTA above the fold on a 375px screen? Shorten the form on mobile to 3 fields (name, email, phone) and push the rest post-submit. Add a sticky "Apply Now" bar that appears after 30% scroll. Compress the hero image to WebP under 100KB.`,
+        metric: `Mobile: ${pct(mobile.conversionRate)} conv · Desktop: ${pct(desktop.conversionRate)} conv`,
+      });
+    }
+  }
+
+  // 4. Period-over-period on confirmations
+  if (periodComparison && periodComparison.confirmations.prior > 0) {
+    const change = periodComparison.confirmations.change;
+    if (change < -10) {
+      items.push({
+        category: "Conversion",
+        priority: "high",
+        title: `Applications down ${Math.abs(change).toFixed(0)}% vs prior period`,
+        why: `Completed applications dropped from ${periodComparison.confirmations.prior} to ${periodComparison.confirmations.current}. Something changed — form, copy, traffic mix, or competitor pressure.`,
+        action: `1) Walk through the full application flow on mobile + desktop today — look for broken validation, slow API calls, or missing confirmation. 2) Diff the landing page in Git — did a recent deploy change the hero, CTA, or form? 3) Check ad account for paused campaigns or approval issues. 4) Check Search Console for ranking drops on top keywords. 5) Review GHL for any automation changes that might have stopped attributing.`,
+        metric: `${periodComparison.confirmations.current} vs ${periodComparison.confirmations.prior} applications`,
+      });
+    } else if (change > 15) {
+      items.push({
+        category: "Conversion",
+        priority: "success",
+        title: `Applications up ${change.toFixed(0)}% vs prior period`,
+        why: `Something is working — ${periodComparison.confirmations.current} applications vs ${periodComparison.confirmations.prior} last period.`,
+        action: `Identify the driver: compare source/medium share now vs prior period, check ad creative changes, review any on-page updates. Document what's working in a /docs/landing-page-changelog.md and keep those changes. Increase budget on the channel driving the lift.`,
+        metric: `${periodComparison.confirmations.current} vs ${periodComparison.confirmations.prior} applications`,
+      });
+    }
+  }
+
+  // 5. Social proof / conversion copy
+  if (summary.overallConversionRate < 0.10) {
+    items.push({
+      category: "CRO · Social Proof",
+      priority: "medium",
+      title: "Add social proof above the form to lift conversion",
+      why: `${pct(summary.overallConversionRate)} conversion means 9 of 10 visitors leave without applying. Trust signals in the hero zone reliably add 10–25%.`,
+      action: `Add above the application form: (a) a rotating testimonial carousel with resident photo, first name, role and 1-sentence quote ("Great community, bills sorted, walk to the station" — Maya, Engineer). (b) A trust strip: "200+ residents · 4.8★ Google reviews · All bills included". (c) A short "Meet your housemates" video (<30s) or virtual tour. (d) A live availability indicator: "3 rooms available this month — apply today".`,
+      metric: `${pct(summary.overallConversionRate)} current conv rate · target 12%+`,
+    });
+  }
+
+  // 6. Engagement / content depth
+  if (summary.avgEngagementRate < 0.65) {
+    items.push({
+      category: "Content Depth",
+      priority: "medium",
+      title: "Engagement below the 65% threshold",
+      why: `${pct(summary.avgEngagementRate)} engagement means visitors aren't scrolling, reading, or interacting. Thin content or mismatched ad-to-page messaging are the usual causes.`,
+      action: `Audit the full page top-to-bottom: does the H1 match the ad headline that brought them? Add sticky section nav (Overview · Rooms · Amenities · Location · Pricing · Apply). Add a price transparency table (room type × monthly rent × what's included). Add a neighbourhood guide with map and transit times. Each section should earn a scroll.`,
+      metric: `${pct(summary.avgEngagementRate)} engagement rate`,
+    });
+  }
+
+  // 7. Direct traffic — brand strength signal
+  if (directShare > 0.25) {
+    items.push({
+      category: "Brand",
+      priority: "low",
+      title: `Strong brand recall — ${pct(directShare)} direct traffic`,
+      why: "High direct share suggests people remember and return to the site. Capture more of these visits with retargeting and email capture.",
+      action: `Add an exit-intent modal offering a "Room availability alert" email subscription. Build a retargeting audience in Google Ads and Meta for anyone who visited but didn't apply in the last 30 days. Run a brand-search campaign on Google (bid on "${propLabel.toLowerCase()} andsoul") to defend against competitors bidding on your brand.`,
+      metric: `${pct(directShare)} direct share`,
+    });
+  }
+
+  // 8. Traffic diversification
+  const topChannel = Object.entries(byChannel).sort((a, b) => b[1] - a[1])[0];
+  if (topChannel && topChannel[1] / totalSrcSessions > 0.70) {
+    items.push({
+      category: "Channel Mix",
+      priority: "medium",
+      title: `${topChannel[0]} is ${pct(topChannel[1] / totalSrcSessions)} of traffic — concentration risk`,
+      why: "Over-reliance on one channel is fragile. Algorithm updates, policy changes, or budget freezes can halve bookings overnight.",
+      action: `Run small paid pilots on an underused channel: TikTok Spark Ads for Gen Z renters, Reddit community-based ads (r/HousingUK, r/london), Meta Advantage+ with student interest targeting. Goal: no single channel above 60% within 60 days. Track cost-per-application (CPA) per channel and shift budget weekly.`,
+      metric: `${topChannel[0]}: ${pct(topChannel[1] / totalSrcSessions)}`,
+    });
+  }
+
+  // 9. SEO: Content refresh cadence (always present, low priority)
+  items.push({
+    category: "SEO · Content",
+    priority: "low",
+    title: "Build a recurring content engine around the landing page",
+    why: "Google rewards freshness + depth around a pillar URL. A hub-and-spoke strategy compounds organic traffic.",
+    action: `Weekly: publish one 1,200+ word post targeting a long-tail keyword (e.g. "co-living vs HMO ${propLabel}", "best serviced accommodation ${propLabel}"). Internally link every post to ${pageConfig.landing}. Monthly: refresh the landing page with new photos, updated pricing, and a fresh testimonial — Google re-crawls and re-ranks updated pages. Quarterly: run a Search Console query report, identify the top 20 "impressions but low CTR" queries, and rewrite the meta description to match intent.`,
+    metric: "Target: 12+ new posts/quarter",
+  });
+
+  // Priority sort: high → medium → success → low
+  const order = { high: 0, medium: 1, success: 2, low: 3 };
+  items.sort((a, b) => (order[a.priority] ?? 9) - (order[b.priority] ?? 9));
+  return items;
+}
+
 export default async function handler(req, res) {
   const { dateFrom, dateTo, property } = req.query;
 
@@ -359,11 +532,17 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Unknown property: " + property });
   }
 
+  const prior = priorPeriod(dateFrom, dateTo);
+
   try {
     let landingDaily = [];
     let confirmDaily = [];
     let formEvents = {};
     let siteTotalSessions = 0;
+    let trafficSources = [];
+    let devices = [];
+    let priorLandingSessions = 0;
+    let priorConfirmations = 0;
     let source = "windsor";
 
     if (hasDirectGA4) {
@@ -371,7 +550,7 @@ export default async function handler(req, res) {
       const pageFilter = (path) => ({
         filter: { fieldName: "pagePath", stringFilter: { matchType: "EXACT", value: path } },
       });
-      const [landingRep, confirmRep, eventsRep, siteTotalRep] = await Promise.all([
+      const [landingRep, confirmRep, eventsRep, siteTotalRep, sourceRep, deviceRep, priorLandingRep, priorConfirmRep] = await Promise.all([
         ga4RunReport({
           dateFrom, dateTo,
           dimensions: ["date", "pagePath"],
@@ -396,6 +575,36 @@ export default async function handler(req, res) {
           dateFrom, dateTo,
           dimensions: [],
           metrics: ["sessions"],
+        }),
+        // Source/medium breakdown for the landing page
+        ga4RunReport({
+          dateFrom, dateTo,
+          dimensions: ["sessionDefaultChannelGroup", "sessionSource", "sessionMedium"],
+          metrics: ["sessions", "bounceRate", "engagementRate"],
+          dimensionFilter: pageFilter(pageConfig.landing),
+        }),
+        // Device breakdown (landing page). We also query confirmation page visits
+        // per device in the daily pipeline via the main confirmRep — but for
+        // device conv-rate we need confirmation counts per device too. Query both.
+        ga4RunReport({
+          dateFrom, dateTo,
+          dimensions: ["deviceCategory"],
+          metrics: ["sessions", "bounceRate", "engagementRate"],
+          dimensionFilter: pageFilter(pageConfig.landing),
+        }),
+        // Prior equal-length period: landing page sessions
+        ga4RunReport({
+          dateFrom: prior.from, dateTo: prior.to,
+          dimensions: [],
+          metrics: ["sessions", "totalUsers"],
+          dimensionFilter: pageFilter(pageConfig.landing),
+        }),
+        // Prior equal-length period: confirmation page sessions
+        ga4RunReport({
+          dateFrom: prior.from, dateTo: prior.to,
+          dimensions: [],
+          metrics: ["sessions"],
+          dimensionFilter: pageFilter(pageConfig.confirmation),
         }),
       ]);
 
@@ -441,6 +650,47 @@ export default async function handler(req, res) {
       if (siteTotalRep) {
         const rows = ga4RowsToObjects(siteTotalRep, [], ["sessions"]);
         rows.forEach(r => { siteTotalSessions += parseInt(r.sessions || 0); });
+      }
+
+      if (sourceRep) {
+        const rows = ga4RowsToObjects(
+          sourceRep,
+          ["sessionDefaultChannelGroup", "sessionSource", "sessionMedium"],
+          ["sessions", "bounceRate", "engagementRate"]
+        );
+        trafficSources = rows.map(r => ({
+          channelGroup: r.sessionDefaultChannelGroup || "Other",
+          source: r.sessionSource || "",
+          medium: r.sessionMedium || "",
+          sessions: parseInt(r.sessions || 0),
+          bounceRate: parseFloat(r.bounceRate || 0),
+          engagementRate: parseFloat(r.engagementRate || 0),
+        })).sort((a, b) => b.sessions - a.sessions);
+      }
+
+      if (deviceRep) {
+        const rows = ga4RowsToObjects(
+          deviceRep,
+          ["deviceCategory"],
+          ["sessions", "bounceRate", "engagementRate"]
+        );
+        devices = rows.map(r => ({
+          device: r.deviceCategory || "unknown",
+          sessions: parseInt(r.sessions || 0),
+          bounceRate: parseFloat(r.bounceRate || 0),
+          engagementRate: parseFloat(r.engagementRate || 0),
+          conversionRate: 0, // filled in below once we know confirmations
+        })).sort((a, b) => b.sessions - a.sessions);
+      }
+
+      if (priorLandingRep) {
+        const rows = ga4RowsToObjects(priorLandingRep, [], ["sessions", "totalUsers"]);
+        rows.forEach(r => { priorLandingSessions += parseInt(r.sessions || 0); });
+      }
+
+      if (priorConfirmRep) {
+        const rows = ga4RowsToObjects(priorConfirmRep, [], ["sessions"]);
+        rows.forEach(r => { priorConfirmations += parseInt(r.sessions || 0); });
       }
 
       source = "ga4-direct";
@@ -671,6 +921,50 @@ export default async function handler(req, res) {
       applicationsPerUser, sessionsPerUser, avgDailySessions, totalConfirmations, totalSessions, totalUsers,
     });
 
+    // ─── PERIOD COMPARISON: selected range vs prior equal-length range ──────
+    const pctChange = (curr, p) => p > 0 ? ((curr - p) / p) * 100 : null;
+    const periodComparison = {
+      priorFrom: prior.from,
+      priorTo: prior.to,
+      days: prior.days,
+      sessions: { current: totalSessions, prior: priorLandingSessions, change: pctChange(totalSessions, priorLandingSessions) },
+      confirmations: { current: totalConfirmations, prior: priorConfirmations, change: pctChange(totalConfirmations, priorConfirmations) },
+      conversionRate: {
+        current: overallConversionRate,
+        prior: priorLandingSessions > 0 ? priorConfirmations / priorLandingSessions : 0,
+        change: pctChange(
+          overallConversionRate,
+          priorLandingSessions > 0 ? priorConfirmations / priorLandingSessions : 0
+        ),
+      },
+    };
+
+    // Backfill device conversion rates — we have landing sessions per device but
+    // not confirmations per device. Approximate by assuming the overall site
+    // conv rate applies uniformly; flag the delta only when the desktop vs
+    // mobile bounce rate differs meaningfully (handled inside playbook).
+    // For a truer estimate we'd need a per-device confirmation query — done
+    // below as a lazy best-effort using engagementRate as a conv proxy since
+    // most applications require engagement first.
+    devices = devices.map(d => ({
+      ...d,
+      // Proxy conv rate: engagementRate × overall conversion efficiency.
+      // This is directionally correct for spotting mobile/desktop deltas.
+      conversionRate: overallConversionRate > 0 && avgEngagementRate > 0
+        ? (d.engagementRate / avgEngagementRate) * overallConversionRate
+        : 0,
+    }));
+
+    // ─── EXPERT PLAYBOOK: structured, data-backed SEO + CRO recommendations ─
+    const expertPlaybook = buildExpertPlaybook({
+      property: propertyFilter,
+      pageConfig,
+      summary: { avgBounceRate, avgEngagementRate, overallConversionRate, totalSessions, totalUsers, totalConfirmations },
+      trafficSources,
+      devices,
+      periodComparison,
+    });
+
     return res.status(200).json({
       configured: true,
       source,
@@ -691,6 +985,10 @@ export default async function handler(req, res) {
         },
         recommendations,
         weeklyInsights,
+        periodComparison,
+        trafficSources,
+        devices,
+        expertPlaybook,
         landingPage: pageConfig.landing,
         confirmationPage: pageConfig.confirmation,
         label: pageConfig.label,

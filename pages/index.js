@@ -687,6 +687,203 @@ const OccRing = ({pct,color=C.gold,label="target"}) => {
 const PRESETS=[{l:"7d",d:7},{l:"14d",d:14},{l:"30d",d:30}];
 const dinp={background:C.card,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"5px 10px",fontSize:12,fontFamily:"DM Mono,monospace"};
 
+// ─── PERFORMANCE INSIGHTS: period-over-period, source mix, device mix, expert playbook ───
+const PerformanceInsights = ({ analytics, propertyLabel }) => {
+  if (!analytics?.data) return null;
+  const { periodComparison: pc, trafficSources = [], devices = [], expertPlaybook = [] } = analytics.data;
+  const fmtPct = (n) => (n >= 0 ? "+" : "") + n.toFixed(0) + "%";
+  const changeColor = (n, goodWhenPositive = true) => {
+    if (n === null || n === undefined) return C.muted;
+    if (Math.abs(n) < 2) return C.muted;
+    const isGood = goodWhenPositive ? n > 0 : n < 0;
+    return isGood ? C.sage : C.rose;
+  };
+  const arrow = (n) => (n > 2 ? "↑" : n < -2 ? "↓" : "→");
+
+  // Channel group aggregates from trafficSources
+  const channelTotals = {};
+  let totalSrcSessions = 0;
+  trafficSources.forEach(r => {
+    const g = r.channelGroup || "Other";
+    channelTotals[g] = (channelTotals[g] || 0) + r.sessions;
+    totalSrcSessions += r.sessions;
+  });
+  const channels = Object.entries(channelTotals)
+    .map(([name, sessions]) => ({ name, sessions, pct: totalSrcSessions ? sessions / totalSrcSessions : 0 }))
+    .sort((a, b) => b.sessions - a.sessions);
+
+  const channelColor = (name) => {
+    if (/Organic Search/i.test(name)) return C.sage;
+    if (/Paid Search/i.test(name)) return C.blue;
+    if (/Paid Social|Organic Social/i.test(name)) return C.gold;
+    if (/Direct/i.test(name)) return C.text;
+    if (/Referral/i.test(name)) return "#b78af7";
+    if (/Email/i.test(name)) return "#59c5d2";
+    return C.muted;
+  };
+
+  const totalDeviceSessions = devices.reduce((s, r) => s + r.sessions, 0) || 1;
+  const deviceColor = { mobile: C.blue, desktop: C.sage, tablet: C.gold };
+
+  const playbookColors = { high: C.rose, medium: C.gold, low: C.muted, success: C.sage };
+  const playbookIcons = { high: "🔴", medium: "🟡", low: "💡", success: "✅" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 14 }}>
+      {/* Period-over-period strip */}
+      {pc && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Period-over-Period · {propertyLabel}
+              </p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
+                Current range vs prior {pc.days} days ({pc.priorFrom} → {pc.priorTo})
+              </p>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+            {[
+              { key: "sessions", label: "Sessions", curr: pc.sessions.current, prior: pc.sessions.prior, change: pc.sessions.change, goodPositive: true },
+              { key: "confirmations", label: "Applications", curr: pc.confirmations.current, prior: pc.confirmations.prior, change: pc.confirmations.change, goodPositive: true },
+              { key: "convRate", label: "Conversion Rate", curr: (pc.conversionRate.current * 100).toFixed(1) + "%", prior: (pc.conversionRate.prior * 100).toFixed(1) + "%", change: pc.conversionRate.change, goodPositive: true },
+            ].map(m => (
+              <div key={m.key} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                <p style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{m.label}</p>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: C.text, fontFamily: "DM Mono,monospace" }}>{m.curr}</span>
+                  <span style={{ fontSize: 11, color: C.muted, fontFamily: "DM Mono,monospace" }}>vs {m.prior}</span>
+                </div>
+                {m.change !== null && m.change !== undefined && (
+                  <p style={{ fontSize: 11, color: changeColor(m.change, m.goodPositive), fontWeight: 600, marginTop: 4 }}>
+                    {arrow(m.change)} {fmtPct(m.change)}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Source + Device row */}
+      {(channels.length > 0 || devices.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+          {channels.length > 0 && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                Traffic Source Mix · {propertyLabel}
+              </p>
+              <p style={{ fontSize: 10, color: C.muted, marginBottom: 12 }}>Channel groups driving landing-page sessions</p>
+              {/* Stacked bar */}
+              <div style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", marginBottom: 12, background: C.bg }}>
+                {channels.map(ch => (
+                  <div key={ch.name} title={`${ch.name}: ${(ch.pct * 100).toFixed(1)}%`} style={{ width: `${ch.pct * 100}%`, background: channelColor(ch.name) }} />
+                ))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {channels.slice(0, 6).map(ch => (
+                  <div key={ch.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: channelColor(ch.name), display: "inline-block" }} />
+                      <span style={{ color: C.text }}>{ch.name}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 12, fontFamily: "DM Mono,monospace" }}>
+                      <span style={{ color: C.muted }}>{ch.sessions.toLocaleString()}</span>
+                      <span style={{ color: channelColor(ch.name), minWidth: 52, textAlign: "right" }}>{(ch.pct * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {devices.length > 0 && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                Device Split · {propertyLabel}
+              </p>
+              <p style={{ fontSize: 10, color: C.muted, marginBottom: 12 }}>Share of sessions & per-device engagement</p>
+              <div style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", marginBottom: 12, background: C.bg }}>
+                {devices.map(d => (
+                  <div key={d.device} title={`${d.device}: ${((d.sessions / totalDeviceSessions) * 100).toFixed(1)}%`} style={{ width: `${(d.sessions / totalDeviceSessions) * 100}%`, background: deviceColor[d.device] || C.muted }} />
+                ))}
+              </div>
+              <table style={{ width: "100%", fontSize: 11, fontFamily: "DM Mono,monospace", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ color: C.muted }}>
+                    <th style={{ textAlign: "left", fontWeight: 500, padding: "4px 0" }}>Device</th>
+                    <th style={{ textAlign: "right", fontWeight: 500, padding: "4px 0" }}>Sessions</th>
+                    <th style={{ textAlign: "right", fontWeight: 500, padding: "4px 0" }}>Share</th>
+                    <th style={{ textAlign: "right", fontWeight: 500, padding: "4px 0" }}>Bounce</th>
+                    <th style={{ textAlign: "right", fontWeight: 500, padding: "4px 0" }}>Engage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {devices.map(d => (
+                    <tr key={d.device} style={{ borderTop: `1px solid ${C.border}` }}>
+                      <td style={{ padding: "6px 0", color: C.text, textTransform: "capitalize" }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: deviceColor[d.device] || C.muted, display: "inline-block", marginRight: 6 }} />
+                        {d.device}
+                      </td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.text }}>{d.sessions.toLocaleString()}</td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.muted }}>{((d.sessions / totalDeviceSessions) * 100).toFixed(1)}%</td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.muted }}>{(d.bounceRate * 100).toFixed(1)}%</td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.muted }}>{(d.engagementRate * 100).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Expert Playbook */}
+      {expertPlaybook.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.sage}44`, borderRadius: 12, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 12 }}>
+            <div>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Expert SEO & Landing Page Playbook · {propertyLabel}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Prioritised, data-backed recommendations for organic growth and conversion lift</p>
+            </div>
+            <span style={{ fontSize: 9, padding: "2px 10px", borderRadius: 10, background: C.rose + "22", color: C.rose }}>
+              {expertPlaybook.filter(x => x.priority === "high").length} high priority
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {expertPlaybook.map((item, i) => {
+              const bc = playbookColors[item.priority] || C.muted;
+              return (
+                <div key={i} style={{ background: C.bg, border: `1px solid ${bc}33`, borderLeft: `3px solid ${bc}`, borderRadius: 8, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12 }}>{playbookIcons[item.priority]}</span>
+                      <span style={{ fontSize: 12.5, color: C.text, fontWeight: 600 }}>{item.title}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 8, background: bc + "18", color: bc }}>{item.priority}</span>
+                      <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 8, background: C.blue + "18", color: C.blue }}>{item.category}</span>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 6, fontStyle: "italic" }}>
+                    <span style={{ color: C.text, fontStyle: "normal", fontWeight: 500 }}>Why: </span>{item.why}
+                  </p>
+                  <p style={{ fontSize: 11, color: C.text, lineHeight: 1.55, marginBottom: 6 }}>
+                    <span style={{ color: C.text, fontWeight: 500 }}>Action: </span>
+                    <span style={{ color: C.muted }}>{item.action}</span>
+                  </p>
+                  <p style={{ fontSize: 10, color: bc, fontFamily: "DM Mono,monospace" }}>{item.metric}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [tab, setTab] = useState("marketing");
@@ -1503,6 +1700,9 @@ export default function Dashboard() {
                 )}
               </div>
             )}
+
+            {/* Performance Insights — Southall (period comparison, source mix, device split, expert playbook) */}
+            <PerformanceInsights analytics={analyticsData} propertyLabel="Southall" />
 
             {/* Weekly Recommendations — Southall */}
             {analyticsData?.weeklyInsights?.actions?.length > 0 && (
@@ -2843,6 +3043,9 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+
+          {/* Performance Insights — Shoreditch (period comparison, source mix, device split, expert playbook) */}
+          <PerformanceInsights analytics={sdAnalyticsData} propertyLabel="Shoreditch" />
 
           {/* Weekly Recommendations — Shoreditch */}
           {sdAnalyticsData?.weeklyInsights?.actions?.length > 0 && (

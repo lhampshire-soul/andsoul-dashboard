@@ -2,3 +2,13 @@ node_modules/
 .next/
 .env.local
 .env
+
+# GA4 / GCP service account keys — never commit these
+*service-account*.json
+healthy-name-*.json
+*.gcp-key.json
+
+# Finder / editor duplicates
+pages/* 2.js
+pages/* 2.tsx
+pages/* 2.jsx
