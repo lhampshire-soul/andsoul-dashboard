@@ -992,16 +992,56 @@ export default function Dashboard() {
     const bookings = rhAllBookings || [];
     if (!opps.length || !bookings.length) return null;
 
+    // Classify a raw utmSource/source string into a channel.
+    // Returns null when the value is empty OR doesn't match any known platform
+    // (so the caller can keep walking the attributions list).
+    // Returns "other" ONLY for explicit non-paid sources (referrals, organic, etc).
     const classifyChannel = (s) => {
-      const v = (s || "").toLowerCase();
-      if (v === "facebook" || v === "meta" || v === "ig" || v === "instagram") return "meta";
-      if (v === "adwords" || v === "google") return "google";
+      const v = (s || "").toLowerCase().trim();
+      if (!v) return null;
+      // Meta variants observed in GHL: facebook, fb, ig, instagram, meta
+      // plus common ad-platform suffixes
+      if (/^(facebook|fb|meta|ig|instagram)(\.com|_ads|ads|-ads)?$/.test(v)) return "meta";
+      // Google variants: adwords, google, google_ads
+      if (/^(google|adwords)(_ads|ads)?$/.test(v)) return "google";
+      // Explicit non-paid sources — treat as "other" so the walk stops
       return "other";
     };
+    // Meta signal in utmMedium (Facebook Lead Forms often set
+    // utmMedium="Broad ... - Lead Form" or similar when utmSource is empty).
+    const mediumSignalsMeta = (m) => {
+      const v = (m || "").toLowerCase();
+      if (!v) return false;
+      // "lead form" is the strongest Meta signal; guard against Google
+      // campaigns that happen to include "google" in the name.
+      if (/google|adwords/.test(v)) return false;
+      return /\blead[\s._-]?form\b/.test(v);
+    };
+    // Pick the best channel for an opp by walking all attributions:
+    //   1. Prefer the isLast=true attribution if it classifies cleanly.
+    //   2. Otherwise walk backwards (most recent first) and take the first
+    //      classifiable touch. This rescues cases where isLast has empty
+    //      utmSource but an earlier touch was Meta/Google.
+    //   3. Finally fall back to the opp's top-level `source` field.
     const getOppChannel = (o) => {
       const attrs = o.attributions || [];
-      const pick = attrs.find(a => a.isLast) || attrs[attrs.length - 1] || attrs[0] || null;
-      return classifyChannel(pick?.utmSource || o.source || "");
+      const tryAttr = (a) => {
+        if (!a) return null;
+        const bySrc = classifyChannel(a.utmSource);
+        if (bySrc === "meta" || bySrc === "google") return bySrc;
+        if (mediumSignalsMeta(a.utmMedium)) return "meta";
+        return bySrc; // null or "other"
+      };
+      const last = attrs.find(a => a.isLast);
+      const fromLast = tryAttr(last);
+      if (fromLast === "meta" || fromLast === "google") return fromLast;
+      for (let i = attrs.length - 1; i >= 0; i--) {
+        if (attrs[i] === last) continue;
+        const ch = tryAttr(attrs[i]);
+        if (ch === "meta" || ch === "google") return ch;
+      }
+      if (fromLast === "other") return "other";
+      return classifyChannel(o.source) || "other";
     };
 
     // Email → latest-opp channel lookup
