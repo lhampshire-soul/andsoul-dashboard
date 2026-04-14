@@ -787,6 +787,8 @@ export default function Dashboard() {
   // and whose building is Southall. Bookings are attributed to a channel only
   // if we find the guest's email on a GHL opp with a Facebook/Google utmSource;
   // otherwise they count as "Other" for blended CAC.
+  const [rhAllBookings, setRhAllBookings] = useState([]);
+  const [ghlData, setGhlData] = useState(null);
   const cacStats = useMemo(() => {
     const opps = ghlData?.allOpps || [];
     const bookings = rhAllBookings || [];
@@ -915,7 +917,6 @@ export default function Dashboard() {
   // GHL
   const [ghlLoading, setGhlLoad] = useState(false);
   const [ghlError,   setGhlErr]  = useState("");
-  const [ghlData,    setGhlData] = useState(null);
   const [ghlConn,    setGhlConn] = useState(false);
   const [manualBookings, setManualBookings] = useState(0);
   const [manualValue, setManualValue] = useState(0);
@@ -934,7 +935,6 @@ export default function Dashboard() {
   const [cid,setCid]=useState("5n3lgu73rc3jqus4fur3c58fbb"), [csec,setCsec]=useState("1bfob7es3ge16bmjs8t4i0ah2ica4t1ujt8aeqa4b3rs9cmsa7uh");
   const [pmsLoad,setPmsLoad]=useState(false), [pmsErr,setPmsErr]=useState("");
   const [pmsConn,setPmsConn]=useState(false), [pmsData,setPmsData]=useState(null);
-  const [rhAllBookings, setRhAllBookings] = useState([]);
   const [mOcc,setMOcc]=useState(72), [mRate,setMRate]=useState(1450);
   const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
   const [forecastRenewalRate, setForecastRenewalRate] = useState(75);
