@@ -582,7 +582,20 @@ async function loadGHL(dateFrom, dateTo) {
     ?? stages.find(s => s.name?.toLowerCase().includes("booking confirmed"))
     ?? stages.find(s => s.name?.toLowerCase().includes("booking"));
 
-  const opps = await fetchAllOpps(pipeline.id, dateFrom, dateTo);
+  // Wide lookback pool — all opps in the past ~180 days before dateFrom,
+  // used for CAC email→channel attribution. UI metrics still use narrow window.
+  const lookbackFrom = (() => {
+    if (!dateFrom) return null;
+    const d = new Date(dateFrom);
+    if (isNaN(d)) return null;
+    d.setDate(d.getDate() - 180);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  const [opps, allOppsLookup] = await Promise.all([
+    fetchAllOpps(pipeline.id, dateFrom, dateTo),
+    lookbackFrom ? fetchAllOpps(pipeline.id, lookbackFrom, dateTo) : Promise.resolve(null),
+  ]);
 
   // GHL tags live on contact.tags / relations[].tags, NOT on the opportunity directly
   const getOppTags = (o) => {
@@ -622,6 +635,7 @@ async function loadGHL(dateFrom, dateTo) {
     convRate:        tours.length > 0 ? Math.round(confirmed.length/tours.length*100) : null,
     totalOpps:       opps.length,
     allOpps:         opps,
+    allOppsLookup:   allOppsLookup || opps,
   };
 }
 
@@ -989,6 +1003,9 @@ export default function Dashboard() {
   const [cpbExpanded, setCpbExpanded] = useState(false);
   const cacStats = useMemo(() => {
     const opps = ghlData?.allOpps || [];
+    // Wide lookback pool for email→channel attribution: catches Meta leads
+    // captured 40–180d before dateFrom who book inside the current window.
+    const lookupOpps = ghlData?.allOppsLookup || opps;
     const bookings = rhAllBookings || [];
     if (!opps.length || !bookings.length) return null;
 
@@ -1044,15 +1061,27 @@ export default function Dashboard() {
       return classifyChannel(o.source) || "other";
     };
 
-    // Email → latest-opp channel lookup
+    // Email → latest-opp channel lookup.
+    // Walk the WIDE lookup pool so leads captured months ago still attribute
+    // when they book in the current window. If multiple opps share an email,
+    // prefer the one with the strongest (Meta/Google) signal, then most recent.
+    const channelRank = { meta: 3, google: 2, other: 1 };
     const emailMap = {};
-    for (const o of opps) {
+    for (const o of lookupOpps) {
       const email = (o.contact?.email || "").toLowerCase().trim();
       if (!email) continue;
       const ch = getOppChannel(o);
       const oppDate = o.createdAt || o.dateAdded || "";
       const existing = emailMap[email];
-      if (!existing || oppDate > existing.oppDate) emailMap[email] = { channel: ch, oppDate };
+      if (!existing) {
+        emailMap[email] = { channel: ch, oppDate };
+        continue;
+      }
+      const newRank = channelRank[ch] || 0;
+      const oldRank = channelRank[existing.channel] || 0;
+      if (newRank > oldRank || (newRank === oldRank && oppDate > existing.oppDate)) {
+        emailMap[email] = { channel: ch, oppDate };
+      }
     }
 
     // "YYYYMMDD-NNNN" → ISO
