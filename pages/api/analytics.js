@@ -1,13 +1,125 @@
 // pages/api/analytics.js
-// Server-side proxy for GA4 landing page analytics via Windsor.ai
-// Fetches sessions, bounce rate, engagement, and conversion data for landing pages
+// Server-side proxy for GA4 landing page analytics.
 //
-// Required env var:
-//   WINDSOR_API_KEY — your Windsor.ai API key
+// Primary: direct GA4 Data API via service account (no quota limits).
+//   Required env vars:
+//     GA4_PROPERTY_ID — numeric GA4 property id (e.g. "383717987")
+//     GA4_SERVICE_ACCOUNT_JSON — raw JSON of the service account key file
+//
+// Fallback: Windsor.ai proxy (legacy)
+//   Required env var: WINDSOR_API_KEY
+
+import crypto from "crypto";
 
 const WINDSOR_KEY = process.env.WINDSOR_API_KEY || "";
 const WINDSOR_BASE = "https://connectors.windsor.ai";
 const GA4_ACCOUNT = "383717987"; // andsoul.com - GA4
+
+const GA4_PROPERTY_ID = process.env.GA4_PROPERTY_ID || "383717987";
+const GA4_SA_JSON = process.env.GA4_SERVICE_ACCOUNT_JSON || "";
+
+// ─── DIRECT GA4 DATA API (service account) ───────────────────────────────────
+let _cachedToken = null; // { token, exp }
+
+function parseServiceAccount() {
+  if (!GA4_SA_JSON) return null;
+  try {
+    return JSON.parse(GA4_SA_JSON);
+  } catch (e) {
+    console.error("GA4_SERVICE_ACCOUNT_JSON parse error:", e.message);
+    return null;
+  }
+}
+
+function b64url(input) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+async function getGa4AccessToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (_cachedToken && _cachedToken.exp - 60 > now) return _cachedToken.token;
+
+  const sa = parseServiceAccount();
+  if (!sa || !sa.client_email || !sa.private_key) return null;
+
+  const header = { alg: "RS256", typ: "JWT" };
+  const claim = {
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/analytics.readonly",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  };
+  const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(claim))}`;
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(unsigned);
+  const signature = signer.sign(sa.private_key.replace(/\\n/g, "\n"));
+  const jwt = `${unsigned}.${b64url(signature)}`;
+
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+  if (!resp.ok) {
+    console.error("GA4 token exchange failed:", resp.status, await resp.text().catch(() => ""));
+    return null;
+  }
+  const { access_token, expires_in } = await resp.json();
+  _cachedToken = { token: access_token, exp: now + (expires_in || 3600) };
+  return access_token;
+}
+
+async function ga4RunReport({ dateFrom, dateTo, dimensions, metrics, dimensionFilter }) {
+  const token = await getGa4AccessToken();
+  if (!token) return null;
+  const body = {
+    dateRanges: [{ startDate: dateFrom, endDate: dateTo }],
+    dimensions: (dimensions || []).map(n => ({ name: n })),
+    metrics: (metrics || []).map(n => ({ name: n })),
+    limit: 100000,
+  };
+  if (dimensionFilter) body.dimensionFilter = dimensionFilter;
+  const url = `https://analyticsdata.googleapis.com/v1beta/properties/${GA4_PROPERTY_ID}:runReport`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    console.error("GA4 runReport error:", resp.status, await resp.text().catch(() => ""));
+    return null;
+  }
+  return resp.json();
+}
+
+// Convert GA4 runReport response into array of row objects keyed by dim/metric names.
+function ga4RowsToObjects(report, dimNames, metricNames) {
+  if (!report || !report.rows) return [];
+  return report.rows.map(row => {
+    const obj = {};
+    dimNames.forEach((n, i) => { obj[n] = row.dimensionValues?.[i]?.value; });
+    metricNames.forEach((n, i) => { obj[n] = row.metricValues?.[i]?.value; });
+    return obj;
+  });
+}
+
+// Normalise a GA4 date string (YYYYMMDD) to YYYY-MM-DD to match Windsor shape.
+function normaliseDate(d) {
+  if (!d) return d;
+  if (d.length === 8) return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+  return d;
+}
 
 // Landing page paths per property
 const PAGES = {
@@ -228,9 +340,10 @@ function buildWeeklyInsights(daily, pageConfig, property, metrics) {
 export default async function handler(req, res) {
   const { dateFrom, dateTo, property } = req.query;
 
-  if (!WINDSOR_KEY) {
+  const hasDirectGA4 = !!(GA4_SA_JSON && GA4_PROPERTY_ID);
+  if (!hasDirectGA4 && !WINDSOR_KEY) {
     return res.status(200).json({
-      error: "WINDSOR_API_KEY not configured",
+      error: "Neither GA4_SERVICE_ACCOUNT_JSON nor WINDSOR_API_KEY configured",
       configured: false,
       data: null,
     });
@@ -247,73 +360,143 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Make 4 parallel requests:
-    // 1. Landing page daily metrics (sessions, bounce rate, engagement)
-    // 2. Confirmation page daily sessions (= completed applications)
-    // 3. Form events site-wide (form_start/form_submit don't carry page_path)
-    // 4. Total site sessions (to calculate this property's share of form events)
-    const [landingRes, confirmRes, eventsRes, siteTotalRes] = await Promise.all([
-      fetchGA4(
-        dateFrom, dateTo,
-        "date,page_path,sessions,users,bounce_rate,engagement_rate,engaged_sessions",
-        [["page_path", "eq", pageConfig.landing]]
-      ),
-      fetchGA4(
-        dateFrom, dateTo,
-        "date,page_path,sessions,users",
-        [["page_path", "eq", pageConfig.confirmation]]
-      ),
-      // Form events (form_start/form_submit) fire site-wide, not per page_path,
-      // so we fetch without page filter and attribute proportionally
-      fetchGA4(
-        dateFrom, dateTo,
-        "event_name,event_count",
-        [["event_name", "contains", "form"]]
-      ),
-      // Total site sessions to calculate property session share
-      fetchGA4(
-        dateFrom, dateTo,
-        "sessions",
-        []
-      ),
-    ]);
-
-    // Parse landing page data
     let landingDaily = [];
-    if (landingRes.ok) {
-      const d = await landingRes.json();
-      landingDaily = (d.data || d || []).filter(r => r.page_path === pageConfig.landing);
-    } else {
-      console.error("GA4 landing error:", landingRes.status, await landingRes.text().catch(() => ""));
-    }
-
-    // Parse confirmation page data
     let confirmDaily = [];
-    if (confirmRes.ok) {
-      const d = await confirmRes.json();
-      confirmDaily = (d.data || d || []).filter(r => r.page_path === pageConfig.confirmation);
-    } else {
-      console.error("GA4 confirm error:", confirmRes.status, await confirmRes.text().catch(() => ""));
-    }
-
-    // Parse form events (site-wide — form_start/form_submit don't carry page_path)
     let formEvents = {};
-    if (eventsRes.ok) {
-      const d = await eventsRes.json();
-      const rows = d.data || d || [];
-      rows.forEach(r => {
-        const name = r.event_name || "";
-        if (!formEvents[name]) formEvents[name] = 0;
-        formEvents[name] += parseInt(r.event_count || 0);
-      });
-    }
-
-    // Get total site sessions for proportional attribution
     let siteTotalSessions = 0;
-    if (siteTotalRes.ok) {
-      const d = await siteTotalRes.json();
-      const rows = d.data || d || [];
-      rows.forEach(r => { siteTotalSessions += parseInt(r.sessions || 0); });
+    let source = "windsor";
+
+    if (hasDirectGA4) {
+      // ─── Direct GA4 Data API ────────────────────────────────────────────
+      const pageFilter = (path) => ({
+        filter: { fieldName: "pagePath", stringFilter: { matchType: "EXACT", value: path } },
+      });
+      const [landingRep, confirmRep, eventsRep, siteTotalRep] = await Promise.all([
+        ga4RunReport({
+          dateFrom, dateTo,
+          dimensions: ["date", "pagePath"],
+          metrics: ["sessions", "totalUsers", "bounceRate", "engagementRate", "engagedSessions"],
+          dimensionFilter: pageFilter(pageConfig.landing),
+        }),
+        ga4RunReport({
+          dateFrom, dateTo,
+          dimensions: ["date", "pagePath"],
+          metrics: ["sessions", "totalUsers"],
+          dimensionFilter: pageFilter(pageConfig.confirmation),
+        }),
+        ga4RunReport({
+          dateFrom, dateTo,
+          dimensions: ["eventName"],
+          metrics: ["eventCount"],
+          dimensionFilter: {
+            filter: { fieldName: "eventName", stringFilter: { matchType: "CONTAINS", value: "form" } },
+          },
+        }),
+        ga4RunReport({
+          dateFrom, dateTo,
+          dimensions: [],
+          metrics: ["sessions"],
+        }),
+      ]);
+
+      if (landingRep) {
+        const rows = ga4RowsToObjects(
+          landingRep,
+          ["date", "pagePath"],
+          ["sessions", "totalUsers", "bounceRate", "engagementRate", "engagedSessions"]
+        );
+        landingDaily = rows.map(r => ({
+          date: normaliseDate(r.date),
+          page_path: r.pagePath,
+          sessions: r.sessions,
+          users: r.totalUsers,
+          bounce_rate: r.bounceRate,
+          engagement_rate: r.engagementRate,
+          engaged_sessions: r.engagedSessions,
+        }));
+      }
+
+      if (confirmRep) {
+        const rows = ga4RowsToObjects(
+          confirmRep,
+          ["date", "pagePath"],
+          ["sessions", "totalUsers"]
+        );
+        confirmDaily = rows.map(r => ({
+          date: normaliseDate(r.date),
+          page_path: r.pagePath,
+          sessions: r.sessions,
+          users: r.totalUsers,
+        }));
+      }
+
+      if (eventsRep) {
+        const rows = ga4RowsToObjects(eventsRep, ["eventName"], ["eventCount"]);
+        rows.forEach(r => {
+          const name = r.eventName || "";
+          formEvents[name] = (formEvents[name] || 0) + parseInt(r.eventCount || 0);
+        });
+      }
+
+      if (siteTotalRep) {
+        const rows = ga4RowsToObjects(siteTotalRep, [], ["sessions"]);
+        rows.forEach(r => { siteTotalSessions += parseInt(r.sessions || 0); });
+      }
+
+      source = "ga4-direct";
+    } else {
+      // ─── Windsor.ai fallback ───────────────────────────────────────────
+      const [landingRes, confirmRes, eventsRes, siteTotalRes] = await Promise.all([
+        fetchGA4(
+          dateFrom, dateTo,
+          "date,page_path,sessions,users,bounce_rate,engagement_rate,engaged_sessions",
+          [["page_path", "eq", pageConfig.landing]]
+        ),
+        fetchGA4(
+          dateFrom, dateTo,
+          "date,page_path,sessions,users",
+          [["page_path", "eq", pageConfig.confirmation]]
+        ),
+        fetchGA4(
+          dateFrom, dateTo,
+          "event_name,event_count",
+          [["event_name", "contains", "form"]]
+        ),
+        fetchGA4(
+          dateFrom, dateTo,
+          "sessions",
+          []
+        ),
+      ]);
+
+      if (landingRes.ok) {
+        const d = await landingRes.json();
+        landingDaily = (d.data || d || []).filter(r => r.page_path === pageConfig.landing);
+      } else {
+        console.error("GA4 landing error:", landingRes.status, await landingRes.text().catch(() => ""));
+      }
+
+      if (confirmRes.ok) {
+        const d = await confirmRes.json();
+        confirmDaily = (d.data || d || []).filter(r => r.page_path === pageConfig.confirmation);
+      } else {
+        console.error("GA4 confirm error:", confirmRes.status, await confirmRes.text().catch(() => ""));
+      }
+
+      if (eventsRes.ok) {
+        const d = await eventsRes.json();
+        const rows = d.data || d || [];
+        rows.forEach(r => {
+          const name = r.event_name || "";
+          formEvents[name] = (formEvents[name] || 0) + parseInt(r.event_count || 0);
+        });
+      }
+
+      if (siteTotalRes.ok) {
+        const d = await siteTotalRes.json();
+        const rows = d.data || d || [];
+        rows.forEach(r => { siteTotalSessions += parseInt(r.sessions || 0); });
+      }
     }
 
     // Attribute form events proportionally to this property based on session share
@@ -490,6 +673,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       configured: true,
+      source,
       data: {
         daily,
         summary: {
