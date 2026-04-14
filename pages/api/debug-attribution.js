@@ -4,7 +4,7 @@
 
 const GHL_API_KEY = process.env.GHL_API_KEY || "pit-da675da7-68cd-4c4e-8693-c490f7f86f04";
 const GHL_BASE    = "https://services.leadconnectorhq.com";
-const GHL_LOCATION = "BrFHAy8eqbUvugkRdVRA"; // same as dashboard
+const GHL_LOCATION = "PwquLuIhIjj0D80e6jLU"; // same as dashboard
 
 // Res Harmonics creds (client-side today — we can move to env later)
 const RH_CLIENT_ID     = process.env.RH_CLIENT_ID     || "";
