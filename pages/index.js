@@ -789,6 +789,7 @@ export default function Dashboard() {
   // otherwise they count as "Other" for blended CAC.
   const [rhAllBookings, setRhAllBookings] = useState([]);
   const [ghlData, setGhlData] = useState(null);
+  const [cpbExpanded, setCpbExpanded] = useState(false);
   const cacStats = useMemo(() => {
     const opps = ghlData?.allOpps || [];
     const bookings = rhAllBookings || [];
@@ -1644,9 +1645,21 @@ export default function Dashboard() {
                     })}
                   </div>
 
-                  {/* Bookings table */}
-                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 14px 10px",overflowX:"auto"}}>
-                    <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Bookings created in window — {cacStats.rows.length} total</p>
+                  {/* Bookings table — accordion */}
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+                    <button
+                      onClick={()=>setCpbExpanded(v=>!v)}
+                      style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",background:"transparent",border:"none",padding:"14px 16px",cursor:"pointer",color:C.text,fontFamily:"inherit"}}
+                    >
+                      <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>
+                        Bookings created in window — {cacStats.rows.length} total
+                      </span>
+                      <span style={{fontSize:13,color:C.muted,display:"flex",alignItems:"center",gap:8}}>
+                        {cpbExpanded ? "Hide" : "View"} <span style={{display:"inline-block",transform:cpbExpanded?"rotate(180deg)":"rotate(0)",transition:"transform 0.15s"}}>▾</span>
+                      </span>
+                    </button>
+                    {cpbExpanded && (
+                    <div style={{padding:"0 14px 10px",overflowX:"auto"}}>
                     <table style={{width:"100%",minWidth:760,fontSize:12,borderCollapse:"collapse"}}>
                       <thead><tr style={{color:C.muted,textAlign:"left",borderBottom:`1px solid ${C.border}`}}>
                         <th style={{padding:"8px 10px"}}>Booked</th>
@@ -1685,6 +1698,8 @@ export default function Dashboard() {
                     </table>
                     {cacStats.rows.length > 40 && (
                       <div style={{fontSize:11,color:C.muted,marginTop:8,textAlign:"center"}}>Showing 40 of {cacStats.rows.length}</div>
+                    )}
+                    </div>
                     )}
                   </div>
                 </>
