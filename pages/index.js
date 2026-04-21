@@ -2378,7 +2378,7 @@ export default function Dashboard() {
                     const confirmedRooms = fm.activeStays || 0;
 
                     if (i === 0) {
-                      const pct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
+                      const pct = BEDS > 0 ? Math.round((confirmedRooms / BEDS) * 100) : 0;
                       predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryoverRooms: 0, carryoverDays: 0, leavingFromCohorts: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms });
                       continue;
                     }
@@ -2430,9 +2430,9 @@ export default function Dashboard() {
                     const newMoveInDays = addCohort(newMoveIns, Math.max(0, dim - partialOffset));
 
                     const predictedDays = Math.min(totalDays, actualDays + carryoverDays + renewalDays + newMoveInDays);
-                    const predictedPct = totalDays > 0 ? Math.round((predictedDays / totalDays) * 100) : 0;
-                    const actualPct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0;
                     const predictedRooms = Math.min(BEDS, confirmedRooms + carryoverRooms + renewalCount + newMoveIns);
+                    const predictedPct = BEDS > 0 ? Math.round((predictedRooms / BEDS) * 100) : 0;
+                    const actualPct = BEDS > 0 ? Math.round((confirmedRooms / BEDS) * 100) : 0;
 
                     predRows.push({ ...fm, renewalCount, newBooked: forecastNewPerMonth, newMoveIns, carryoverRooms, carryoverDays, leavingFromCohorts, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms });
 
