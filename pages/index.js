@@ -493,6 +493,37 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   losDistribution.total = totalLosCount;
   losDistribution.cutoff = losCutoffStr;
 
+  // ─── Live LoS breakdown by booking status ──────────────────────────────────
+  // Two groups: "inHouse" (CHECKED_IN) and "upcoming" (CONFIRMED + PENDING).
+  // Bands per user spec: <31d, 31-91d, 92-181d, 182-363d, 364d+.
+  const LOS_BANDS = [
+    { key: "lt31",    label: "< 31 days",       min: 0,   max: 30  },
+    { key: "d31_91",  label: "31 – 91 days",    min: 31,  max: 91  },
+    { key: "d92_181", label: "92 – 181 days",   min: 92,  max: 181 },
+    { key: "d182_363",label: "182 – 363 days",  min: 182, max: 363 },
+    { key: "d364",    label: "364+ days",        min: 364, max: 99999 },
+  ];
+  const makeEmpty = () => LOS_BANDS.reduce((o, b) => { o[b.key] = 0; return o; }, {});
+  const losByStatus = {
+    inHouse:  { counts: makeEmpty(), total: 0 },
+    upcoming: { counts: makeEmpty(), total: 0 },
+    bands: LOS_BANDS,
+  };
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    let group;
+    if (status === "CHECKED_IN") group = losByStatus.inHouse;
+    else if (status === "CONFIRMED" || status === "PENDING") group = losByStatus.upcoming;
+    else return;
+    const fromD = (b.startDate ?? "").slice(0, 10);
+    const toD   = (b.endDate ?? "").slice(0, 10);
+    if (!fromD || !toD) return;
+    const days = Math.round((new Date(toD) - new Date(fromD)) / 864e5);
+    if (days < 1) return;
+    const band = LOS_BANDS.find(bd => days >= bd.min && days <= bd.max);
+    if (band) { group.counts[band.key]++; group.total++; }
+  });
+
   return {
     occupied: inHouseCount,
     checkInsWeek,
@@ -507,6 +538,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     renewalCount: renewalRoomStays.size,
     roomMoveCount: roomMoveRoomStays.size,
     losDistribution,
+    losByStatus,
   };
 }
 
@@ -2160,6 +2192,61 @@ export default function Dashboard() {
                 <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
               </div>
             </div>
+
+            {/* ── LENGTH-OF-STAY BREAKDOWN BY STATUS ── */}
+            {pmsConn && pmsData?.losByStatus && (pmsData.losByStatus.inHouse.total > 0 || pmsData.losByStatus.upcoming.total > 0) && (() => {
+              const { inHouse, upcoming, bands } = pmsData.losByStatus;
+              const barColors = [C.rose, C.gold, C.blue, C.sage, C.purple];
+              const renderGroup = (group, title, subtitle) => {
+                if (group.total === 0) return null;
+                return (
+                  <div style={{flex:"1 1 320px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{title}</p>
+                    <p style={{fontSize:11,color:C.muted,marginBottom:14}}>{group.total} bookings · {subtitle}</p>
+                    {/* Stacked bar */}
+                    <div style={{display:"flex",height:18,borderRadius:6,overflow:"hidden",marginBottom:14}}>
+                      {bands.map((b, i) => {
+                        const pct = group.total > 0 ? (group.counts[b.key] / group.total) * 100 : 0;
+                        if (pct === 0) return null;
+                        return <div key={b.key} style={{width:`${pct}%`,background:barColors[i],minWidth:pct>0?2:0}} title={`${b.label}: ${Math.round(pct)}%`}/>;
+                      })}
+                    </div>
+                    {/* Rows */}
+                    {bands.map((b, i) => {
+                      const count = group.counts[b.key];
+                      const pct = group.total > 0 ? (count / group.total) * 100 : 0;
+                      return (
+                        <div key={b.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",borderBottom:i<bands.length-1?`1px solid ${C.border}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:10,height:10,borderRadius:3,background:barColors[i],flexShrink:0}}/>
+                            <span style={{fontSize:12,color:C.muted}}>{b.label}</span>
+                          </div>
+                          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                            <span style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{Math.round(pct)}%</span>
+                            <span style={{fontSize:11,color:C.muted,fontFamily:"DM Mono,monospace",minWidth:28,textAlign:"right"}}>{count}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              };
+              return (
+                <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:14,padding:18,marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                    <div>
+                      <p style={{fontSize:11,color:C.blue,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Length-of-Stay Breakdown</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current & upcoming bookings by stay duration</p>
+                    </div>
+                    <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
+                  </div>
+                  <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                    {renderGroup(inHouse, "Checked In", "currently in the building")}
+                    {renderGroup(upcoming, "Confirmed & Pending", "future bookings")}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
               <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Revenue Target Calculator</p>
