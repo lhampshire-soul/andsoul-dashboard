@@ -2231,6 +2231,9 @@ export default function Dashboard() {
                   </div>
                 );
               };
+              // Combined totals
+              const combined = { counts: {}, total: inHouse.total + upcoming.total };
+              bands.forEach(b => { combined.counts[b.key] = (inHouse.counts[b.key] || 0) + (upcoming.counts[b.key] || 0); });
               return (
                 <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:14,padding:18,marginBottom:16}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -2241,8 +2244,11 @@ export default function Dashboard() {
                     <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
                   </div>
                   <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                    {renderGroup(inHouse, "Checked In", "currently in the building")}
-                    {renderGroup(upcoming, "Confirmed & Pending", "future bookings")}
+                    <div style={{flex:"2 1 500px",display:"flex",gap:14,flexWrap:"wrap"}}>
+                      {renderGroup(inHouse, "Checked In", "currently in the building")}
+                      {renderGroup(upcoming, "Confirmed & Pending", "future bookings")}
+                    </div>
+                    {renderGroup(combined, "All Bookings", `${inHouse.total} checked in + ${upcoming.total} upcoming`)}
                   </div>
                 </div>
               );
