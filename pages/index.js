@@ -493,6 +493,36 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   losDistribution.total = totalLosCount;
   losDistribution.cutoff = losCutoffStr;
 
+  // ─── AWR by status (28+ day bookings only) ─────────────────────────────────
+  const awrByStatus = {
+    inHouse:  { sum: 0, count: 0, awr: 0 },
+    upcoming: { sum: 0, count: 0, awr: 0 },
+    all:      { sum: 0, count: 0, awr: 0 },
+  };
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    let group;
+    if (status === "CHECKED_IN") group = awrByStatus.inHouse;
+    else if (status === "CONFIRMED" || status === "PENDING") group = awrByStatus.upcoming;
+    else return;
+    const fromD = (b.startDate ?? "").slice(0, 10);
+    const toD   = (b.endDate ?? "").slice(0, 10);
+    if (!fromD || !toD) return;
+    const days = Math.round((new Date(toD) - new Date(fromD)) / 864e5);
+    if (days < MIN_STAY_DAYS) return;
+    const net = parseFloat(b.netAmount ?? 0);
+    if (isNaN(net) || net <= 0) return;
+    const weeklyRate = (net / days) * 7;
+    if (weeklyRate <= 0 || weeklyRate > 5000) return;
+    group.sum += weeklyRate;
+    group.count++;
+    awrByStatus.all.sum += weeklyRate;
+    awrByStatus.all.count++;
+  });
+  awrByStatus.inHouse.awr = awrByStatus.inHouse.count > 0 ? Math.round(awrByStatus.inHouse.sum / awrByStatus.inHouse.count) : 0;
+  awrByStatus.upcoming.awr = awrByStatus.upcoming.count > 0 ? Math.round(awrByStatus.upcoming.sum / awrByStatus.upcoming.count) : 0;
+  awrByStatus.all.awr = awrByStatus.all.count > 0 ? Math.round(awrByStatus.all.sum / awrByStatus.all.count) : 0;
+
   // ─── Live LoS breakdown by booking status ──────────────────────────────────
   // Two groups: "inHouse" (CHECKED_IN) and "upcoming" (CONFIRMED + PENDING).
   // Bands per user spec: <31d, 31-91d, 92-181d, 182-363d, 364d+.
@@ -539,6 +569,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     roomMoveCount: roomMoveRoomStays.size,
     losDistribution,
     losByStatus,
+    awrByStatus,
   };
 }
 
@@ -2250,6 +2281,34 @@ export default function Dashboard() {
                     </div>
                     {renderGroup(combined, "All Bookings", `${inHouse.total} checked in + ${upcoming.total} upcoming`)}
                   </div>
+                  {/* AWR by status row */}
+                  {pmsData.awrByStatus && (() => {
+                    const a = pmsData.awrByStatus;
+                    const cards = [
+                      { title: "Checked In", awr: a.inHouse.awr, count: a.inHouse.count },
+                      { title: "Confirmed & Pending", awr: a.upcoming.awr, count: a.upcoming.count },
+                      { title: "All Bookings", awr: a.all.awr, count: a.all.count },
+                    ];
+                    return (
+                      <div style={{marginTop:14}}>
+                        <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:10}}>Average Weekly Rate (AWR) · 28+ Day Bookings</p>
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                          {cards.map((c, i) => (
+                            <div key={i} style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                              <p style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:2}}>{c.title}</p>
+                              <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{c.count} qualifying bookings</p>
+                              <p style={{fontSize:28,fontWeight:700,color:c.awr>=TARGET_RATE?C.sage:c.awr>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>
+                                {c.awr>0?`£${c.awr.toLocaleString()}`:"—"}
+                              </p>
+                              <p style={{fontSize:10,color:c.awr>=TARGET_RATE?C.sage:C.rose,marginTop:4}}>
+                                {c.awr>0?(c.awr>=TARGET_RATE?`✓ Above £${TARGET_RATE} target`:`£${TARGET_RATE-c.awr} below £${TARGET_RATE} target`):"No data"}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
