@@ -493,11 +493,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   losDistribution.total = totalLosCount;
   losDistribution.cutoff = losCutoffStr;
 
-  // ─── AWR by status (28+ day bookings only) ─────────────────────────────────
+  // ─── AWR by status (28+ day bookings only) — net AND gross ─────────────────
   const awrByStatus = {
-    inHouse:  { sum: 0, count: 0, awr: 0 },
-    upcoming: { sum: 0, count: 0, awr: 0 },
-    all:      { sum: 0, count: 0, awr: 0 },
+    inHouse:  { sumNet: 0, sumGross: 0, count: 0, awr: 0, awrGross: 0 },
+    upcoming: { sumNet: 0, sumGross: 0, count: 0, awr: 0, awrGross: 0 },
+    all:      { sumNet: 0, sumGross: 0, count: 0, awr: 0, awrGross: 0 },
   };
   allBookings.forEach(b => {
     const status = (b.roomStayStatus ?? "").toUpperCase();
@@ -511,17 +511,23 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const days = Math.round((new Date(toD) - new Date(fromD)) / 864e5);
     if (days < MIN_STAY_DAYS) return;
     const net = parseFloat(b.netAmount ?? 0);
+    const vat = parseFloat(b.vatAmount ?? 0);
     if (isNaN(net) || net <= 0) return;
-    const weeklyRate = (net / days) * 7;
-    if (weeklyRate <= 0 || weeklyRate > 5000) return;
-    group.sum += weeklyRate;
+    const gross = net + (isNaN(vat) ? 0 : vat);
+    const weeklyNet = (net / days) * 7;
+    const weeklyGross = (gross / days) * 7;
+    if (weeklyNet <= 0 || weeklyNet > 5000) return;
+    group.sumNet += weeklyNet;
+    group.sumGross += weeklyGross;
     group.count++;
-    awrByStatus.all.sum += weeklyRate;
+    awrByStatus.all.sumNet += weeklyNet;
+    awrByStatus.all.sumGross += weeklyGross;
     awrByStatus.all.count++;
   });
-  awrByStatus.inHouse.awr = awrByStatus.inHouse.count > 0 ? Math.round(awrByStatus.inHouse.sum / awrByStatus.inHouse.count) : 0;
-  awrByStatus.upcoming.awr = awrByStatus.upcoming.count > 0 ? Math.round(awrByStatus.upcoming.sum / awrByStatus.upcoming.count) : 0;
-  awrByStatus.all.awr = awrByStatus.all.count > 0 ? Math.round(awrByStatus.all.sum / awrByStatus.all.count) : 0;
+  for (const g of [awrByStatus.inHouse, awrByStatus.upcoming, awrByStatus.all]) {
+    g.awr = g.count > 0 ? Math.round(g.sumNet / g.count) : 0;
+    g.awrGross = g.count > 0 ? Math.round(g.sumGross / g.count) : 0;
+  }
 
   // ─── Live LoS breakdown by booking status ──────────────────────────────────
   // Two groups: "inHouse" (CHECKED_IN) and "upcoming" (CONFIRMED + PENDING).
@@ -2285,9 +2291,9 @@ export default function Dashboard() {
                   {pmsData.awrByStatus && (() => {
                     const a = pmsData.awrByStatus;
                     const cards = [
-                      { title: "Checked In", awr: a.inHouse.awr, count: a.inHouse.count },
-                      { title: "Confirmed & Pending", awr: a.upcoming.awr, count: a.upcoming.count },
-                      { title: "All Bookings", awr: a.all.awr, count: a.all.count },
+                      { title: "Checked In", awr: a.inHouse.awr, awrGross: a.inHouse.awrGross, count: a.inHouse.count },
+                      { title: "Confirmed & Pending", awr: a.upcoming.awr, awrGross: a.upcoming.awrGross, count: a.upcoming.count },
+                      { title: "All Bookings", awr: a.all.awr, awrGross: a.all.awrGross, count: a.all.count },
                     ];
                     return (
                       <div style={{marginTop:14}}>
@@ -2297,11 +2303,22 @@ export default function Dashboard() {
                             <div key={i} style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
                               <p style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:2}}>{c.title}</p>
                               <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{c.count} qualifying bookings</p>
-                              <p style={{fontSize:28,fontWeight:700,color:c.awr>=TARGET_RATE?C.sage:c.awr>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>
-                                {c.awr>0?`£${c.awr.toLocaleString()}`:"—"}
-                              </p>
+                              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:2}}>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Net (ex-VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:c.awr>=TARGET_RATE?C.sage:c.awr>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
+                                    {c.awr>0?`£${c.awr.toLocaleString()}`:"—"}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:c.awrGross>=TARGET_RATE?C.sage:c.awrGross>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
+                                    {c.awrGross>0?`£${c.awrGross.toLocaleString()}`:"—"}
+                                  </p>
+                                </div>
+                              </div>
                               <p style={{fontSize:10,color:c.awr>=TARGET_RATE?C.sage:C.rose,marginTop:4}}>
-                                {c.awr>0?(c.awr>=TARGET_RATE?`✓ Above £${TARGET_RATE} target`:`£${TARGET_RATE-c.awr} below £${TARGET_RATE} target`):"No data"}
+                                {c.awr>0?(c.awr>=TARGET_RATE?`✓ Net above £${TARGET_RATE} target`:`Net £${TARGET_RATE-c.awr} below £${TARGET_RATE} target`):"No data"}
                               </p>
                             </div>
                           ))}
