@@ -2415,7 +2415,7 @@ export default function Dashboard() {
                         <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked Days</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Days Occ.</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS - 10}</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms Occ.</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Arrivals</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Departures</th>
@@ -2547,7 +2547,8 @@ export default function Dashboard() {
                     const confirmedRooms = fm.activeStays || 0;
 
                     if (i === 0) {
-                      const pct = BEDS > 0 ? Math.round((confirmedRooms / BEDS) * 100) : 0;
+                      const USABLE_0 = BEDS - 10;
+                      const pct = USABLE_0 > 0 ? Math.round((confirmedRooms / USABLE_0) * 100) : 0;
                       predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryoverRooms: 0, carryoverDays: 0, leavingFromCohorts: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms });
                       continue;
                     }
@@ -2598,10 +2599,12 @@ export default function Dashboard() {
                     // New move-ins: arrive partialOffset days into the month
                     const newMoveInDays = addCohort(newMoveIns, Math.max(0, dim - partialOffset));
 
+                    const OFFLINE_ROOMS = 10;
+                    const USABLE = BEDS - OFFLINE_ROOMS;
                     const predictedDays = Math.min(totalDays, actualDays + carryoverDays + renewalDays + newMoveInDays);
-                    const predictedRooms = Math.min(BEDS, confirmedRooms + carryoverRooms + renewalCount + newMoveIns);
-                    const predictedPct = BEDS > 0 ? Math.round((predictedRooms / BEDS) * 100) : 0;
-                    const actualPct = BEDS > 0 ? Math.round((confirmedRooms / BEDS) * 100) : 0;
+                    const predictedRooms = Math.min(USABLE, Math.round(confirmedRooms + carryoverRooms + renewalCount + newMoveIns));
+                    const predictedPct = USABLE > 0 ? Math.round((predictedRooms / USABLE) * 100) : 0;
+                    const actualPct = USABLE > 0 ? Math.round((confirmedRooms / USABLE) * 100) : 0;
 
                     predRows.push({ ...fm, renewalCount, newBooked: forecastNewPerMonth, newMoveIns, carryoverRooms, carryoverDays, leavingFromCohorts, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms });
 
@@ -2610,73 +2613,17 @@ export default function Dashboard() {
                     activeCohorts.push(...surviving, ...newCohorts);
                   }
 
-                  // ── 95% Occupancy Target Date Model ──
-                  // Usable rooms = BEDS - offline rooms; target = 95% of usable
-                  const OFFLINE_ROOMS = 10;
-                  const USABLE = BEDS - OFFLINE_ROOMS;
-                  const TARGET_95 = Math.ceil(USABLE * 0.95);
-                  // Extend prediction beyond the 7-month RH window if needed
-                  // Run a forward simulation month by month until we hit TARGET_95 or 24 months
-                  const trajMonths = [];
-                  let trajRooms = predRows.length > 0 ? predRows[0].predictedRooms : (pmsData.occupied || 0);
-                  let trajCohorts2 = []; // {size, remaining}
-                  // Seed cohorts from current in-house using LoS distribution
-                  const totalInHouse = pmsData.losByStatus?.inHouse?.total || trajRooms;
-                  const avgLosCurrent = (() => {
-                    const los = pmsData.losByStatus?.inHouse;
-                    if (!los || los.total === 0) return 90;
-                    const bands2 = [
-                      { key: "lt31", avg: 20 }, { key: "d31_91", avg: 60 },
-                      { key: "d92_181", avg: 135 }, { key: "d182_363", avg: 270 }, { key: "d364", avg: 365 },
-                    ];
-                    let wSum = 0, wCnt = 0;
-                    bands2.forEach(b => { const c = los.counts[b.key] || 0; wSum += c * b.avg; wCnt += c; });
-                    return wCnt > 0 ? Math.round(wSum / wCnt) : 90;
-                  })();
-                  // Approximate: spread current occupants across LoS bands with mid-stay remaining
-                  Object.entries(losMix).forEach(([, band]) => {
-                    const cohortSize = Math.round(trajRooms * band.share);
-                    if (cohortSize > 0) trajCohorts2.push({ size: cohortSize, remaining: Math.round(band.avgDays / 2) });
-                  });
+                  // ── 95% Occupancy Target Date — derived from predRows (single source of truth) ──
+                  const USABLE_T = BEDS - 10;
+                  const TARGET_95 = Math.ceil(USABLE_T * 0.95);
+                  // Find which month in predRows first hits TARGET_95
                   let targetHitMonth = null;
-                  const today = new Date();
-                  for (let m = 0; m < 24; m++) {
-                    const monthDate = new Date(today.getFullYear(), today.getMonth() + m, 1);
-                    const monthLabel = monthDate.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-                    const dim = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
-                    if (m === 0) {
-                      trajMonths.push({ label: monthLabel, rooms: Math.round(trajRooms), target: TARGET_95, usable: USABLE });
-                      continue;
+                  for (let i = 0; i < predRows.length; i++) {
+                    if (predRows[i].predictedRooms >= TARGET_95 && !targetHitMonth) {
+                      targetHitMonth = { month: predRows[i].label, index: i };
                     }
-                    // Age cohorts — remove expired
-                    let leaving = 0;
-                    const surviving2 = [];
-                    trajCohorts2.forEach(c => {
-                      const rem = c.remaining - dim;
-                      if (rem <= 0) leaving += c.size;
-                      else surviving2.push({ size: c.size, remaining: rem });
-                    });
-                    // Renewals
-                    const renewals2 = Math.round(leaving * forecastRenewalRate / 100);
-                    if (renewals2 > 0) {
-                      const renewAvg = Math.round(Object.values(losMix).reduce((s, b) => s + b.share * b.avgDays, 0));
-                      surviving2.push({ size: renewals2, remaining: renewAvg });
-                    }
-                    // New move-ins (after sales cycle delay)
-                    const newMoveIns2 = m >= Math.ceil(salesCycleDays / 30) ? forecastNewPerMonth : 0;
-                    if (newMoveIns2 > 0) {
-                      // Distribute new bookings across LoS bands
-                      Object.entries(losMix).forEach(([, band]) => {
-                        const n = Math.round(newMoveIns2 * band.share);
-                        if (n > 0) surviving2.push({ size: n, remaining: band.avgDays });
-                      });
-                    }
-                    trajCohorts2 = surviving2;
-                    trajRooms = Math.min(USABLE, trajCohorts2.reduce((s, c) => s + c.size, 0));
-                    trajMonths.push({ label: monthLabel, rooms: Math.round(trajRooms), target: TARGET_95, usable: USABLE, leaving, renewals: renewals2, newMoveIns: newMoveIns2 });
-                    if (trajRooms >= TARGET_95 && !targetHitMonth) targetHitMonth = { month: monthLabel, index: m };
                   }
-                  // Monthly bookings needed to sustain once at target
+                  const startRooms = predRows.length > 0 ? predRows[0].predictedRooms : 0;
                   const avgLosWeighted = Object.values(losMix).reduce((s, b) => s + b.share * b.avgDays, 0);
                   const avgTurnoverPerMonth = Math.round(TARGET_95 / (avgLosWeighted / 30));
                   const churnPerMonth = Math.round(avgTurnoverPerMonth * (1 - forecastRenewalRate / 100));
@@ -2686,21 +2633,21 @@ export default function Dashboard() {
                 <div style={{background:C.card,border:`1px solid ${targetHitMonth?C.sage:C.gold}44`,borderRadius:14,padding:18,marginBottom:16}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                     <div>
-                      <p style={{fontSize:11,color:targetHitMonth?C.sage:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>95% Occupancy Target · {TARGET_95} / {USABLE} usable rooms</p>
-                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>{OFFLINE_ROOMS} rooms offline · {USABLE} occupiable · 95% = {TARGET_95} rooms</p>
+                      <p style={{fontSize:11,color:targetHitMonth?C.sage:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>95% Occupancy Target · {TARGET_95} / {USABLE_T} usable rooms</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>10 rooms offline · {USABLE_T} occupiable · 95% = {TARGET_95} rooms</p>
                     </div>
                     <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE MODEL</span>
                   </div>
                   <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
                     <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
                       <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Target hit date</p>
-                      <p style={{fontSize:24,fontWeight:700,color:targetHitMonth?C.sage:C.rose,fontFamily:"DM Mono,monospace"}}>{targetHitMonth?targetHitMonth.month:"Beyond 24m"}</p>
-                      <p style={{fontSize:10,color:C.muted,marginTop:4}}>{targetHitMonth?`${targetHitMonth.index} months from now`:"Adjust inputs to reach target"}</p>
+                      <p style={{fontSize:24,fontWeight:700,color:targetHitMonth?C.sage:C.rose,fontFamily:"DM Mono,monospace"}}>{targetHitMonth?targetHitMonth.month:"Beyond forecast"}</p>
+                      <p style={{fontSize:10,color:C.muted,marginTop:4}}>{targetHitMonth?`Month ${targetHitMonth.index} of forecast`:"Adjust inputs to reach target"}</p>
                     </div>
                     <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
                       <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Current → Target</p>
-                      <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{trajMonths[0]?.rooms||0} → {TARGET_95}</p>
-                      <p style={{fontSize:10,color:C.muted,marginTop:4}}>{TARGET_95-(trajMonths[0]?.rooms||0)} rooms still needed</p>
+                      <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{startRooms} → {TARGET_95}</p>
+                      <p style={{fontSize:10,color:C.muted,marginTop:4}}>{Math.max(0, TARGET_95-startRooms)} rooms still needed</p>
                     </div>
                     <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
                       <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Bookings to sustain 95%</p>
@@ -2713,19 +2660,19 @@ export default function Dashboard() {
                       <p style={{fontSize:10,color:C.muted,marginTop:4}}>Blended from target mix</p>
                     </div>
                   </div>
-                  {/* Mini trajectory chart */}
+                  {/* Mini trajectory chart from predRows */}
                   <div style={{display:"flex",alignItems:"flex-end",gap:2,height:80,marginBottom:8}}>
-                    {trajMonths.slice(0, 18).map((tm, i) => {
-                      const pct = tm.usable > 0 ? (tm.rooms / tm.usable) * 100 : 0;
-                      const hit = tm.rooms >= tm.target;
+                    {predRows.map((pr, i) => {
+                      const pct = USABLE_T > 0 ? (pr.predictedRooms / USABLE_T) * 100 : 0;
+                      const hit = pr.predictedRooms >= TARGET_95;
                       return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
                         <div style={{width:"100%",background:hit?C.sage:pct>=70?C.gold:C.rose,borderRadius:2,height:`${Math.max(4, pct*0.75)}px`,transition:"height 0.3s"}}/>
-                        <span style={{fontSize:8,color:C.muted,writingMode:"vertical-rl",transform:"rotate(180deg)",maxHeight:40,overflow:"hidden"}}>{tm.label.split(" ")[0]}</span>
+                        <span style={{fontSize:8,color:C.muted,writingMode:"vertical-rl",transform:"rotate(180deg)",maxHeight:40,overflow:"hidden"}}>{(pr.label||"").split(" ")[0]}</span>
                       </div>;
                     })}
                   </div>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
-                    <span>Now: {trajMonths[0]?.rooms||0} rooms ({Math.round((trajMonths[0]?.rooms||0)/USABLE*100)}%)</span>
+                    <span>Now: {startRooms} rooms ({Math.round(startRooms/USABLE_T*100)}%)</span>
                     <span style={{color:C.sage}}>■ ≥95% target ({TARGET_95} rooms)</span>
                   </div>
                 </div>
@@ -2742,7 +2689,7 @@ export default function Dashboard() {
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Move-ins</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Carryover</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Days</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS - 10}</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Occ.</th>
                       </tr>
                     </thead>
@@ -2755,11 +2702,11 @@ export default function Dashboard() {
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewalCount}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newBooked}`}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newMoveIns>0?C.blue:C.muted}}>{i===0?"-":r.newMoveIns>0?`+${r.newMoveIns}`:<span style={{fontSize:9}}>({salesCycleDays}d wait)</span>}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{i===0?"-":r.carryoverRooms>0?`+${r.carryoverRooms}${r.leavingFromCohorts>0?` / -${Math.round(r.leavingFromCohorts)}`:""}`:"-"}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{r.predictedDays.toLocaleString()}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{i===0?"-":r.carryoverRooms>0?`+${Math.round(r.carryoverRooms)}${r.leavingFromCohorts>0?` / -${Math.round(r.leavingFromCohorts)}`:""}`:"-"}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{Math.round(r.predictedDays).toLocaleString()}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>
-                            <span style={{fontWeight:700}}>{r.predictedRooms}</span>
-                            <span style={{color:C.muted,fontWeight:400}}> / {BEDS}</span>
+                            <span style={{fontWeight:700}}>{Math.round(r.predictedRooms)}</span>
+                            <span style={{color:C.muted,fontWeight:400}}> / {BEDS - 10}</span>
                             {i > 0 && r.predictedRooms !== r.confirmedRooms && (
                               <span style={{fontSize:9,color:C.muted,marginLeft:4}}>({r.confirmedRooms} confirmed)</span>
                             )}
