@@ -259,9 +259,13 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   const nowDate = new Date();
   const forecastByRoom = [];
   const forecastMonths = [];
-  const FORECAST_MONTHS = 7; // Mar through Sep
-  for (let m = 0; m < FORECAST_MONTHS; m++) {
-    const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + m, 1);
+  // Full calendar year: Jan through Dec of current year
+  const currentYear = nowDate.getFullYear();
+  const currentMonthIdx = nowDate.getMonth(); // 0-indexed (Apr = 3)
+  const FORECAST_START = -currentMonthIdx; // go back to Jan
+  const FORECAST_MONTHS = 12; // Jan through Dec
+  for (let m = FORECAST_START; m < FORECAST_START + FORECAST_MONTHS; m++) {
+    const d = new Date(currentYear, currentMonthIdx + m, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
     const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
@@ -270,7 +274,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
 
   const currentMonthKey = forecastMonths[0].key;
 
-  for (let m = 0; m < FORECAST_MONTHS; m++) {
+  for (let m = 0; m < forecastMonths.length; m++) {
     const fm = forecastMonths[m];
     const mS = fm.key + "-01";
     const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
@@ -2540,17 +2544,23 @@ export default function Dashboard() {
                   // Active cohorts from previous months: { size, remainingDays }
                   const activeCohorts = [];
 
+                  // Determine which month index is "current" (the one matching today)
+                  const todayKey = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+                  const currentMonthFcIdx = pmsData.forecast.findIndex(f => f.key === todayKey);
+                  const firstFutureIdx = currentMonthFcIdx >= 0 ? currentMonthFcIdx + 1 : pmsData.forecast.length;
+
                   for (let i = 0; i < pmsData.forecast.length; i++) {
                     const fm = pmsData.forecast[i];
                     const actualDays = fm.bookedDays || 0;
                     const totalDays = fm.totalBookableDays || (BEDS * 30);
                     const dim = fm.daysInMonth || 30;
                     const confirmedRooms = fm.activeStays || 0;
+                    const isPastOrCurrent = i <= (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0);
 
-                    if (i === 0) {
+                    if (isPastOrCurrent) {
                       const USABLE_0 = BEDS - 10;
                       const pct = USABLE_0 > 0 ? Math.round((confirmedRooms / USABLE_0) * 100) : 0;
-                      predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryoverRooms: 0, carryoverDays: 0, leavingFromCohorts: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms });
+                      predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryoverRooms: 0, carryoverDays: 0, leavingFromCohorts: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms, isPast: i < (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0), isCurrent: i === (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0) });
                       continue;
                     }
 
@@ -2696,19 +2706,19 @@ export default function Dashboard() {
                     </thead>
                     <tbody>
                       {predRows.map((r, i) => (
-                        <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
-                          <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{r.label}{i===0?" (actual)":""}</td>
+                        <tr key={r.key||i} style={{borderBottom:`1px solid ${C.border}`,background:r.isCurrent?C.gold+"0a":r.isPast?C.bg+"88":"transparent"}}>
+                          <td style={{padding:"8px 10px",color:r.isCurrent||r.isPast?C.text:C.muted,fontWeight:r.isCurrent?700:400}}>{r.label}{r.isCurrent?" (current)":r.isPast?" (actual)":""}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{(r.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontSize:10}}>/ {(r.totalBookableDays||0).toLocaleString()}</span></td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts||0}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{i===0?"-":r.renewalCount}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{i===0?"-":`+${r.newBooked}`}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newMoveIns>0?C.blue:C.muted}}>{i===0?"-":r.newMoveIns>0?`+${r.newMoveIns}`:<span style={{fontSize:9}}>({salesCycleDays}d wait)</span>}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{i===0?"-":r.carryoverRooms>0?`+${Math.round(r.carryoverRooms)}${r.leavingFromCohorts>0?` / -${Math.round(r.leavingFromCohorts)}`:""}`:"-"}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{(r.isPast||r.isCurrent)?"-":r.renewalCount}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{(r.isPast||r.isCurrent)?"-":`+${r.newBooked}`}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newMoveIns>0?C.blue:C.muted}}>{(r.isPast||r.isCurrent)?"-":r.newMoveIns>0?`+${r.newMoveIns}`:<span style={{fontSize:9}}>({salesCycleDays}d wait)</span>}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{(r.isPast||r.isCurrent)?"-":r.carryoverRooms>0?`+${Math.round(r.carryoverRooms)}${r.leavingFromCohorts>0?` / -${Math.round(r.leavingFromCohorts)}`:""}`:"-"}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{Math.round(r.predictedDays).toLocaleString()}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>
                             <span style={{fontWeight:700}}>{Math.round(r.predictedRooms)}</span>
                             <span style={{color:C.muted,fontWeight:400}}> / {BEDS - 10}</span>
-                            {i > 0 && r.predictedRooms !== r.confirmedRooms && (
+                            {!r.isPast && !r.isCurrent && r.predictedRooms !== r.confirmedRooms && (
                               <span style={{fontSize:9,color:C.muted,marginLeft:4}}>({r.confirmedRooms} confirmed)</span>
                             )}
                           </td>
@@ -2773,7 +2783,7 @@ export default function Dashboard() {
                     return {
                       label: pr.label, confirmedRooms, predictedRooms, newRooms,
                       confirmedRevNet, confirmedRevGross, newRevNet, newRevGross,
-                      totalRevNet, totalRevGross, isActual: i === 0,
+                      totalRevNet, totalRevGross, isActual: pr.isPast || pr.isCurrent, isCurrent: pr.isCurrent, isPast: pr.isPast,
                     };
                   });
                   const totalPredRevNet = revRows.reduce((s, r) => s + r.totalRevNet, 0);
@@ -2864,8 +2874,8 @@ export default function Dashboard() {
                           </thead>
                           <tbody>
                             {revRows.map((r, i) => (
-                              <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:r.isActual?C.gold+"0a":"transparent"}}>
-                                <td style={{padding:"8px 10px",color:r.isActual?C.text:C.muted,fontWeight:r.isActual?700:400}}>{r.label}{r.isActual?" (actual)":""}</td>
+                              <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:r.isCurrent?C.gold+"0a":r.isPast?C.bg+"88":"transparent"}}>
+                                <td style={{padding:"8px 10px",color:r.isActual?C.text:C.muted,fontWeight:r.isCurrent?700:400}}>{r.label}{r.isCurrent?" (current)":r.isPast?" (actual)":""}</td>
                                 <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{r.confirmedRooms}</td>
                                 <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue,fontWeight:600}}>{Math.round(r.predictedRooms)}</td>
                                 <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>£{r.confirmedRevNet.toLocaleString()}</td>
