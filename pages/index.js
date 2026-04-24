@@ -1280,6 +1280,7 @@ export default function Dashboard() {
   // Shape: { short:{share,avgDays}, medium:{...}, long:{...}, annual:{...} }
   const [losOverride, setLosOverride] = useState(null);
   const [rateAdjustments, setRateAdjustments] = useState({});
+  const [forecastAwrOverride, setForecastAwrOverride] = useState(null); // null = use live AWR from RH
 
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
@@ -2748,6 +2749,147 @@ export default function Dashboard() {
                   <span style={{fontSize:10,color:C.muted}}>■ Solid = confirmed bookings</span>
                   <span style={{fontSize:10,color:C.muted}}>▧ Striped = predicted (renewals + new)</span>
                 </div>
+
+                {/* ── PREDICTIVE REVENUE MODEL ── */}
+                {(() => {
+                  const liveAwr = pmsData?.awrByStatus?.all?.awr || pmsData?.globalAwr || 279;
+                  const liveAwrGross = pmsData?.awrByStatus?.all?.awrGross || Math.round(liveAwr * 1.07);
+                  const useAwr = forecastAwrOverride ?? liveAwr;
+                  const useAwrGross = forecastAwrOverride ? Math.round(forecastAwrOverride * 1.07) : liveAwrGross;
+                  // Build revenue rows from predRows
+                  const revRows = predRows.map((pr, i) => {
+                    const dim = pr.daysInMonth || 30;
+                    const confirmedRooms = pr.confirmedRooms || 0;
+                    const predictedRooms = pr.predictedRooms || 0;
+                    const newRooms = Math.max(0, predictedRooms - confirmedRooms);
+                    // Confirmed revenue: use actual RH booked days revenue if available, else estimate
+                    const confirmedRevNet = Math.round(confirmedRooms * useAwr * (dim / 7));
+                    const confirmedRevGross = Math.round(confirmedRooms * useAwrGross * (dim / 7));
+                    // Predicted additional revenue from new rooms
+                    const newRevNet = Math.round(newRooms * useAwr * (dim / 7));
+                    const newRevGross = Math.round(newRooms * useAwrGross * (dim / 7));
+                    const totalRevNet = confirmedRevNet + newRevNet;
+                    const totalRevGross = confirmedRevGross + newRevGross;
+                    return {
+                      label: pr.label, confirmedRooms, predictedRooms, newRooms,
+                      confirmedRevNet, confirmedRevGross, newRevNet, newRevGross,
+                      totalRevNet, totalRevGross, isActual: i === 0,
+                    };
+                  });
+                  const totalPredRevNet = revRows.reduce((s, r) => s + r.totalRevNet, 0);
+                  const totalPredRevGross = revRows.reduce((s, r) => s + r.totalRevGross, 0);
+                  const avgMonthlyNet = revRows.length > 0 ? Math.round(totalPredRevNet / revRows.length) : 0;
+                  // At full 95% occupancy monthly revenue
+                  const full95Net = Math.round(TARGET_95 * useAwr * (30 / 7));
+                  const full95Gross = Math.round(TARGET_95 * useAwrGross * (30 / 7));
+
+                  return (
+                    <div style={{marginTop:18,background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                        <div>
+                          <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Predictive Revenue Model</p>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Based on predicted occupancy × AWR · confirmed from Res Harmonics + forecasted new bookings</p>
+                        </div>
+                        <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
+                      </div>
+
+                      {/* AWR control */}
+                      <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16,alignItems:"flex-end"}}>
+                        <div style={{flex:"1 1 250px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                            <span style={{fontSize:12,color:C.muted}}>AWR (net, ex-VAT)</span>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <span style={{fontSize:10,color:C.muted}}>£</span>
+                              <input type="number" min={100} max={600} value={useAwr}
+                                onChange={e=>{const v=Math.max(100,Math.min(600,+e.target.value||0));setForecastAwrOverride(v);}}
+                                style={{width:64,fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 6px",textAlign:"right",outline:"none"}}/>
+                              <span style={{fontSize:10,color:C.muted}}>/week</span>
+                            </div>
+                          </div>
+                          <input type="range" min={100} max={600} value={useAwr}
+                            onChange={e=>setForecastAwrOverride(+e.target.value)}
+                            style={{width:"100%",accentColor:C.gold}}/>
+                          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginTop:4}}>
+                            <span>Live from RH: £{liveAwr}/wk net · £{liveAwrGross}/wk gross</span>
+                            {forecastAwrOverride && <button onClick={()=>setForecastAwrOverride(null)}
+                              style={{background:"none",border:"none",color:C.blue,cursor:"pointer",fontSize:10,padding:0}}>Reset to live</button>}
+                          </div>
+                        </div>
+                        <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>At 95% occupancy ({TARGET_95} rooms)</p>
+                          <p style={{fontSize:20,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>£{full95Net.toLocaleString()}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/mo net</span></p>
+                          <p style={{fontSize:13,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:2}}>£{full95Gross.toLocaleString()}<span style={{fontSize:11}}>/mo gross</span></p>
+                        </div>
+                        <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Avg predicted monthly (net)</p>
+                          <p style={{fontSize:20,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{avgMonthlyNet.toLocaleString()}</p>
+                          <p style={{fontSize:10,color:C.muted,marginTop:4}}>Across {revRows.length} forecast months</p>
+                        </div>
+                      </div>
+
+                      {/* Revenue chart */}
+                      <div style={{display:"flex",alignItems:"flex-end",gap:3,height:120,marginBottom:12}}>
+                        {revRows.map((r, i) => {
+                          const maxRev = Math.max(...revRows.map(x=>x.totalRevNet), 1);
+                          const confH = (r.confirmedRevNet / maxRev) * 100;
+                          const newH = (r.newRevNet / maxRev) * 100;
+                          return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                            <span style={{fontSize:9,color:C.text,fontFamily:"DM Mono,monospace",fontWeight:600}}>£{Math.round(r.totalRevNet/1000)}k</span>
+                            <div style={{width:"100%",display:"flex",flexDirection:"column",justifyContent:"flex-end",height:90}}>
+                              <div style={{width:"100%",background:C.blue+"66",borderRadius:"2px 2px 0 0",height:`${newH}%`}} title={`New: £${r.newRevNet.toLocaleString()}`}/>
+                              <div style={{width:"100%",background:C.sage,borderRadius:newH>0?"0":"2px 2px 0 0",height:`${confH}%`}} title={`Confirmed: £${r.confirmedRevNet.toLocaleString()}`}/>
+                            </div>
+                            <span style={{fontSize:9,color:C.muted,marginTop:2}}>{(r.label||"").split(" ")[0]}</span>
+                          </div>;
+                        })}
+                      </div>
+                      <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginBottom:14}}>
+                        <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.sage}}/> Confirmed revenue</span>
+                        <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue+"66"}}/> Predicted new revenue</span>
+                      </div>
+
+                      {/* Revenue table */}
+                      <div style={{overflowX:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                          <thead>
+                            <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                              <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed Rooms</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Rooms</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed Rev (net)</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Rev (net)</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Total Rev (net)</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Total Rev (gross)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {revRows.map((r, i) => (
+                              <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:r.isActual?C.gold+"0a":"transparent"}}>
+                                <td style={{padding:"8px 10px",color:r.isActual?C.text:C.muted,fontWeight:r.isActual?700:400}}>{r.label}{r.isActual?" (actual)":""}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{r.confirmedRooms}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue,fontWeight:600}}>{Math.round(r.predictedRooms)}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>£{r.confirmedRevNet.toLocaleString()}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newRevNet>0?C.blue:C.muted}}>{r.newRevNet>0?`+£${r.newRevNet.toLocaleString()}`:"—"}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:700}}>£{r.totalRevNet.toLocaleString()}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>£{r.totalRevGross.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                            <tr style={{borderTop:`2px solid ${C.border}`,fontWeight:700}}>
+                              <td style={{padding:"8px 10px",color:C.text}}>Total ({revRows.length} months)</td>
+                              <td style={{padding:"8px 10px"}}/>
+                              <td style={{padding:"8px 10px"}}/>
+                              <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>£{revRows.reduce((s,r)=>s+r.confirmedRevNet,0).toLocaleString()}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue}}>+£{revRows.reduce((s,r)=>s+r.newRevNet,0).toLocaleString()}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>£{totalPredRevNet.toLocaleString()}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>£{totalPredRevGross.toLocaleString()}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                   </>);
                 })()}
               </div>
