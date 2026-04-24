@@ -307,11 +307,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       }
 
       // === OCCUPANCY (booked days) ===
-      // Past/current months: include CHECKED_OUT — those guests actually stayed.
-      // Future months: exclude CHECKED_OUT (early departure = room now available).
+      // Past months only: include CHECKED_OUT — those guests actually stayed.
+      // Current + future months: exclude CHECKED_OUT — only live/active bookings matter.
       const isPastMonth = fm.key < todayKey;
-      const isCurrentMonth = fm.key === todayKey;
-      if (isPastMonth || isCurrentMonth) {
+      if (isPastMonth) {
         if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
       } else {
         if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
@@ -386,10 +385,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       const mS = fm.key + "-01";
       const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
       if (stayFrom > mE || stayTo < mS) return;
-      // Past/current months: include CHECKED_OUT for accurate historical data
-      const isPast = fm.key < todayKey;
-      const isCurr = fm.key === todayKey;
-      if (isPast || isCurr) {
+      // Past months only: include CHECKED_OUT for accurate historical data
+      // Current + future: only live bookings
+      const isPastRT = fm.key < todayKey;
+      if (isPastRT) {
         if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
       } else {
         if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
@@ -1300,6 +1299,7 @@ export default function Dashboard() {
   const [losOverride, setLosOverride] = useState(null);
   const [rateAdjustments, setRateAdjustments] = useState({});
   const [forecastAwrOverride, setForecastAwrOverride] = useState(null); // null = use live AWR from RH
+  const [offlineRooms, setOfflineRooms] = useState(10);
 
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
@@ -2435,7 +2435,7 @@ export default function Dashboard() {
                         <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked Days</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Days Occ.</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS - 10}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS - offlineRooms}</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms Occ.</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Arrivals</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Departures</th>
@@ -2525,6 +2525,17 @@ export default function Dashboard() {
                     <input type="range" min={0} max={90} value={salesCycleDays} onChange={e=>setSalesCycleDays(+e.target.value)} style={{width:"100%",accentColor:C.blue}}/>
                     <p style={{fontSize:10,color:C.muted,marginTop:2}}>Days from booking to move-in (avg 47d current · target 30d)</p>
                   </div>
+                  <div style={{flex:"1 1 200px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>Rooms offline (maintenance)</span>
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <input type="number" min={0} max={50} value={offlineRooms} onChange={e=>{const v=Math.max(0,Math.min(50,+e.target.value||0));setOfflineRooms(v);}} style={{width:48,fontSize:13,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace",background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 6px",textAlign:"right",outline:"none"}}/>
+                        <span style={{fontSize:12,color:C.muted}}>rooms</span>
+                      </div>
+                    </div>
+                    <input type="range" min={0} max={50} value={offlineRooms} onChange={e=>setOfflineRooms(+e.target.value)} style={{width:"100%",accentColor:C.rose}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Usable: {BEDS - offlineRooms} rooms · 95% target: {Math.ceil((BEDS - offlineRooms) * 0.95)} rooms</p>
+                  </div>
                 </div>
 
                 {/* Predicted occupancy table + bars — computed once, used by both */}
@@ -2573,8 +2584,8 @@ export default function Dashboard() {
                     const isPastOrCurrent = i <= (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0);
 
                     if (isPastOrCurrent) {
-                      const USABLE_0 = BEDS - 10;
-                      const pct = USABLE_0 > 0 ? Math.round((confirmedRooms / USABLE_0) * 100) : 0;
+                      const USABLE_PR = BEDS - offlineRooms;
+                      const pct = USABLE_PR > 0 ? Math.round((confirmedRooms / USABLE_PR) * 100) : 0;
                       predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryoverRooms: 0, carryoverDays: 0, leavingFromCohorts: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms, isPast: i < (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0), isCurrent: i === (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0) });
                       continue;
                     }
@@ -2625,8 +2636,7 @@ export default function Dashboard() {
                     // New move-ins: arrive partialOffset days into the month
                     const newMoveInDays = addCohort(newMoveIns, Math.max(0, dim - partialOffset));
 
-                    const OFFLINE_ROOMS = 10;
-                    const USABLE = BEDS - OFFLINE_ROOMS;
+                    const USABLE = BEDS - offlineRooms;
                     const predictedDays = Math.min(totalDays, actualDays + carryoverDays + renewalDays + newMoveInDays);
                     const predictedRooms = Math.min(USABLE, Math.round(confirmedRooms + carryoverRooms + renewalCount + newMoveIns));
                     const predictedPct = USABLE > 0 ? Math.round((predictedRooms / USABLE) * 100) : 0;
@@ -2640,7 +2650,7 @@ export default function Dashboard() {
                   }
 
                   // ── 95% Occupancy Target Date — derived from predRows (single source of truth) ──
-                  const USABLE_T = BEDS - 10;
+                  const USABLE_T = BEDS - offlineRooms; // dynamically adjustable
                   const TARGET_95 = Math.ceil(USABLE_T * 0.95);
                   // Find which month in predRows first hits TARGET_95
                   let targetHitMonth = null;
@@ -2660,7 +2670,7 @@ export default function Dashboard() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                     <div>
                       <p style={{fontSize:11,color:targetHitMonth?C.sage:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>95% Occupancy Target · {TARGET_95} / {USABLE_T} usable rooms</p>
-                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>10 rooms offline · {USABLE_T} occupiable · 95% = {TARGET_95} rooms</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>{offlineRooms} rooms offline · {USABLE_T} occupiable · 95% = {TARGET_95} rooms</p>
                     </div>
                     <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE MODEL</span>
                   </div>
@@ -2715,7 +2725,7 @@ export default function Dashboard() {
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Move-ins</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Carryover</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Days</th>
-                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS - 10}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS - offlineRooms}</th>
                         <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Occ.</th>
                       </tr>
                     </thead>
@@ -2732,7 +2742,7 @@ export default function Dashboard() {
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{Math.round(r.predictedDays).toLocaleString()}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>
                             <span style={{fontWeight:700}}>{Math.round(r.predictedRooms)}</span>
-                            <span style={{color:C.muted,fontWeight:400}}> / {BEDS - 10}</span>
+                            <span style={{color:C.muted,fontWeight:400}}> / {BEDS - offlineRooms}</span>
                             {!r.isPast && !r.isCurrent && r.predictedRooms !== r.confirmedRooms && (
                               <span style={{fontSize:9,color:C.muted,marginLeft:4}}>({r.confirmedRooms} confirmed)</span>
                             )}
