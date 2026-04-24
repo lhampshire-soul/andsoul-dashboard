@@ -273,6 +273,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   }
 
   const currentMonthKey = forecastMonths[0].key;
+  const todayKey = `${nowDate.getFullYear()}-${String(nowDate.getMonth()+1).padStart(2,'0')}`;
 
   for (let m = 0; m < forecastMonths.length; m++) {
     const fm = forecastMonths[m];
@@ -305,9 +306,16 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         if (stayTo >= mS && stayTo <= mE) checkOutRooms.add(rid);
       }
 
-      // === OCCUPANCY (booked days): only active stays ===
-      // (CHECKED_OUT stays in future months mean early departure — room is available)
-      if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+      // === OCCUPANCY (booked days) ===
+      // Past/current months: include CHECKED_OUT — those guests actually stayed.
+      // Future months: exclude CHECKED_OUT (early departure = room now available).
+      const isPastMonth = fm.key < todayKey;
+      const isCurrentMonth = fm.key === todayKey;
+      if (isPastMonth || isCurrentMonth) {
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
+      } else {
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+      }
       if (seenRidsOcc.has(rid)) return;
       seenRidsOcc.add(rid);
 
@@ -361,7 +369,6 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   const seenRidsRT = new Set();
   allGuestStays.forEach(g => {
     const status = (g.status ?? "").toString().toUpperCase();
-    if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
     const rid = g.roomStayId ?? g.id;
     if (seenRidsRT.has(rid)) return;
     seenRidsRT.add(rid);
@@ -379,6 +386,14 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       const mS = fm.key + "-01";
       const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
       if (stayFrom > mE || stayTo < mS) return;
+      // Past/current months: include CHECKED_OUT for accurate historical data
+      const isPast = fm.key < todayKey;
+      const isCurr = fm.key === todayKey;
+      if (isPast || isCurr) {
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
+      } else {
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+      }
 
       const mapKey = `${rt}|${mi}|${uid}`;
       if (!rtUnitDays[mapKey]) rtUnitDays[mapKey] = new Set();
