@@ -578,6 +578,68 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     if (band) { group.counts[band.key]++; group.total++; }
   });
 
+  // ─── Renewals data — group active bookings by contract end month ───────────
+  // Detect renewals: same contact has a later stay starting within 14 days of current end
+  const renewedRoomStayIds = new Set();
+  Object.values(contactStays).forEach(stays => {
+    if (stays.length < 2) return;
+    const sorted = stays.sort((a, b) => a.dateFrom.localeCompare(b.dateFrom));
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const gap = (new Date(sorted[i + 1].dateFrom) - new Date(sorted[i].dateTo)) / 864e5;
+      if (gap >= -7 && gap <= 14) renewedRoomStayIds.add(sorted[i].roomStayId);
+    }
+  });
+
+  const renewalsMap = {};
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+    const endDate = (b.endDate ?? "").slice(0, 10);
+    const startDate = (b.startDate ?? "").slice(0, 10);
+    if (!endDate || !startDate) return;
+    const monthKey = endDate.slice(0, 7);
+    if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
+    const days = Math.round((new Date(endDate) - new Date(startDate)) / 864e5);
+    const net = parseFloat(b.netAmount ?? 0);
+    const vat = parseFloat(b.vatAmount ?? 0);
+    const gross = net + (isNaN(vat) ? 0 : vat);
+    const months = days > 0 ? days / 30.44 : 1;
+    const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
+
+    renewalsMap[monthKey].push({
+      bookingId: b.bookingId,
+      bookingReference: b.bookingReference,
+      roomStayId: b.roomStayId,
+      contactId: b.contactId,
+      name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+      email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
+      phone: b.bookingContact?.mobileNumber || b.bookingContact?.phoneNumber || "",
+      startDate, endDate, losDays: days,
+      room: b.unit?.name || "—",
+      status, pcm: months > 0 ? Math.round(gross / months) : 0,
+      grossTotal: Math.round(gross),
+      isRenewed: renewedRoomStayIds.has(b.roomStayId),
+      daysUntilExpiry,
+      critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14,
+    });
+  });
+  Object.values(renewalsMap).forEach(arr => arr.sort((a, b) => a.endDate.localeCompare(b.endDate)));
+
+  const renewalMonths = [];
+  for (let m = 0; m < 12; m++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    const entries = renewalsMap[key] || [];
+    renewalMonths.push({
+      key, label, entries,
+      notRenewed: entries.filter(e => !e.isRenewed),
+      renewed: entries.filter(e => e.isRenewed),
+      critical: entries.filter(e => e.critical && !e.isRenewed),
+      total: entries.length,
+    });
+  }
+
   return {
     occupied: inHouseCount,
     checkInsWeek,
@@ -594,6 +656,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     losDistribution,
     losByStatus,
     awrByStatus,
+    renewalMonths,
   };
 }
 
@@ -1301,6 +1364,50 @@ export default function Dashboard() {
   const [forecastAwrOverride, setForecastAwrOverride] = useState(null); // null = use live AWR from RH
   const [offlineRooms, setOfflineRooms] = useState(10);
 
+  // ── Renewals state ──
+  const [renewalSelectedMonth, setRenewalSelectedMonth] = useState(null);
+  const [smsModal, setSmsModal] = useState(null);
+  const [smsText, setSmsText] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsResult, setSmsResult] = useState(null);
+
+  const openSmsModal = useCallback((entry) => {
+    const template = `Hi ${entry.name.split(" ")[0]}, your stay at &Soul Southall is coming to an end on ${new Date(entry.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}. We'd love to have you stay with us! Reply to this message or speak to the front desk to discuss your renewal options.`;
+    setSmsText(template);
+    setSmsResult(null);
+    setSmsModal(entry);
+  }, []);
+
+  const sendSms = useCallback(async () => {
+    if (!smsModal || !smsText.trim()) return;
+    setSmsSending(true);
+    setSmsResult(null);
+    try {
+      // Step 1: Find GHL contact by email, then phone
+      let contactId = null;
+      if (smsModal.email) {
+        const r1 = await ghlGet(`/contacts/search/duplicate?locationId=${GHL_LOCATION}&email=${encodeURIComponent(smsModal.email)}`);
+        contactId = r1?.contact?.id;
+      }
+      if (!contactId && smsModal.phone) {
+        const r2 = await ghlGet(`/contacts/search/duplicate?locationId=${GHL_LOCATION}&phone=${encodeURIComponent(smsModal.phone)}`);
+        contactId = r2?.contact?.id;
+      }
+      if (!contactId) { setSmsResult("error:Contact not found in GHL. Add them first."); return; }
+
+      // Step 2: Send SMS via GHL conversations API
+      const res = await fetch(`/api/ghl?path=${encodeURIComponent("/conversations/messages")}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "SMS", contactId, message: smsText.trim() }),
+      });
+      if (!res.ok) { const d = await res.json().catch(()=>({})); throw new Error(d.message || d.error || `HTTP ${res.status}`); }
+      setSmsResult("sent");
+    } catch (e) {
+      setSmsResult("error:" + e.message);
+    } finally { setSmsSending(false); }
+  }, [smsModal, smsText]);
+
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
@@ -1656,7 +1763,7 @@ export default function Dashboard() {
               <button key={p.k} onClick={()=>setProperty(p.k)} style={{padding:"7px 14px",border:`1px solid ${property===p.k?C.gold:C.border}`,cursor:"pointer",fontWeight:700,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",borderRadius:8,background:property===p.k?C.gold+"22":"transparent",color:property===p.k?C.gold:C.muted}}>{p.l}</button>
             ))}
           </div>
-          {property==="southall"&&<>{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("reputation","Reputation")}</>}
+          {property==="southall"&&<>{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation")}</>}
           {property==="shoreditch"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setSdTab("marketing")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="marketing"?C.gold:"transparent",color:sdTab==="marketing"?"#000":C.muted}}>Marketing</button>
             <button onClick={()=>setSdTab("crm")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="crm"?C.gold:"transparent",color:sdTab==="crm"?"#000":C.muted}}>CRM</button>
@@ -3343,6 +3450,149 @@ export default function Dashboard() {
               </div>
             )}
 
+          </div>
+        )}
+
+        {/* ════ RENEWALS ════ */}
+        {property==="southall"&&tab==="renewals"&&(
+          <div style={{padding:"22px 26px"}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Contract Management · Res Harmonics{pmsConn?" · live":""}</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Renewals Dashboard</h2>
+
+            {!pmsConn ? (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px 20px",textAlign:"center"}}>
+                <p style={{color:C.muted,fontSize:13}}>Connect Res Harmonics in the Occupancy tab to view renewal data.</p>
+              </div>
+            ) : !pmsData?.renewalMonths ? (
+              <p style={{color:C.muted,fontSize:13}}>Loading renewal data…</p>
+            ) : (() => {
+              const months = pmsData.renewalMonths;
+              const totalExpiring = months.reduce((s, m) => s + m.notRenewed.length, 0);
+              const totalRenewed = months.reduce((s, m) => s + m.renewed.length, 0);
+              const totalCritical = months.reduce((s, m) => s + m.critical.length, 0);
+              const selected = renewalSelectedMonth !== null ? months.find(m => m.key === renewalSelectedMonth) : null;
+
+              return (
+                <div>
+                  {/* Summary KPIs */}
+                  <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+                    <KPI label="Expiring (12mo)" value={totalExpiring + totalRenewed} sub="All contracts ending" accent={C.gold}/>
+                    <KPI label="Pending Renewal" value={totalExpiring} sub="Not yet renewed" accent={C.rose}/>
+                    <KPI label="Renewed" value={totalRenewed} sub="New contract detected" accent={C.sage}/>
+                    <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, not renewed" accent={C.rose}/>
+                  </div>
+
+                  {/* Month grid */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10,marginBottom:20}}>
+                    {months.map(m => {
+                      const isSel = renewalSelectedMonth === m.key;
+                      const hasCritical = m.critical.length > 0;
+                      return (
+                        <button key={m.key} onClick={() => setRenewalSelectedMonth(isSel ? null : m.key)}
+                          style={{background:isSel?C.gold+"22":C.card,border:`1px solid ${isSel?C.gold:hasCritical?C.rose+"88":C.border}`,borderRadius:12,padding:"14px 12px",cursor:"pointer",textAlign:"left",transition:"all 0.2s"}}>
+                          <p style={{fontSize:12,fontWeight:700,color:isSel?C.gold:C.text,marginBottom:6}}>{m.label}</p>
+                          <div style={{display:"flex",gap:8,alignItems:"baseline",flexWrap:"wrap"}}>
+                            <span style={{fontSize:22,fontWeight:700,color:m.notRenewed.length>0?C.rose:C.sage,fontFamily:"DM Mono,monospace"}}>{m.notRenewed.length}</span>
+                            <span style={{fontSize:10,color:C.muted}}>pending</span>
+                          </div>
+                          <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
+                            {m.renewed.length > 0 && <span style={{fontSize:10,color:C.sage,background:C.sage+"22",padding:"1px 6px",borderRadius:8}}>✓ {m.renewed.length} renewed</span>}
+                            {m.critical.length > 0 && <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"1px 6px",borderRadius:8}}>⚠ {m.critical.length} critical</span>}
+                          </div>
+                          <p style={{fontSize:10,color:C.muted,marginTop:4}}>{m.total} total</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Expanded month detail */}
+                  {selected && (
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",marginBottom:18}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                        <h3 style={{fontSize:16,fontWeight:700,color:C.text}}>{selected.label} — {selected.entries.length} contract{selected.entries.length!==1?"s":""} expiring</h3>
+                        <button onClick={() => setRenewalSelectedMonth(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,padding:"4px 12px",borderRadius:8,cursor:"pointer",fontSize:11}}>Close</button>
+                      </div>
+
+                      {selected.entries.length === 0 ? (
+                        <p style={{color:C.muted,fontSize:13}}>No contracts expiring this month.</p>
+                      ) : (
+                        <div style={{overflowX:"auto"}}>
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                            <thead>
+                              <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                                {["Name","Booking Ref","Expiry","LoS","Room","PCM","Status","SMS"].map(h => (
+                                  <th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selected.entries.map((e, i) => {
+                                const rowBg = e.critical && !e.isRenewed ? C.rose + "12" : "transparent";
+                                const expiryColor = e.critical && !e.isRenewed ? C.rose : C.text;
+                                return (
+                                  <tr key={e.roomStayId || i} style={{borderBottom:`1px solid ${C.border}22`,background:rowBg}}>
+                                    <td style={{padding:"10px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{e.name || "—"}</td>
+                                    <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",fontSize:11,color:C.muted}}>{e.bookingReference || "—"}</td>
+                                    <td style={{padding:"10px 10px",color:expiryColor,fontWeight:e.critical?700:400,whiteSpace:"nowrap"}}>
+                                      {new Date(e.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
+                                      {e.daysUntilExpiry >= 0 && e.daysUntilExpiry <= 14 && !e.isRenewed && (
+                                        <span style={{marginLeft:6,fontSize:9,background:C.rose,color:"#fff",padding:"1px 5px",borderRadius:4,fontWeight:700}}>{e.daysUntilExpiry}d</span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 10px",color:C.muted}}>{e.losDays}d</td>
+                                    <td style={{padding:"10px 10px",color:C.muted,whiteSpace:"nowrap"}}>{e.room}</td>
+                                    <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>£{e.pcm.toLocaleString()}</td>
+                                    <td style={{padding:"10px 10px"}}>
+                                      {e.isRenewed ? (
+                                        <span style={{fontSize:10,background:C.sage+"22",color:C.sage,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Renewed</span>
+                                      ) : (
+                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Pending</span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 10px"}}>
+                                      {!e.isRenewed && (
+                                        <button onClick={() => openSmsModal(e)} title="Send renewal SMS"
+                                          style={{background:C.purple+"22",color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                          💬
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* SMS Modal */}
+                  {smsModal && (
+                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+                      onClick={(ev) => { if (ev.target === ev.currentTarget) setSmsModal(null); }}>
+                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px 26px",maxWidth:500,width:"100%",maxHeight:"80vh",overflow:"auto"}} onClick={e => e.stopPropagation()}>
+                        <h3 style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>Send Renewal SMS</h3>
+                        <p style={{fontSize:12,color:C.muted,marginBottom:16}}>To: {smsModal.name} {smsModal.phone ? `(${smsModal.phone})` : smsModal.email ? `(${smsModal.email})` : ""}</p>
+
+                        <textarea value={smsText} onChange={e => setSmsText(e.target.value)}
+                          style={{width:"100%",minHeight:120,background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"'DM Sans',system-ui,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+
+                        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",alignItems:"center"}}>
+                          {smsResult === "sent" && <span style={{fontSize:12,color:C.sage,marginRight:"auto"}}>✓ SMS sent successfully</span>}
+                          {smsResult && smsResult.startsWith("error:") && <span style={{fontSize:12,color:C.rose,marginRight:"auto"}}>{smsResult.slice(6)}</span>}
+                          <button onClick={() => setSmsModal(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,padding:"8px 16px",borderRadius:8,cursor:"pointer",fontSize:12}}>Cancel</button>
+                          <button onClick={sendSms} disabled={smsSending || !smsText.trim()}
+                            style={{background:C.purple,color:"#fff",border:"none",padding:"8px 20px",borderRadius:8,cursor:smsSending?"wait":"pointer",fontSize:12,fontWeight:600,opacity:smsSending?0.6:1}}>
+                            {smsSending ? "Sending…" : "Send SMS"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
