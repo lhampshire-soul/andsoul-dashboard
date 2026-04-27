@@ -3581,7 +3581,18 @@ export default function Dashboard() {
                                 return (
                                   <tr key={e.roomStayId || i} style={{borderBottom:`1px solid ${C.border}22`,background:rowBg}}>
                                     <td style={{padding:"10px 10px",color:isLeaving?C.muted:C.text,fontWeight:600,whiteSpace:"nowrap",textDecoration:isLeaving?"line-through":"none"}}>{e.name || "—"}</td>
-                                    <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",fontSize:11,color:C.muted}}>{e.bookingReference || "—"}</td>
+                                    <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",fontSize:11}}>
+                                      {e.bookingId ? (
+                                        <a href={`https://app.resharmonics.com/bookings/${e.bookingId}`} target="_blank" rel="noopener noreferrer"
+                                          style={{color:C.gold,textDecoration:"none",borderBottom:`1px dashed ${C.gold}55`}}
+                                          onMouseEnter={ev=>ev.target.style.borderBottomColor=C.gold}
+                                          onMouseLeave={ev=>ev.target.style.borderBottomColor=C.gold+"55"}>
+                                          {e.bookingReference || e.bookingId}
+                                        </a>
+                                      ) : (
+                                        <span style={{color:C.muted}}>{e.bookingReference || "—"}</span>
+                                      )}
+                                    </td>
                                     <td style={{padding:"10px 10px",color:expiryColor,fontWeight:e.critical&&!isLeaving?700:400,whiteSpace:"nowrap"}}>
                                       {new Date(e.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
                                       {e.daysUntilExpiry >= 0 && e.daysUntilExpiry <= 14 && !e.isRenewed && !isLeaving && (
