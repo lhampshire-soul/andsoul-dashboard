@@ -591,12 +591,21 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   });
 
   const renewalsMap = {};
+  // Include CHECKED_OUT for past months so historical renewal data is accurate
+  const todayStr = localDateStr(now);
   allBookings.forEach(b => {
     const status = (b.roomStayStatus ?? "").toUpperCase();
-    if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
     const endDate = (b.endDate ?? "").slice(0, 10);
+    if (!endDate) return;
+    const isPast = endDate < todayStr;
+    // Past: include CHECKED_OUT too; Current/Future: only active statuses
+    if (isPast) {
+      if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
+    } else {
+      if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+    }
     const startDate = (b.startDate ?? "").slice(0, 10);
-    if (!endDate || !startDate) return;
+    if (!startDate) return;
     const monthKey = endDate.slice(0, 7);
     if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
     const days = Math.round((new Date(endDate) - new Date(startDate)) / 864e5);
@@ -605,6 +614,9 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const gross = net + (isNaN(vat) ? 0 : vat);
     const months = days > 0 ? days / 30.44 : 1;
     const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
+    const isRenewed = renewedRoomStayIds.has(b.roomStayId);
+    // Auto-mark as expired/leaving if end date has passed and not renewed
+    const expired = isPast && !isRenewed;
 
     renewalsMap[monthKey].push({
       bookingId: b.bookingId,
@@ -618,24 +630,29 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       room: b.unit?.name || "—",
       status, pcm: months > 0 ? Math.round(gross / months) : 0,
       grossTotal: Math.round(gross),
-      isRenewed: renewedRoomStayIds.has(b.roomStayId),
+      isRenewed,
       daysUntilExpiry,
-      critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14,
+      critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14 && !isRenewed,
+      expired, // true = contract ended without renewal → auto-leaving
     });
   });
   Object.values(renewalsMap).forEach(arr => arr.sort((a, b) => a.endDate.localeCompare(b.endDate)));
 
+  // Build months from Jan of current year through 12 months ahead
   const renewalMonths = [];
-  for (let m = 0; m < 12; m++) {
+  const janStart = -now.getMonth(); // offset to reach January
+  const totalMonths = 12 + now.getMonth(); // Jan through 12 months from now
+  for (let m = janStart; m < janStart + totalMonths; m++) {
     const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
     const entries = renewalsMap[key] || [];
     renewalMonths.push({
       key, label, entries,
-      notRenewed: entries.filter(e => !e.isRenewed),
+      notRenewed: entries.filter(e => !e.isRenewed && !e.expired),
       renewed: entries.filter(e => e.isRenewed),
-      critical: entries.filter(e => e.critical && !e.isRenewed),
+      critical: entries.filter(e => e.critical && !e.isRenewed && !e.expired),
+      autoLeaving: entries.filter(e => e.expired),
       total: entries.length,
     });
   }
@@ -3483,9 +3500,10 @@ export default function Dashboard() {
               const months = pmsData.renewalMonths;
               // Compute stats with leaving markers factored in
               const monthStats = months.map(m => {
-                const leaving = m.entries.filter(e => leavingSet.has(e.roomStayId) && !e.isRenewed);
+                // "leaving" = manually marked OR auto-expired (past end date, no renewal)
+                const leaving = m.entries.filter(e => (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed);
                 const renewed = m.entries.filter(e => e.isRenewed && !leavingSet.has(e.roomStayId));
-                const pending = m.entries.filter(e => !e.isRenewed && !leavingSet.has(e.roomStayId));
+                const pending = m.entries.filter(e => !e.isRenewed && !e.expired && !leavingSet.has(e.roomStayId));
                 const critical = pending.filter(e => e.critical);
                 const total = m.entries.length;
                 const renewedPct = total > 0 ? Math.round((renewed.length / total) * 100) : 0;
@@ -3575,7 +3593,7 @@ export default function Dashboard() {
                             </thead>
                             <tbody>
                               {selected.entries.map((e, i) => {
-                                const isLeaving = leavingSet.has(e.roomStayId);
+                                const isLeaving = leavingSet.has(e.roomStayId) || e.expired;
                                 const rowBg = isLeaving ? C.rose + "0a" : (e.critical && !e.isRenewed ? C.rose + "12" : "transparent");
                                 const expiryColor = e.critical && !e.isRenewed && !isLeaving ? C.rose : C.text;
                                 return (
@@ -3605,6 +3623,8 @@ export default function Dashboard() {
                                     <td style={{padding:"10px 10px"}}>
                                       {e.isRenewed && !isLeaving ? (
                                         <span style={{fontSize:10,background:C.sage+"22",color:C.sage,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Renewed</span>
+                                      ) : e.expired ? (
+                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Left</span>
                                       ) : isLeaving ? (
                                         <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Leaving</span>
                                       ) : (
@@ -3612,7 +3632,7 @@ export default function Dashboard() {
                                       )}
                                     </td>
                                     <td style={{padding:"10px 10px"}}>
-                                      {!e.isRenewed && (
+                                      {!e.isRenewed && !e.expired && (
                                         <button onClick={() => toggleLeaving(e.roomStayId)} title={isLeaving ? "Undo leaving" : "Mark as leaving"}
                                           style={{background:isLeaving?C.sage+"22":C.rose+"22",color:isLeaving?C.sage:C.rose,border:`1px solid ${isLeaving?C.sage:C.rose}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
                                           {isLeaving ? "↩ Undo" : "✗ Leaving"}
