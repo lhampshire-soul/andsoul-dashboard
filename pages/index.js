@@ -1371,6 +1371,20 @@ export default function Dashboard() {
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState(null);
 
+  // Manual "leaving" markers — persisted in localStorage by roomStayId
+  const [leavingSet, setLeavingSet] = useState(() => {
+    if (typeof window === "undefined") return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem("renewal_leaving_v1") || "[]")); } catch { return new Set(); }
+  });
+  const toggleLeaving = useCallback((roomStayId) => {
+    setLeavingSet(prev => {
+      const next = new Set(prev);
+      if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
+      try { localStorage.setItem("renewal_leaving_v1", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }, []);
+
   const openSmsModal = useCallback((entry) => {
     const template = `Hi ${entry.name.split(" ")[0]}, your stay at &Soul Southall is coming to an end on ${new Date(entry.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}. We'd love to have you stay with us! Reply to this message or speak to the front desk to discuss your renewal options.`;
     setSmsText(template);
@@ -3467,39 +3481,64 @@ export default function Dashboard() {
               <p style={{color:C.muted,fontSize:13}}>Loading renewal data…</p>
             ) : (() => {
               const months = pmsData.renewalMonths;
-              const totalExpiring = months.reduce((s, m) => s + m.notRenewed.length, 0);
-              const totalRenewed = months.reduce((s, m) => s + m.renewed.length, 0);
-              const totalCritical = months.reduce((s, m) => s + m.critical.length, 0);
-              const selected = renewalSelectedMonth !== null ? months.find(m => m.key === renewalSelectedMonth) : null;
+              // Compute stats with leaving markers factored in
+              const monthStats = months.map(m => {
+                const leaving = m.entries.filter(e => leavingSet.has(e.roomStayId) && !e.isRenewed);
+                const renewed = m.entries.filter(e => e.isRenewed && !leavingSet.has(e.roomStayId));
+                const pending = m.entries.filter(e => !e.isRenewed && !leavingSet.has(e.roomStayId));
+                const critical = pending.filter(e => e.critical);
+                const total = m.entries.length;
+                const renewedPct = total > 0 ? Math.round((renewed.length / total) * 100) : 0;
+                const leavingPct = total > 0 ? Math.round((leaving.length / total) * 100) : 0;
+                return { ...m, leaving, renewed, pending, critical, renewedPct, leavingPct };
+              });
+              const totalAll = monthStats.reduce((s, m) => s + m.total, 0);
+              const totalRenewed = monthStats.reduce((s, m) => s + m.renewed.length, 0);
+              const totalLeaving = monthStats.reduce((s, m) => s + m.leaving.length, 0);
+              const totalPending = monthStats.reduce((s, m) => s + m.pending.length, 0);
+              const totalCritical = monthStats.reduce((s, m) => s + m.critical.length, 0);
+              const overallRenewedPct = totalAll > 0 ? Math.round((totalRenewed / totalAll) * 100) : 0;
+              const overallLeavingPct = totalAll > 0 ? Math.round((totalLeaving / totalAll) * 100) : 0;
+              const selected = renewalSelectedMonth !== null ? monthStats.find(m => m.key === renewalSelectedMonth) : null;
 
               return (
                 <div>
                   {/* Summary KPIs */}
                   <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
-                    <KPI label="Expiring (12mo)" value={totalExpiring + totalRenewed} sub="All contracts ending" accent={C.gold}/>
-                    <KPI label="Pending Renewal" value={totalExpiring} sub="Not yet renewed" accent={C.rose}/>
-                    <KPI label="Renewed" value={totalRenewed} sub="New contract detected" accent={C.sage}/>
-                    <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, not renewed" accent={C.rose}/>
+                    <KPI label="Expiring (12mo)" value={totalAll} sub="All contracts ending" accent={C.gold}/>
+                    <KPI label="Renewed" value={`${totalRenewed} (${overallRenewedPct}%)`} sub="New contract detected" accent={C.sage}/>
+                    <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub="Marked as leaving" accent={C.rose}/>
+                    <KPI label="Pending" value={totalPending} sub="Awaiting decision" accent={C.gold}/>
+                    <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, undecided" accent={C.rose}/>
                   </div>
 
                   {/* Month grid */}
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10,marginBottom:20}}>
-                    {months.map(m => {
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:10,marginBottom:20}}>
+                    {monthStats.map(m => {
                       const isSel = renewalSelectedMonth === m.key;
                       const hasCritical = m.critical.length > 0;
                       return (
                         <button key={m.key} onClick={() => setRenewalSelectedMonth(isSel ? null : m.key)}
                           style={{background:isSel?C.gold+"22":C.card,border:`1px solid ${isSel?C.gold:hasCritical?C.rose+"88":C.border}`,borderRadius:12,padding:"14px 12px",cursor:"pointer",textAlign:"left",transition:"all 0.2s"}}>
                           <p style={{fontSize:12,fontWeight:700,color:isSel?C.gold:C.text,marginBottom:6}}>{m.label}</p>
-                          <div style={{display:"flex",gap:8,alignItems:"baseline",flexWrap:"wrap"}}>
-                            <span style={{fontSize:22,fontWeight:700,color:m.notRenewed.length>0?C.rose:C.sage,fontFamily:"DM Mono,monospace"}}>{m.notRenewed.length}</span>
-                            <span style={{fontSize:10,color:C.muted}}>pending</span>
-                          </div>
-                          <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.total} contracts up for renewal</p>
+                          <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
                             {m.renewed.length > 0 && <span style={{fontSize:10,color:C.sage,background:C.sage+"22",padding:"1px 6px",borderRadius:8}}>✓ {m.renewed.length} renewed</span>}
+                            {m.leaving.length > 0 && <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"1px 6px",borderRadius:8}}>✗ {m.leaving.length} leaving</span>}
                             {m.critical.length > 0 && <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"1px 6px",borderRadius:8}}>⚠ {m.critical.length} critical</span>}
                           </div>
-                          <p style={{fontSize:10,color:C.muted,marginTop:4}}>{m.total} total</p>
+                          {m.total > 0 && (
+                            <div style={{marginTop:2}}>
+                              <div style={{display:"flex",height:6,borderRadius:3,overflow:"hidden",background:C.border,marginBottom:4}}>
+                                {m.renewedPct > 0 && <div style={{width:`${m.renewedPct}%`,background:C.sage,transition:"width 0.3s"}}/>}
+                                {m.leavingPct > 0 && <div style={{width:`${m.leavingPct}%`,background:C.rose,transition:"width 0.3s"}}/>}
+                              </div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted}}>
+                                <span style={{color:C.sage}}>{m.renewedPct}% renewed</span>
+                                <span style={{color:C.rose}}>{m.leavingPct}% leaving</span>
+                              </div>
+                            </div>
+                          )}
                         </button>
                       );
                     })}
@@ -3508,8 +3547,17 @@ export default function Dashboard() {
                   {/* Expanded month detail */}
                   {selected && (
                     <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",marginBottom:18}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                        <h3 style={{fontSize:16,fontWeight:700,color:C.text}}>{selected.label} — {selected.entries.length} contract{selected.entries.length!==1?"s":""} expiring</h3>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                        <div>
+                          <h3 style={{fontSize:16,fontWeight:700,color:C.text}}>{selected.label} — {selected.total} contract{selected.total!==1?"s":""} expiring</h3>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>
+                            <span style={{color:C.sage}}>{selected.renewed.length} renewed ({selected.renewedPct}%)</span>
+                            {" · "}
+                            <span style={{color:C.rose}}>{selected.leaving.length} leaving ({selected.leavingPct}%)</span>
+                            {" · "}
+                            <span>{selected.pending.length} pending</span>
+                          </p>
+                        </div>
                         <button onClick={() => setRenewalSelectedMonth(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,padding:"4px 12px",borderRadius:8,cursor:"pointer",fontSize:11}}>Close</button>
                       </div>
 
@@ -3520,22 +3568,23 @@ export default function Dashboard() {
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                             <thead>
                               <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                                {["Name","Booking Ref","Expiry","LoS","Room","PCM","Status","SMS"].map(h => (
+                                {["Name","Booking Ref","Expiry","LoS","Room","PCM","Status","","SMS"].map(h => (
                                   <th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
                               {selected.entries.map((e, i) => {
-                                const rowBg = e.critical && !e.isRenewed ? C.rose + "12" : "transparent";
-                                const expiryColor = e.critical && !e.isRenewed ? C.rose : C.text;
+                                const isLeaving = leavingSet.has(e.roomStayId);
+                                const rowBg = isLeaving ? C.rose + "0a" : (e.critical && !e.isRenewed ? C.rose + "12" : "transparent");
+                                const expiryColor = e.critical && !e.isRenewed && !isLeaving ? C.rose : C.text;
                                 return (
                                   <tr key={e.roomStayId || i} style={{borderBottom:`1px solid ${C.border}22`,background:rowBg}}>
-                                    <td style={{padding:"10px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{e.name || "—"}</td>
+                                    <td style={{padding:"10px 10px",color:isLeaving?C.muted:C.text,fontWeight:600,whiteSpace:"nowrap",textDecoration:isLeaving?"line-through":"none"}}>{e.name || "—"}</td>
                                     <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",fontSize:11,color:C.muted}}>{e.bookingReference || "—"}</td>
-                                    <td style={{padding:"10px 10px",color:expiryColor,fontWeight:e.critical?700:400,whiteSpace:"nowrap"}}>
+                                    <td style={{padding:"10px 10px",color:expiryColor,fontWeight:e.critical&&!isLeaving?700:400,whiteSpace:"nowrap"}}>
                                       {new Date(e.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
-                                      {e.daysUntilExpiry >= 0 && e.daysUntilExpiry <= 14 && !e.isRenewed && (
+                                      {e.daysUntilExpiry >= 0 && e.daysUntilExpiry <= 14 && !e.isRenewed && !isLeaving && (
                                         <span style={{marginLeft:6,fontSize:9,background:C.rose,color:"#fff",padding:"1px 5px",borderRadius:4,fontWeight:700}}>{e.daysUntilExpiry}d</span>
                                       )}
                                     </td>
@@ -3543,14 +3592,24 @@ export default function Dashboard() {
                                     <td style={{padding:"10px 10px",color:C.muted,whiteSpace:"nowrap"}}>{e.room}</td>
                                     <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>£{e.pcm.toLocaleString()}</td>
                                     <td style={{padding:"10px 10px"}}>
-                                      {e.isRenewed ? (
+                                      {e.isRenewed && !isLeaving ? (
                                         <span style={{fontSize:10,background:C.sage+"22",color:C.sage,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Renewed</span>
+                                      ) : isLeaving ? (
+                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Leaving</span>
                                       ) : (
-                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Pending</span>
+                                        <span style={{fontSize:10,background:C.gold+"22",color:C.gold,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Pending</span>
                                       )}
                                     </td>
                                     <td style={{padding:"10px 10px"}}>
                                       {!e.isRenewed && (
+                                        <button onClick={() => toggleLeaving(e.roomStayId)} title={isLeaving ? "Undo leaving" : "Mark as leaving"}
+                                          style={{background:isLeaving?C.sage+"22":C.rose+"22",color:isLeaving?C.sage:C.rose,border:`1px solid ${isLeaving?C.sage:C.rose}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
+                                          {isLeaving ? "↩ Undo" : "✗ Leaving"}
+                                        </button>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 10px"}}>
+                                      {!e.isRenewed && !isLeaving && (
                                         <button onClick={() => openSmsModal(e)} title="Send renewal SMS"
                                           style={{background:C.purple+"22",color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
                                           💬
