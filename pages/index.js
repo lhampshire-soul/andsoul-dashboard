@@ -1413,15 +1413,30 @@ export default function Dashboard() {
     });
   }, []);
 
-  const openSmsModal = useCallback((entry) => {
-    const template = `Hi ${entry.name.split(" ")[0]}, your stay at &Soul Southall is coming to an end on ${new Date(entry.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}. We'd love to have you stay with us! Reply to this message or speak to the front desk to discuss your renewal options.`;
-    setSmsText(template);
+  // Messaging state — supports SMS and Email via GHL
+  const [msgChannel, setMsgChannel] = useState("sms"); // "sms" | "email"
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+
+  const openSmsModal = useCallback((entry, channel = "sms") => {
+    const firstName = entry.name.split(" ")[0];
+    const expiryStr = new Date(entry.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
+    const smsTemplate = `Hi ${firstName}, your stay at &Soul Southall is coming to an end on ${expiryStr}. We'd love to have you stay with us! Reply to this message or speak to the front desk to discuss your renewal options.`;
+    const emailSub = `Your Stay at &Soul Southall — Renewal`;
+    const emailTpl = `Hi ${firstName},\n\nWe hope you've been enjoying your time at &Soul Southall.\n\nYour current stay is due to end on ${expiryStr}, and we'd love the opportunity to discuss your renewal options with you.\n\nWhether you'd like to extend in your current room or explore other options within the building, our team is here to help make the process as smooth as possible.\n\nPlease feel free to reply to this email, or pop down to the front desk at your convenience.\n\nWarm regards,\nThe &Soul Team`;
+    setSmsText(smsTemplate);
+    setEmailSubject(emailSub);
+    setEmailBody(emailTpl);
     setSmsResult(null);
+    setMsgChannel(channel);
     setSmsModal(entry);
   }, []);
 
-  const sendSms = useCallback(async () => {
-    if (!smsModal || !smsText.trim()) return;
+  const sendMessage = useCallback(async () => {
+    if (!smsModal) return;
+    const isSms = msgChannel === "sms";
+    const body = isSms ? smsText.trim() : emailBody.trim();
+    if (!body || (!isSms && !emailSubject.trim())) return;
     setSmsSending(true);
     setSmsResult(null);
     try {
@@ -1437,18 +1452,21 @@ export default function Dashboard() {
       }
       if (!contactId) { setSmsResult("error:Contact not found in GHL. Add them first."); return; }
 
-      // Step 2: Send SMS via GHL conversations API
+      // Step 2: Send via GHL conversations API
+      const payload = isSms
+        ? { type: "SMS", contactId, message: body }
+        : { type: "Email", contactId, subject: emailSubject.trim(), message: body, emailFrom: "hello@andsoul.com" };
       const res = await fetch(`/api/ghl?path=${encodeURIComponent("/conversations/messages")}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "SMS", contactId, message: smsText.trim() }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) { const d = await res.json().catch(()=>({})); throw new Error(d.message || d.error || `HTTP ${res.status}`); }
-      setSmsResult("sent");
+      setSmsResult(isSms ? "sms_sent" : "email_sent");
     } catch (e) {
       setSmsResult("error:" + e.message);
     } finally { setSmsSending(false); }
-  }, [smsModal, smsText]);
+  }, [smsModal, smsText, emailBody, emailSubject, msgChannel]);
 
   const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
   const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
@@ -3597,7 +3615,7 @@ export default function Dashboard() {
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                             <thead>
                               <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                                {["Name","Booking Ref","Expiry","LoS","Room","PCM","Status","","SMS"].map(h => (
+                                {["Name","Booking Ref","Expiry","LoS","Room","PCM","Status","","SMS","Email"].map(h => (
                                   <th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
                                 ))}
                               </tr>
@@ -3643,20 +3661,22 @@ export default function Dashboard() {
                                       )}
                                     </td>
                                     <td style={{padding:"10px 10px"}}>
-                                      {!e.isRenewed && !e.expired && (
-                                        <button onClick={() => toggleLeaving(e.roomStayId)} title={isLeaving ? "Undo leaving" : "Mark as leaving"}
-                                          style={{background:isLeaving?C.sage+"22":C.rose+"22",color:isLeaving?C.sage:C.rose,border:`1px solid ${isLeaving?C.sage:C.rose}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
-                                          {isLeaving ? "↩ Undo" : "✗ Leaving"}
-                                        </button>
-                                      )}
+                                      <button onClick={() => toggleLeaving(e.roomStayId)} title={isLeaving ? "Undo leaving" : "Mark as leaving"}
+                                        style={{background:isLeaving?C.sage+"22":C.rose+"22",color:isLeaving?C.sage:C.rose,border:`1px solid ${isLeaving?C.sage:C.rose}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
+                                        {isLeaving ? "↩ Undo" : "✗ Leaving"}
+                                      </button>
                                     </td>
                                     <td style={{padding:"10px 10px"}}>
-                                      {!e.isRenewed && !isLeaving && (
-                                        <button onClick={() => openSmsModal(e)} title="Send renewal SMS"
-                                          style={{background:C.purple+"22",color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                                          💬
-                                        </button>
-                                      )}
+                                      <button onClick={() => openSmsModal(e, "sms")} title="Send renewal SMS"
+                                        style={{background:C.purple+"22",color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                        💬
+                                      </button>
+                                    </td>
+                                    <td style={{padding:"10px 10px"}}>
+                                      <button onClick={() => openSmsModal(e, "email")} title="Send renewal email"
+                                        style={{background:C.gold+"22",color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                        ✉
+                                      </button>
                                     </td>
                                   </tr>
                                 );
@@ -3668,24 +3688,45 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* SMS Modal */}
+                  {/* SMS / Email Modal */}
                   {smsModal && (
                     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
                       onClick={(ev) => { if (ev.target === ev.currentTarget) setSmsModal(null); }}>
-                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px 26px",maxWidth:500,width:"100%",maxHeight:"80vh",overflow:"auto"}} onClick={e => e.stopPropagation()}>
-                        <h3 style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>Send Renewal SMS</h3>
-                        <p style={{fontSize:12,color:C.muted,marginBottom:16}}>To: {smsModal.name} {smsModal.phone ? `(${smsModal.phone})` : smsModal.email ? `(${smsModal.email})` : ""}</p>
+                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px 26px",maxWidth:560,width:"100%",maxHeight:"80vh",overflow:"auto"}} onClick={e => e.stopPropagation()}>
+                        <h3 style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>Send Renewal Message</h3>
+                        <p style={{fontSize:12,color:C.muted,marginBottom:12}}>To: {smsModal.name} {smsModal.phone ? `(${smsModal.phone})` : ""} {smsModal.email ? `(${smsModal.email})` : ""}</p>
 
-                        <textarea value={smsText} onChange={e => setSmsText(e.target.value)}
-                          style={{width:"100%",minHeight:120,background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"'DM Sans',system-ui,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+                        {/* Channel tabs */}
+                        <div style={{display:"flex",gap:0,marginBottom:16,borderBottom:`1px solid ${C.border}`}}>
+                          {[{k:"sms",label:"SMS",icon:"💬"},{k:"email",label:"Email",icon:"✉"}].map(ch => (
+                            <button key={ch.k} onClick={() => { setMsgChannel(ch.k); setSmsResult(null); }}
+                              style={{background:"transparent",border:"none",borderBottom:msgChannel===ch.k?`2px solid ${C.gold}`:"2px solid transparent",
+                                color:msgChannel===ch.k?C.gold:C.muted,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:600,transition:"all 0.2s"}}>
+                              {ch.icon} {ch.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {msgChannel === "sms" ? (
+                          <textarea value={smsText} onChange={e => setSmsText(e.target.value)} placeholder="SMS message..."
+                            style={{width:"100%",minHeight:120,background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"'DM Sans',system-ui,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+                        ) : (
+                          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                            <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="Subject line..."
+                              style={{width:"100%",background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"'DM Sans',system-ui,sans-serif",boxSizing:"border-box"}}/>
+                            <textarea value={emailBody} onChange={e => setEmailBody(e.target.value)} placeholder="Email body..."
+                              style={{width:"100%",minHeight:180,background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"'DM Sans',system-ui,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+                          </div>
+                        )}
 
                         <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",alignItems:"center"}}>
-                          {smsResult === "sent" && <span style={{fontSize:12,color:C.sage,marginRight:"auto"}}>✓ SMS sent successfully</span>}
+                          {smsResult === "sms_sent" && <span style={{fontSize:12,color:C.sage,marginRight:"auto"}}>✓ SMS sent successfully</span>}
+                          {smsResult === "email_sent" && <span style={{fontSize:12,color:C.sage,marginRight:"auto"}}>✓ Email sent successfully</span>}
                           {smsResult && smsResult.startsWith("error:") && <span style={{fontSize:12,color:C.rose,marginRight:"auto"}}>{smsResult.slice(6)}</span>}
                           <button onClick={() => setSmsModal(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,padding:"8px 16px",borderRadius:8,cursor:"pointer",fontSize:12}}>Cancel</button>
-                          <button onClick={sendSms} disabled={smsSending || !smsText.trim()}
-                            style={{background:C.purple,color:"#fff",border:"none",padding:"8px 20px",borderRadius:8,cursor:smsSending?"wait":"pointer",fontSize:12,fontWeight:600,opacity:smsSending?0.6:1}}>
-                            {smsSending ? "Sending…" : "Send SMS"}
+                          <button onClick={sendMessage} disabled={smsSending || (msgChannel==="sms" ? !smsText.trim() : !emailBody.trim() || !emailSubject.trim())}
+                            style={{background:msgChannel==="sms"?C.purple:C.gold,color:"#fff",border:"none",padding:"8px 20px",borderRadius:8,cursor:smsSending?"wait":"pointer",fontSize:12,fontWeight:600,opacity:smsSending?0.6:1}}>
+                            {smsSending ? "Sending…" : msgChannel==="sms" ? "Send SMS" : "Send Email"}
                           </button>
                         </div>
                       </div>
