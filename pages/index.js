@@ -639,10 +639,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const months = days > 0 ? days / 30.44 : 1;
     const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
     const followOnStatus = renewalFollowOnStatus[b.roomStayId] || null;
-    // Renewed = follow-on is CONFIRMED, CHECKED_IN, or CHECKED_OUT (completed stay = definitely renewed)
-    const isRenewed = followOnStatus === "CONFIRMED" || followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT";
-    // Pending renewal = follow-on exists but is still PENDING (unsigned)
-    const isPendingRenewal = followOnStatus === "PENDING";
+    // Renewed = follow-on is CHECKED_IN or CHECKED_OUT (actually occupied or completed)
+    const isRenewed = followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT";
+    // Pending renewal (auto) = follow-on is CONFIRMED (contract created but not checked in yet)
+    // Note: RH API does not expose PENDING room stays, so manual pendingSet handles those
+    const isPendingRenewal = followOnStatus === "CONFIRMED" || followOnStatus === "PENDING";
     // Auto-mark as expired/leaving if end date has passed and no follow-on at all
     const expired = isPast && !isRenewed && !isPendingRenewal;
 
@@ -1430,6 +1431,25 @@ export default function Dashboard() {
       try { localStorage.setItem("renewal_leaving_v1", JSON.stringify([...next])); } catch {}
       return next;
     });
+    // Remove from pendingSet if marking as leaving
+    setPendingSet(prev => { const next = new Set(prev); next.delete(roomStayId); try { localStorage.setItem("renewal_pending_v1", JSON.stringify([...next])); } catch {} return next; });
+  }, []);
+
+  // Manual "pending renewal" markers — for cases where RH has a pending room stay
+  // that the API doesn't expose (API excludes PENDING status)
+  const [pendingSet, setPendingSet] = useState(() => {
+    if (typeof window === "undefined") return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem("renewal_pending_v1") || "[]")); } catch { return new Set(); }
+  });
+  const togglePending = useCallback((roomStayId) => {
+    setPendingSet(prev => {
+      const next = new Set(prev);
+      if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
+      try { localStorage.setItem("renewal_pending_v1", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+    // Remove from leavingSet if marking as pending
+    setLeavingSet(prev => { const next = new Set(prev); next.delete(roomStayId); try { localStorage.setItem("renewal_leaving_v1", JSON.stringify([...next])); } catch {} return next; });
   }, []);
 
   // Messaging state — supports SMS and Email via GHL
@@ -3550,10 +3570,11 @@ export default function Dashboard() {
               // Statuses: Renewed (CONFIRMED/CHECKED_IN follow-on), Pending (PENDING follow-on),
               //           Not Yet Started (no follow-on, not expired), Left (expired, no follow-on), Leaving (manual override)
               const monthStats = months.map(m => {
-                const leaving = m.entries.filter(e => (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal);
-                const renewed = m.entries.filter(e => e.isRenewed && !leavingSet.has(e.roomStayId));
-                const pendingRenewal = m.entries.filter(e => e.isPendingRenewal && !e.isRenewed && !leavingSet.has(e.roomStayId));
-                const notStarted = m.entries.filter(e => !e.isRenewed && !e.isPendingRenewal && !e.expired && !leavingSet.has(e.roomStayId));
+                // Manual pendingSet overrides auto-detection; leavingSet overrides everything
+                const leaving = m.entries.filter(e => (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal && !pendingSet.has(e.roomStayId));
+                const renewed = m.entries.filter(e => e.isRenewed && !leavingSet.has(e.roomStayId) && !pendingSet.has(e.roomStayId));
+                const pendingRenewal = m.entries.filter(e => (e.isPendingRenewal || pendingSet.has(e.roomStayId)) && !e.isRenewed && !leavingSet.has(e.roomStayId));
+                const notStarted = m.entries.filter(e => !e.isRenewed && !e.isPendingRenewal && !e.expired && !leavingSet.has(e.roomStayId) && !pendingSet.has(e.roomStayId));
                 const critical = notStarted.filter(e => e.critical);
                 const total = m.entries.length;
                 const renewedPct = total > 0 ? Math.round((renewed.length / total) * 100) : 0;
@@ -3645,16 +3666,24 @@ export default function Dashboard() {
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                             <thead>
                               <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                                {["Name","Booking Ref","Expiry","LoS","Room","PCM","Status","","SMS","Email"].map(h => (
+                                {["Name","Booking Ref","Expiry","LoS","Room","PCM","Status","","","SMS","Email"].map(h => (
                                   <th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
                               {selected.entries.map((e, i) => {
-                                const isLeaving = leavingSet.has(e.roomStayId) || e.expired;
-                                const rowBg = isLeaving ? C.rose + "0a" : (e.critical && !e.isRenewed ? C.rose + "12" : "transparent");
-                                const expiryColor = e.critical && !e.isRenewed && !isLeaving ? C.rose : C.text;
+                                const isManualPending = pendingSet.has(e.roomStayId);
+                                const isLeaving = (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal && !isManualPending;
+                                const isPending = e.isPendingRenewal || isManualPending;
+                                const rowBg = isLeaving ? C.rose + "0a" : isPending ? C.blue + "0a" : (e.critical && !e.isRenewed ? C.rose + "12" : "transparent");
+                                const expiryColor = e.critical && !e.isRenewed && !isLeaving && !isPending ? C.rose : C.text;
+                                // Determine display status
+                                const displayStatus = leavingSet.has(e.roomStayId) ? "leaving"
+                                  : e.isRenewed ? "renewed"
+                                  : isPending ? "pending"
+                                  : e.expired ? "left"
+                                  : "not_started";
                                 return (
                                   <tr key={e.roomStayId || i} style={{borderBottom:`1px solid ${C.border}22`,background:rowBg}}>
                                     <td style={{padding:"10px 10px",color:isLeaving?C.muted:C.text,fontWeight:600,whiteSpace:"nowrap",textDecoration:isLeaving?"line-through":"none"}}>{e.name || "—"}</td>
@@ -3670,9 +3699,9 @@ export default function Dashboard() {
                                         <span style={{color:C.muted}}>{e.bookingReference || "—"}</span>
                                       )}
                                     </td>
-                                    <td style={{padding:"10px 10px",color:expiryColor,fontWeight:e.critical&&!isLeaving?700:400,whiteSpace:"nowrap"}}>
+                                    <td style={{padding:"10px 10px",color:expiryColor,fontWeight:e.critical&&displayStatus==="not_started"?700:400,whiteSpace:"nowrap"}}>
                                       {new Date(e.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
-                                      {e.daysUntilExpiry >= 0 && e.daysUntilExpiry <= 14 && !e.isRenewed && !isLeaving && (
+                                      {e.daysUntilExpiry >= 0 && e.daysUntilExpiry <= 14 && displayStatus === "not_started" && (
                                         <span style={{marginLeft:6,fontSize:9,background:C.rose,color:"#fff",padding:"1px 5px",borderRadius:4,fontWeight:700}}>{e.daysUntilExpiry}d</span>
                                       )}
                                     </td>
@@ -3680,34 +3709,40 @@ export default function Dashboard() {
                                     <td style={{padding:"10px 10px",color:C.muted,whiteSpace:"nowrap"}}>{e.room}</td>
                                     <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>£{e.pcm.toLocaleString()}</td>
                                     <td style={{padding:"10px 10px"}}>
-                                      {e.isRenewed && !isLeaving ? (
+                                      {displayStatus === "renewed" ? (
                                         <span style={{fontSize:10,background:C.sage+"22",color:C.sage,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Renewed</span>
-                                      ) : e.expired ? (
-                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Left</span>
-                                      ) : isLeaving ? (
-                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Leaving</span>
-                                      ) : e.isPendingRenewal ? (
+                                      ) : displayStatus === "pending" ? (
                                         <span style={{fontSize:10,background:C.blue+"22",color:C.blue,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Pending</span>
+                                      ) : displayStatus === "left" ? (
+                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Left</span>
+                                      ) : displayStatus === "leaving" ? (
+                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Leaving</span>
                                       ) : (
                                         <span style={{fontSize:10,background:C.gold+"22",color:C.gold,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Not Yet Started</span>
                                       )}
                                     </td>
-                                    <td style={{padding:"10px 10px"}}>
-                                      <button onClick={() => toggleLeaving(e.roomStayId)} title={isLeaving ? "Undo leaving" : "Mark as leaving"}
-                                        style={{background:isLeaving?C.sage+"22":C.rose+"22",color:isLeaving?C.sage:C.rose,border:`1px solid ${isLeaving?C.sage:C.rose}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
-                                        {isLeaving ? "↩ Undo" : "✗ Leaving"}
+                                    <td style={{padding:"10px 6px"}}>
+                                      <button onClick={() => toggleLeaving(e.roomStayId)} title={leavingSet.has(e.roomStayId) ? "Undo leaving" : "Mark as leaving"}
+                                        style={{background:leavingSet.has(e.roomStayId)?C.sage+"22":C.rose+"22",color:leavingSet.has(e.roomStayId)?C.sage:C.rose,border:`1px solid ${leavingSet.has(e.roomStayId)?C.sage:C.rose}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
+                                        {leavingSet.has(e.roomStayId) ? "↩ Undo" : "✗ Leaving"}
                                       </button>
                                     </td>
-                                    <td style={{padding:"10px 10px"}}>
-                                      {!e.isRenewed && !e.expired && !isLeaving && (
+                                    <td style={{padding:"10px 6px"}}>
+                                      <button onClick={() => togglePending(e.roomStayId)} title={pendingSet.has(e.roomStayId) ? "Undo pending" : "Mark as pending renewal"}
+                                        style={{background:pendingSet.has(e.roomStayId)?C.sage+"22":C.blue+"22",color:pendingSet.has(e.roomStayId)?C.sage:C.blue,border:`1px solid ${pendingSet.has(e.roomStayId)?C.sage:C.blue}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
+                                        {pendingSet.has(e.roomStayId) ? "↩ Undo" : "◎ Pending"}
+                                      </button>
+                                    </td>
+                                    <td style={{padding:"10px 6px"}}>
+                                      {displayStatus !== "renewed" && displayStatus !== "left" && displayStatus !== "leaving" && (
                                         <button onClick={() => openSmsModal(e, "sms")} title="Send renewal SMS"
                                           style={{background:C.purple+"22",color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
                                           💬
                                         </button>
                                       )}
                                     </td>
-                                    <td style={{padding:"10px 10px"}}>
-                                      {!e.isRenewed && !e.expired && !isLeaving && (
+                                    <td style={{padding:"10px 6px"}}>
+                                      {displayStatus !== "renewed" && displayStatus !== "left" && displayStatus !== "leaving" && (
                                         <button onClick={() => openSmsModal(e, "email")} title="Send renewal email"
                                           style={{background:C.gold+"22",color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
                                           ✉
