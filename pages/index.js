@@ -588,7 +588,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   // Detect renewals: same contact has ANY stay starting within 14 days of current end
   // NOTE: must check all pairs, not just adjacent — long stays with intermediate short
   // stays break adjacent-only comparison (e.g. a 12-month stay with 1-day event stays)
-  const renewedRoomStayIds = new Set();
+  // Track the STATUS of the follow-on stay so we can distinguish:
+  //   CONFIRMED/CHECKED_IN = truly renewed (signed)
+  //   PENDING = contract on account but not yet signed
+  const renewalFollowOnStatus = {}; // roomStayId → best follow-on status
   Object.values(contactStays).forEach(stays => {
     if (stays.length < 2) return;
     for (let i = 0; i < stays.length; i++) {
@@ -596,10 +599,18 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       for (let j = 0; j < stays.length; j++) {
         if (j === i) continue;
         const gap = (new Date(stays[j].dateFrom).getTime() - endMs) / 864e5;
-        if (gap >= -7 && gap <= 14) { renewedRoomStayIds.add(stays[i].roomStayId); break; }
+        if (gap >= -7 && gap <= 14) {
+          const followStatus = (stays[j].status || "").toUpperCase();
+          const prev = renewalFollowOnStatus[stays[i].roomStayId];
+          // Prefer CHECKED_IN > CONFIRMED > PENDING
+          if (!prev || followStatus === "CHECKED_IN" || (followStatus === "CONFIRMED" && prev === "PENDING")) {
+            renewalFollowOnStatus[stays[i].roomStayId] = followStatus;
+          }
+        }
       }
     }
   });
+  const renewedRoomStayIds = new Set(Object.keys(renewalFollowOnStatus).map(Number));
 
   const renewalsMap = {};
   // Include CHECKED_OUT for past months so historical renewal data is accurate
@@ -625,9 +636,13 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const gross = net + (isNaN(vat) ? 0 : vat);
     const months = days > 0 ? days / 30.44 : 1;
     const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
-    const isRenewed = renewedRoomStayIds.has(b.roomStayId);
-    // Auto-mark as expired/leaving if end date has passed and not renewed
-    const expired = isPast && !isRenewed;
+    const followOnStatus = renewalFollowOnStatus[b.roomStayId] || null;
+    // Renewed = follow-on is CONFIRMED or CHECKED_IN (signed contract)
+    const isRenewed = followOnStatus === "CONFIRMED" || followOnStatus === "CHECKED_IN";
+    // Pending renewal = follow-on exists but is still PENDING (unsigned)
+    const isPendingRenewal = followOnStatus === "PENDING";
+    // Auto-mark as expired/leaving if end date has passed and no follow-on at all
+    const expired = isPast && !isRenewed && !isPendingRenewal;
 
     renewalsMap[monthKey].push({
       bookingId: b.bookingId,
@@ -642,9 +657,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       status, pcm: months > 0 ? Math.round(gross / months) : 0,
       grossTotal: Math.round(gross),
       isRenewed,
+      isPendingRenewal,
+      followOnStatus,
       daysUntilExpiry,
-      critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14 && !isRenewed,
-      expired, // true = contract ended without renewal → auto-leaving
+      critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14 && !isRenewed && !isPendingRenewal,
+      expired, // true = contract ended without any follow-on → auto-leaving
     });
   });
   Object.values(renewalsMap).forEach(arr => arr.sort((a, b) => a.endDate.localeCompare(b.endDate)));
@@ -3528,21 +3545,25 @@ export default function Dashboard() {
             ) : (() => {
               const months = pmsData.renewalMonths;
               // Compute stats with leaving markers factored in
+              // Statuses: Renewed (CONFIRMED/CHECKED_IN follow-on), Pending (PENDING follow-on),
+              //           Not Yet Started (no follow-on, not expired), Left (expired, no follow-on), Leaving (manual override)
               const monthStats = months.map(m => {
-                // "leaving" = manually marked OR auto-expired (past end date, no renewal)
-                const leaving = m.entries.filter(e => (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed);
+                const leaving = m.entries.filter(e => (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal);
                 const renewed = m.entries.filter(e => e.isRenewed && !leavingSet.has(e.roomStayId));
-                const pending = m.entries.filter(e => !e.isRenewed && !e.expired && !leavingSet.has(e.roomStayId));
-                const critical = pending.filter(e => e.critical);
+                const pendingRenewal = m.entries.filter(e => e.isPendingRenewal && !e.isRenewed && !leavingSet.has(e.roomStayId));
+                const notStarted = m.entries.filter(e => !e.isRenewed && !e.isPendingRenewal && !e.expired && !leavingSet.has(e.roomStayId));
+                const critical = notStarted.filter(e => e.critical);
                 const total = m.entries.length;
                 const renewedPct = total > 0 ? Math.round((renewed.length / total) * 100) : 0;
                 const leavingPct = total > 0 ? Math.round((leaving.length / total) * 100) : 0;
-                return { ...m, leaving, renewed, pending, critical, renewedPct, leavingPct };
+                const pendingPct = total > 0 ? Math.round((pendingRenewal.length / total) * 100) : 0;
+                return { ...m, leaving, renewed, pendingRenewal, notStarted, critical, renewedPct, leavingPct, pendingPct };
               });
               const totalAll = monthStats.reduce((s, m) => s + m.total, 0);
               const totalRenewed = monthStats.reduce((s, m) => s + m.renewed.length, 0);
               const totalLeaving = monthStats.reduce((s, m) => s + m.leaving.length, 0);
-              const totalPending = monthStats.reduce((s, m) => s + m.pending.length, 0);
+              const totalPending = monthStats.reduce((s, m) => s + m.pendingRenewal.length, 0);
+              const totalNotStarted = monthStats.reduce((s, m) => s + m.notStarted.length, 0);
               const totalCritical = monthStats.reduce((s, m) => s + m.critical.length, 0);
               const overallRenewedPct = totalAll > 0 ? Math.round((totalRenewed / totalAll) * 100) : 0;
               const overallLeavingPct = totalAll > 0 ? Math.round((totalLeaving / totalAll) * 100) : 0;
@@ -3553,10 +3574,11 @@ export default function Dashboard() {
                   {/* Summary KPIs */}
                   <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
                     <KPI label="Expiring (12mo)" value={totalAll} sub="All contracts ending" accent={C.gold}/>
-                    <KPI label="Renewed" value={`${totalRenewed} (${overallRenewedPct}%)`} sub="New contract detected" accent={C.sage}/>
-                    <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub="Marked as leaving" accent={C.rose}/>
-                    <KPI label="Pending" value={totalPending} sub="Awaiting decision" accent={C.gold}/>
-                    <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, undecided" accent={C.rose}/>
+                    <KPI label="Renewed" value={`${totalRenewed} (${overallRenewedPct}%)`} sub="Contract signed" accent={C.sage}/>
+                    <KPI label="Pending" value={totalPending} sub="Contract sent, awaiting signature" accent={C.blue}/>
+                    <KPI label="Not Yet Started" value={totalNotStarted} sub="No renewal action yet" accent={C.gold}/>
+                    <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub="Left or marked leaving" accent={C.rose}/>
+                    <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, no action" accent={C.rose}/>
                   </div>
 
                   {/* Month grid */}
@@ -3569,20 +3591,24 @@ export default function Dashboard() {
                           style={{background:isSel?C.gold+"22":C.card,border:`1px solid ${isSel?C.gold:hasCritical?C.rose+"88":C.border}`,borderRadius:12,padding:"14px 12px",cursor:"pointer",textAlign:"left",transition:"all 0.2s"}}>
                           <p style={{fontSize:12,fontWeight:700,color:isSel?C.gold:C.text,marginBottom:6}}>{m.label}</p>
                           <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.total} contracts up for renewal</p>
-                          <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
-                            {m.renewed.length > 0 && <span style={{fontSize:10,color:C.sage,background:C.sage+"22",padding:"1px 6px",borderRadius:8}}>✓ {m.renewed.length} renewed</span>}
-                            {m.leaving.length > 0 && <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"1px 6px",borderRadius:8}}>✗ {m.leaving.length} leaving</span>}
-                            {m.critical.length > 0 && <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"1px 6px",borderRadius:8}}>⚠ {m.critical.length} critical</span>}
+                          <div style={{display:"flex",gap:4,marginBottom:6,flexWrap:"wrap"}}>
+                            {m.renewed.length > 0 && <span style={{fontSize:9,color:C.sage,background:C.sage+"22",padding:"1px 5px",borderRadius:8}}>✓ {m.renewed.length} renewed</span>}
+                            {m.pendingRenewal.length > 0 && <span style={{fontSize:9,color:C.blue,background:C.blue+"22",padding:"1px 5px",borderRadius:8}}>◎ {m.pendingRenewal.length} pending</span>}
+                            {m.notStarted.length > 0 && <span style={{fontSize:9,color:C.gold,background:C.gold+"22",padding:"1px 5px",borderRadius:8}}>○ {m.notStarted.length} not started</span>}
+                            {m.leaving.length > 0 && <span style={{fontSize:9,color:C.rose,background:C.rose+"22",padding:"1px 5px",borderRadius:8}}>✗ {m.leaving.length} left</span>}
+                            {m.critical.length > 0 && <span style={{fontSize:9,color:C.rose,background:C.rose+"22",padding:"1px 5px",borderRadius:8}}>⚠ {m.critical.length} critical</span>}
                           </div>
                           {m.total > 0 && (
                             <div style={{marginTop:2}}>
                               <div style={{display:"flex",height:6,borderRadius:3,overflow:"hidden",background:C.border,marginBottom:4}}>
                                 {m.renewedPct > 0 && <div style={{width:`${m.renewedPct}%`,background:C.sage,transition:"width 0.3s"}}/>}
+                                {m.pendingPct > 0 && <div style={{width:`${m.pendingPct}%`,background:C.blue,transition:"width 0.3s"}}/>}
                                 {m.leavingPct > 0 && <div style={{width:`${m.leavingPct}%`,background:C.rose,transition:"width 0.3s"}}/>}
                               </div>
                               <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted}}>
-                                <span style={{color:C.sage}}>{m.renewedPct}% renewed</span>
-                                <span style={{color:C.rose}}>{m.leavingPct}% leaving</span>
+                                <span style={{color:C.sage}}>{m.renewedPct}%</span>
+                                {m.pendingPct > 0 && <span style={{color:C.blue}}>{m.pendingPct}% pending</span>}
+                                <span style={{color:C.rose}}>{m.leavingPct}%</span>
                               </div>
                             </div>
                           )}
@@ -3600,9 +3626,11 @@ export default function Dashboard() {
                           <p style={{fontSize:12,color:C.muted,marginTop:2}}>
                             <span style={{color:C.sage}}>{selected.renewed.length} renewed ({selected.renewedPct}%)</span>
                             {" · "}
-                            <span style={{color:C.rose}}>{selected.leaving.length} leaving ({selected.leavingPct}%)</span>
+                            <span style={{color:C.blue}}>{selected.pendingRenewal.length} pending</span>
                             {" · "}
-                            <span>{selected.pending.length} pending</span>
+                            <span style={{color:C.gold}}>{selected.notStarted.length} not started</span>
+                            {" · "}
+                            <span style={{color:C.rose}}>{selected.leaving.length} left/leaving ({selected.leavingPct}%)</span>
                           </p>
                         </div>
                         <button onClick={() => setRenewalSelectedMonth(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,padding:"4px 12px",borderRadius:8,cursor:"pointer",fontSize:11}}>Close</button>
@@ -3656,8 +3684,10 @@ export default function Dashboard() {
                                         <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Left</span>
                                       ) : isLeaving ? (
                                         <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Leaving</span>
+                                      ) : e.isPendingRenewal ? (
+                                        <span style={{fontSize:10,background:C.blue+"22",color:C.blue,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Pending</span>
                                       ) : (
-                                        <span style={{fontSize:10,background:C.gold+"22",color:C.gold,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Pending</span>
+                                        <span style={{fontSize:10,background:C.gold+"22",color:C.gold,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Not Yet Started</span>
                                       )}
                                     </td>
                                     <td style={{padding:"10px 10px"}}>
@@ -3667,16 +3697,20 @@ export default function Dashboard() {
                                       </button>
                                     </td>
                                     <td style={{padding:"10px 10px"}}>
-                                      <button onClick={() => openSmsModal(e, "sms")} title="Send renewal SMS"
-                                        style={{background:C.purple+"22",color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                                        💬
-                                      </button>
+                                      {!e.isRenewed && !e.expired && !isLeaving && (
+                                        <button onClick={() => openSmsModal(e, "sms")} title="Send renewal SMS"
+                                          style={{background:C.purple+"22",color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                          💬
+                                        </button>
+                                      )}
                                     </td>
                                     <td style={{padding:"10px 10px"}}>
-                                      <button onClick={() => openSmsModal(e, "email")} title="Send renewal email"
-                                        style={{background:C.gold+"22",color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                                        ✉
-                                      </button>
+                                      {!e.isRenewed && !e.expired && !isLeaving && (
+                                        <button onClick={() => openSmsModal(e, "email")} title="Send renewal email"
+                                          style={{background:C.gold+"22",color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                          ✉
+                                        </button>
+                                      )}
                                     </td>
                                   </tr>
                                 );
