@@ -602,8 +602,9 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         if (gap >= -7 && gap <= 14) {
           const followStatus = (stays[j].status || "").toUpperCase();
           const prev = renewalFollowOnStatus[stays[i].roomStayId];
-          // Prefer CHECKED_IN > CONFIRMED > PENDING
-          if (!prev || followStatus === "CHECKED_IN" || (followStatus === "CONFIRMED" && prev === "PENDING")) {
+          // Prefer CHECKED_OUT/CHECKED_IN (proven) > CONFIRMED (signed) > PENDING
+          const rank = {"CHECKED_OUT":3,"CHECKED_IN":3,"CONFIRMED":2,"PENDING":1};
+          if (!prev || (rank[followStatus]||0) > (rank[prev]||0)) {
             renewalFollowOnStatus[stays[i].roomStayId] = followStatus;
           }
         }
@@ -638,8 +639,8 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const months = days > 0 ? days / 30.44 : 1;
     const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
     const followOnStatus = renewalFollowOnStatus[b.roomStayId] || null;
-    // Renewed = follow-on is CONFIRMED or CHECKED_IN (signed contract)
-    const isRenewed = followOnStatus === "CONFIRMED" || followOnStatus === "CHECKED_IN";
+    // Renewed = follow-on is CONFIRMED, CHECKED_IN, or CHECKED_OUT (completed stay = definitely renewed)
+    const isRenewed = followOnStatus === "CONFIRMED" || followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT";
     // Pending renewal = follow-on exists but is still PENDING (unsigned)
     const isPendingRenewal = followOnStatus === "PENDING";
     // Auto-mark as expired/leaving if end date has passed and no follow-on at all
