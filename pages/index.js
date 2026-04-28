@@ -158,20 +158,27 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   });
 
   // Build a set of roomStayIds that are renewals or room moves (not genuinely new)
+  // Check all pairs — adjacent-only comparison misses renewals when long stays
+  // have intermediate short stays (e.g. event bookings) in between
   const renewalRoomStays = new Set();
   const roomMoveRoomStays = new Set();
   Object.values(contactStays).forEach(stays => {
     if (stays.length < 2) return;
-    const sorted = stays.sort((a,b) => a.dateFrom.localeCompare(b.dateFrom));
-    for (let i = 1; i < sorted.length; i++) {
-      const prev = sorted[i-1];
-      const curr = sorted[i];
-      const gap = (new Date(curr.dateFrom) - new Date(prev.dateTo)) / 864e5;
-      if (gap >= -1 && gap <= 7) { // consecutive or overlapping
-        if (prev.unitId === curr.unitId) {
-          renewalRoomStays.add(curr.roomStayId); // renewal — same room
-        } else {
-          roomMoveRoomStays.add(curr.roomStayId); // room move — different room
+    for (let i = 0; i < stays.length; i++) {
+      const curr = stays[i];
+      const currFromMs = new Date(curr.dateFrom).getTime();
+      // Find any earlier stay whose end is within [-1, +7] days of this stay's start
+      for (let j = 0; j < stays.length; j++) {
+        if (j === i) continue;
+        const prev = stays[j];
+        const gap = (currFromMs - new Date(prev.dateTo).getTime()) / 864e5;
+        if (gap >= -1 && gap <= 7) {
+          if (prev.unitId === curr.unitId) {
+            renewalRoomStays.add(curr.roomStayId);
+          } else {
+            roomMoveRoomStays.add(curr.roomStayId);
+          }
+          break;
         }
       }
     }
@@ -182,15 +189,14 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   const notRealCheckouts = new Set();
   Object.values(contactStays).forEach(stays => {
     if (stays.length < 2) return;
-    const sorted = stays.sort((a,b) => a.dateFrom.localeCompare(b.dateFrom));
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const curr = sorted[i];
-      const next = sorted[i+1];
-      if (curr.status === "CHECKED_OUT" || curr.dateTo) {
-        const gap = (new Date(next.dateFrom) - new Date(curr.dateTo)) / 864e5;
-        if (gap >= -1 && gap <= 7) {
-          notRealCheckouts.add(curr.roomStayId); // this person checked back in
-        }
+    for (let i = 0; i < stays.length; i++) {
+      const curr = stays[i];
+      if (curr.status !== "CHECKED_OUT" && !curr.dateTo) continue;
+      const endMs = new Date(curr.dateTo).getTime();
+      for (let j = 0; j < stays.length; j++) {
+        if (j === i) continue;
+        const gap = (new Date(stays[j].dateFrom).getTime() - endMs) / 864e5;
+        if (gap >= -1 && gap <= 7) { notRealCheckouts.add(curr.roomStayId); break; }
       }
     }
   });
@@ -579,14 +585,19 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   });
 
   // ─── Renewals data — group active bookings by contract end month ───────────
-  // Detect renewals: same contact has a later stay starting within 14 days of current end
+  // Detect renewals: same contact has ANY stay starting within 14 days of current end
+  // NOTE: must check all pairs, not just adjacent — long stays with intermediate short
+  // stays break adjacent-only comparison (e.g. a 12-month stay with 1-day event stays)
   const renewedRoomStayIds = new Set();
   Object.values(contactStays).forEach(stays => {
     if (stays.length < 2) return;
-    const sorted = stays.sort((a, b) => a.dateFrom.localeCompare(b.dateFrom));
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const gap = (new Date(sorted[i + 1].dateFrom) - new Date(sorted[i].dateTo)) / 864e5;
-      if (gap >= -7 && gap <= 14) renewedRoomStayIds.add(sorted[i].roomStayId);
+    for (let i = 0; i < stays.length; i++) {
+      const endMs = new Date(stays[i].dateTo).getTime();
+      for (let j = 0; j < stays.length; j++) {
+        if (j === i) continue;
+        const gap = (new Date(stays[j].dateFrom).getTime() - endMs) / 864e5;
+        if (gap >= -7 && gap <= 14) { renewedRoomStayIds.add(stays[i].roomStayId); break; }
+      }
     }
   });
 
