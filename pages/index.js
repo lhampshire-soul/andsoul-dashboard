@@ -628,9 +628,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     }
     const startDate = (b.startDate ?? "").slice(0, 10);
     if (!startDate) return;
+    const days = Math.round((new Date(endDate) - new Date(startDate)) / 864e5);
+    if (days < 27) return; // Skip short stays — only long-term contracts (27+ nights) for renewals
     const monthKey = endDate.slice(0, 7);
     if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
-    const days = Math.round((new Date(endDate) - new Date(startDate)) / 864e5);
     const net = parseFloat(b.netAmount ?? 0);
     const vat = parseFloat(b.vatAmount ?? 0);
     const gross = net + (isNaN(vat) ? 0 : vat);
