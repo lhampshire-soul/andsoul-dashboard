@@ -203,8 +203,12 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
 
   // ── In House count (CHECKED_IN, deduplicated by roomStayId) ──
   const checkedInRooms = new Set();
+  let inHouseGuestCount = 0;
   allGuestStays.forEach(g => {
-    if ((g.status ?? "").toUpperCase() === "CHECKED_IN") checkedInRooms.add(g.roomStayId);
+    if ((g.status ?? "").toUpperCase() === "CHECKED_IN") {
+      checkedInRooms.add(g.roomStayId);
+      inHouseGuestCount++;
+    }
   });
   const inHouseCount = checkedInRooms.size;
 
@@ -690,6 +694,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
 
   return {
     occupied: inHouseCount,
+    inHouseGuests: inHouseGuestCount,
     checkInsWeek,
     checkOutsWeek,
     total: allUnits.length || BEDS,
@@ -2416,7 +2421,7 @@ export default function Dashboard() {
                   <OccRing pct={occPct}/>
                   <div>
                     <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {BEDS}</span></p>
-                    <p style={{fontSize:12,color:C.muted}}>rooms occupied today</p>
+                    <p style={{fontSize:12,color:C.muted}}>rooms occupied today{pmsData?.inHouseGuests > occupied ? ` (${pmsData.inHouseGuests} guests)` : ""}</p>
                   </div>
                 </div>
                 <div style={{flex:"1 1 200px",display:"flex",flexDirection:"column",gap:8}}>
