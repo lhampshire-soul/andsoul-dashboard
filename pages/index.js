@@ -596,6 +596,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   //   CONFIRMED/CHECKED_IN = truly renewed (signed)
   //   PENDING = contract on account but not yet signed
   const renewalFollowOnStatus = {}; // roomStayId → best follow-on status
+  const renewalFollowOnRoomStayId = {}; // roomStayId → follow-on roomStayId (for financials)
   Object.values(contactStays).forEach(stays => {
     if (stays.length < 2) return;
     for (let i = 0; i < stays.length; i++) {
@@ -610,12 +611,19 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
           const rank = {"CHECKED_OUT":3,"CHECKED_IN":3,"CONFIRMED":2,"PENDING":1};
           if (!prev || (rank[followStatus]||0) > (rank[prev]||0)) {
             renewalFollowOnStatus[stays[i].roomStayId] = followStatus;
+            renewalFollowOnRoomStayId[stays[i].roomStayId] = stays[j].roomStayId;
           }
         }
       }
     }
   });
   const renewedRoomStayIds = new Set(Object.keys(renewalFollowOnStatus).map(Number));
+
+  // Build a lookup of roomStayId → booking financials for follow-on rate display
+  const bookingByRoomStayId = {};
+  allBookings.forEach(b => {
+    if (b.roomStayId) bookingByRoomStayId[b.roomStayId] = b;
+  });
 
   const renewalsMap = {};
   // Include CHECKED_OUT for past months so historical renewal data is accurate
@@ -643,13 +651,28 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const months = days > 0 ? days / 30.44 : 1;
     const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
     const followOnStatus = renewalFollowOnStatus[b.roomStayId] || null;
-    // Renewed = follow-on is CHECKED_IN or CHECKED_OUT (actually occupied or completed)
-    const isRenewed = followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT";
-    // Pending renewal (auto) = follow-on is CONFIRMED (contract created but not checked in yet)
-    // Note: RH API does not expose PENDING room stays, so manual pendingSet handles those
-    const isPendingRenewal = followOnStatus === "CONFIRMED" || followOnStatus === "PENDING";
+    // Renewed = follow-on is CONFIRMED, CHECKED_IN, or CHECKED_OUT
+    // (any confirmed/active/completed follow-on means the resident has renewed)
+    const isRenewed = followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT" || followOnStatus === "CONFIRMED";
+    // Pending = only via manual pendingSet (for cases where RH API doesn't expose the pending stay)
+    const isPendingRenewal = followOnStatus === "PENDING";
     // Auto-mark as expired/leaving if end date has passed and no follow-on at all
     const expired = isPast && !isRenewed && !isPendingRenewal;
+
+    // Calculate follow-on stay's PCM rate when available (shows renewal rate, not expiring rate)
+    let renewalPcm = null;
+    const followOnRsId = renewalFollowOnRoomStayId[b.roomStayId];
+    if (followOnRsId && bookingByRoomStayId[followOnRsId]) {
+      const fb = bookingByRoomStayId[followOnRsId];
+      const fNet = parseFloat(fb.netAmount ?? 0);
+      const fVat = parseFloat(fb.vatAmount ?? 0);
+      const fGross = fNet + (isNaN(fVat) ? 0 : fVat);
+      const fStart = (fb.startDate ?? "").slice(0, 10);
+      const fEnd = (fb.endDate ?? "").slice(0, 10);
+      const fDays = Math.round((new Date(fEnd) - new Date(fStart)) / 864e5);
+      const fMonths = fDays > 0 ? fDays / 30.44 : 1;
+      renewalPcm = fMonths > 0 ? Math.round(fGross / fMonths) : 0;
+    }
 
     renewalsMap[monthKey].push({
       bookingId: b.bookingId,
@@ -662,6 +685,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       startDate, endDate, losDays: days,
       room: b.unit?.name || "—",
       status, pcm: months > 0 ? Math.round(gross / months) : 0,
+      renewalPcm, // PCM of the follow-on stay (null if no follow-on)
       grossTotal: Math.round(gross),
       isRenewed,
       isPendingRenewal,
@@ -3757,7 +3781,16 @@ export default function Dashboard() {
                                     </td>
                                     <td style={{padding:"10px 10px",color:C.muted}}>{e.losDays}d</td>
                                     <td style={{padding:"10px 10px",color:C.muted,whiteSpace:"nowrap"}}>{e.room}</td>
-                                    <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>£{e.pcm.toLocaleString()}</td>
+                                    <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>
+                                      {e.renewalPcm && e.isRenewed ? (
+                                        <span title={`Expiring: £${e.pcm.toLocaleString()} → Renewal: £${e.renewalPcm.toLocaleString()}`}>
+                                          £{e.renewalPcm.toLocaleString()}
+                                          {e.renewalPcm !== e.pcm && <span style={{fontSize:9,color:e.renewalPcm>e.pcm?C.sage:C.rose,marginLeft:4}}>{e.renewalPcm>e.pcm?"▲":"▼"}</span>}
+                                        </span>
+                                      ) : (
+                                        <span>£{e.pcm.toLocaleString()}</span>
+                                      )}
+                                    </td>
                                     <td style={{padding:"10px 10px"}}>
                                       {displayStatus === "renewed" ? (
                                         <span style={{fontSize:10,background:C.sage+"22",color:C.sage,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Renewed</span>
