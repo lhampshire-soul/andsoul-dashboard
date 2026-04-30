@@ -720,17 +720,6 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   });
   Object.values(renewalsMap).forEach(arr => arr.sort((a, b) => a.endDate.localeCompare(b.endDate)));
 
-  // Debug: expose renewal internals for troubleshooting (accessible via browser console)
-  if (typeof window !== "undefined") {
-    window.__renewalDebug = {
-      contactStays,
-      renewalFollowOnStatus,
-      renewalFollowOnRoomStayId,
-      bookingByRoomStayId,
-      renewalsMap,
-    };
-  }
-
   // Build months from Jan of current year through 12 months ahead
   const renewalMonths = [];
   const janStart = -now.getMonth(); // offset to reach January
