@@ -1493,6 +1493,7 @@ export default function Dashboard() {
 
   // ── Renewals state ──
   const [renewalSelectedMonth, setRenewalSelectedMonth] = useState(null);
+  const [renewalSort, setRenewalSort] = useState({ col: "expiry", dir: "asc" }); // default sort by expiry ascending
   const [smsModal, setSmsModal] = useState(null);
   const [smsText, setSmsText] = useState("");
   const [smsSending, setSmsSending] = useState(false);
@@ -3760,16 +3761,59 @@ export default function Dashboard() {
                         <p style={{color:C.muted,fontSize:13}}>No contracts expiring this month.</p>
                       ) : (
                         <div style={{overflowX:"auto"}}>
+                          {(() => {
+                            // Sort entries based on current sort state
+                            const statusRank = (e) => {
+                              const mp = pendingSet.has(e.roomStayId);
+                              const leaving = (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal && !mp;
+                              const pending = e.isPendingRenewal || mp;
+                              if (leaving || (leavingSet.has(e.roomStayId) && !e.isRenewed)) return 4; // leaving/left
+                              if (e.isRenewed) return 3; // renewed
+                              if (pending) return 2; // pending
+                              return 1; // not started (highest priority)
+                            };
+                            const sorted = [...selected.entries].sort((a, b) => {
+                              let cmp = 0;
+                              switch (renewalSort.col) {
+                                case "name": cmp = (a.name || "").localeCompare(b.name || ""); break;
+                                case "expiry": cmp = (a.endDate || "").localeCompare(b.endDate || ""); break;
+                                case "los": cmp = (a.losDays || 0) - (b.losDays || 0); break;
+                                case "room": cmp = (a.room || "").localeCompare(b.room || "", undefined, {numeric:true}); break;
+                                case "pcm": {
+                                  const aPcm = a.renewalPcm && a.isRenewed ? a.renewalPcm : a.pcm;
+                                  const bPcm = b.renewalPcm && b.isRenewed ? b.renewalPcm : b.pcm;
+                                  cmp = aPcm - bPcm; break;
+                                }
+                                case "status": cmp = statusRank(a) - statusRank(b); break;
+                                default: cmp = (a.endDate || "").localeCompare(b.endDate || "");
+                              }
+                              return renewalSort.dir === "desc" ? -cmp : cmp;
+                            });
+                            const sortCols = [
+                              {key:"name",label:"Name"},{key:null,label:"Booking Ref"},{key:"expiry",label:"Expiry"},
+                              {key:"los",label:"LoS"},{key:"room",label:"Room"},{key:"pcm",label:"PCM"},
+                              {key:"status",label:"Status"},{key:null,label:"Ref Check"},
+                              {key:null,label:""},{key:null,label:""},{key:null,label:"SMS"},{key:null,label:"Email"}
+                            ];
+                            const arrow = (col) => renewalSort.col === col ? (renewalSort.dir === "asc" ? " ▲" : " ▼") : "";
+                            const handleSort = (col) => {
+                              if (!col) return;
+                              setRenewalSort(prev => prev.col === col ? {col, dir: prev.dir === "asc" ? "desc" : "asc"} : {col, dir: "asc"});
+                            };
+                            return (
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                             <thead>
                               <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                                {["Name","Booking Ref","Expiry","LoS","Room","PCM","Status","Ref Check","","","SMS","Email"].map(h => (
-                                  <th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
+                                {sortCols.map((h, idx) => (
+                                  <th key={h.label||idx} onClick={() => handleSort(h.key)}
+                                    style={{padding:"8px 10px",textAlign:"left",color:renewalSort.col===h.key?C.gold:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap",cursor:h.key?"pointer":"default",userSelect:"none"}}>
+                                    {h.label}{h.key ? arrow(h.key) : ""}
+                                  </th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
-                              {selected.entries.map((e, i) => {
+                              {sorted.map((e, i) => {
                                 const isManualPending = pendingSet.has(e.roomStayId);
                                 const isLeaving = (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal && !isManualPending;
                                 const isPending = e.isPendingRenewal || isManualPending;
@@ -3877,6 +3921,8 @@ export default function Dashboard() {
                               })}
                             </tbody>
                           </table>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
