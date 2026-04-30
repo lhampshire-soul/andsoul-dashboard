@@ -143,8 +143,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   const wkStart = localDateStr(new Date(Date.now()-7*864e5));
 
   // ── Build contact history for renewal/move detection ──
-  // Group stays by contactId to detect consecutive bookings
+  // Group stays by contactId to detect consecutive bookings.
+  // Merge BOTH guestStays AND bookings — some CONFIRMED/PENDING follow-on stays
+  // only appear in bookings (no guestStay record yet), so guestStays alone misses them.
   const contactStays = {};
+  const seenRoomStayIds = new Set();
   allGuestStays.forEach(g => {
     const cid = g.contactId;
     if (!cid) return;
@@ -154,6 +157,20 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       dateFrom: (g.dateFrom ?? "").slice(0,10),
       dateTo: (g.dateTo ?? "").slice(0,10),
       status: (g.status ?? "").toUpperCase()
+    });
+    seenRoomStayIds.add(g.roomStayId);
+  });
+  // Add bookings that don't have a guestStay record yet (e.g. future CONFIRMED/PENDING)
+  allBookings.forEach(b => {
+    if (seenRoomStayIds.has(b.roomStayId)) return; // already covered by guestStays
+    const cid = b.contactId;
+    if (!cid) return;
+    if (!contactStays[cid]) contactStays[cid] = [];
+    contactStays[cid].push({
+      roomStayId: b.roomStayId, unitId: b.unitId,
+      dateFrom: (b.startDate ?? "").slice(0,10),
+      dateTo: (b.endDate ?? "").slice(0,10),
+      status: (b.roomStayStatus ?? "").toUpperCase()
     });
   });
 
