@@ -1417,77 +1417,32 @@ export default function Dashboard() {
   const [forecastAwrOverride, setForecastAwrOverride] = useState(null); // null = use live AWR from RH
   const [offlineRooms, setOfflineRooms] = useState(10);
 
-  // ── Canopy Reference Checks ──
-  const [canopyClientId, setCanopyClientId] = useState("");
-  const [canopyApiKey, setCanopyApiKey] = useState("");
-  const [canopyAuthToken, setCanopyAuthToken] = useState("");
-  const [canopyEnv, setCanopyEnv] = useState("stg"); // "stg" or "prod"
-  const [canopyData, setCanopyData] = useState(null); // { byEmail: { email -> { status, referenceId, ... } } }
+  // ── Canopy Reference Checks (loaded from Redis via webhook data) ──
+  const [canopyData, setCanopyData] = useState(null); // { byEmail: { email -> { signal, rawStatus, ... } }, totalRecords }
   const [canopyLoad, setCanopyLoad] = useState(false);
   const [canopyErr, setCanopyErr] = useState("");
   const [canopyConn, setCanopyConn] = useState(false);
 
   const fetchCanopy = useCallback(async () => {
-    if (!canopyClientId || !canopyApiKey || !canopyAuthToken) return;
     setCanopyLoad(true); setCanopyErr("");
     try {
-      const res = await fetch(`/api/canopy?action=list&clientId=${encodeURIComponent(canopyClientId)}&env=${canopyEnv}`, {
-        headers: {
-          "x-canopy-api-key": canopyApiKey,
-          "x-canopy-auth-token": canopyAuthToken,
-        },
-      });
-      if (!res.ok) throw new Error(`Canopy ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      const res = await fetch("/api/canopy-webhook");
+      if (!res.ok) throw new Error(`Canopy load ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const data = await res.json();
-      // Build lookup by email — Canopy response shape may vary;
-      // we handle both array-at-root and { data: [...] } patterns
-      const records = Array.isArray(data) ? data : (data.data || data.referencing_requests || data.results || []);
-      const byEmail = {};
-      records.forEach(r => {
-        // Normalise email — check common field names from Canopy API
-        const email = (
-          r.email || r.tenant_email || r.applicant_email ||
-          r.rentPassportTenantEmail || r.tenantEmail ||
-          (r.tenant && r.tenant.email) ||
-          (r.applicant && r.applicant.email) || ""
-        ).toLowerCase().trim();
-        if (!email) return;
-        // Normalise status — check common field names
-        const rawStatus = (
-          r.status || r.referencing_status || r.overallStatus ||
-          r.rentPassportStatus || r.outcome || ""
-        ).toUpperCase();
-        // Map to our traffic light: PASS / FAIL / PENDING / UNKNOWN
-        let signal = "UNKNOWN";
-        if (["COMPLETE","COMPLETED","PASSED","PASS","APPROVED","ACCEPTED"].includes(rawStatus)) signal = "PASS";
-        else if (["FAILED","FAIL","REJECTED","DECLINED","ADVERSE"].includes(rawStatus)) signal = "FAIL";
-        else if (["PENDING","IN_PROGRESS","IN PROGRESS","PROCESSING","AWAITING","SUBMITTED","STARTED"].includes(rawStatus)) signal = "PENDING";
-        const entry = {
-          signal,
-          rawStatus,
-          referenceId: r.canopyReferenceId || r.reference_id || r.id || null,
-          email,
-          name: r.tenant_name || r.applicant_name || (r.tenant && `${r.tenant.firstName || ""} ${r.tenant.lastName || ""}`.trim()) || "",
-          updatedAt: r.updated_at || r.updatedAt || r.completedAt || null,
-        };
-        // Keep the most recent / highest-priority check per email
-        const existing = byEmail[email];
-        if (!existing || signalRank(entry.signal) > signalRank(existing.signal)) {
-          byEmail[email] = entry;
-        }
-      });
-      setCanopyData({ byEmail, totalRecords: records.length });
-      setCanopyConn(true);
+      if (data.ok) {
+        setCanopyData({ byEmail: data.byEmail || {}, totalRecords: data.totalRecords || 0 });
+        setCanopyConn(true);
+      }
     } catch (err) {
       setCanopyErr(err.message);
       console.error("Canopy fetch error:", err);
     } finally {
       setCanopyLoad(false);
     }
-  }, [canopyClientId, canopyApiKey, canopyAuthToken, canopyEnv]);
+  }, []);
 
-  // Helper: rank signals so we keep the best result per email
-  const signalRank = (s) => ({ PASS: 4, FAIL: 3, PENDING: 2, UNKNOWN: 1 }[s] || 0);
+  // Auto-load Canopy data when renewals tab is opened
+  useEffect(() => { if (tab === "renewals" && !canopyConn && !canopyLoad) fetchCanopy(); }, [tab]);
 
   // ── Renewals state ──
   const [renewalSelectedMonth, setRenewalSelectedMonth] = useState(null);
@@ -3635,43 +3590,23 @@ export default function Dashboard() {
             <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Contract Management · Res Harmonics{pmsConn?" · live":""}{canopyConn?" · Canopy ✓":""}</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Renewals Dashboard</h2>
 
-            {/* Canopy connection panel — collapsible */}
-            <details style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",marginBottom:16}}>
-              <summary style={{cursor:"pointer",fontSize:12,fontWeight:600,color:canopyConn?C.sage:C.gold,listStyle:"none",display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:14}}>{canopyConn?"✓":"⚙"}</span>
-                {canopyConn?`Canopy Connected (${canopyData?.totalRecords||0} reference checks loaded)`:"Connect Canopy Reference Checks"}
-              </summary>
-              <div style={{marginTop:14,display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-                <div style={{flex:"1 1 140px",minWidth:120}}>
-                  <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:3}}>Client ID</label>
-                  <input value={canopyClientId} onChange={e=>setCanopyClientId(e.target.value)} placeholder="Your Canopy clientId"
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12}} />
-                </div>
-                <div style={{flex:"1 1 180px",minWidth:140}}>
-                  <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:3}}>API Key</label>
-                  <input value={canopyApiKey} onChange={e=>setCanopyApiKey(e.target.value)} type="password" placeholder="x-api-key"
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12}} />
-                </div>
-                <div style={{flex:"1 1 180px",minWidth:140}}>
-                  <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:3}}>Auth Token</label>
-                  <input value={canopyAuthToken} onChange={e=>setCanopyAuthToken(e.target.value)} type="password" placeholder="Authorization token"
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12}} />
-                </div>
-                <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
-                  <select value={canopyEnv} onChange={e=>setCanopyEnv(e.target.value)}
-                    style={{padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12}}>
-                    <option value="stg">Staging</option>
-                    <option value="prod">Production</option>
-                  </select>
-                  <button onClick={fetchCanopy} disabled={canopyLoad||!canopyClientId||!canopyApiKey||!canopyAuthToken}
-                    style={{padding:"7px 16px",borderRadius:8,border:"none",background:canopyLoad?C.muted:C.gold,color:"#000",fontWeight:700,fontSize:12,cursor:canopyLoad?"wait":"pointer",whiteSpace:"nowrap"}}>
-                    {canopyLoad?"Loading…":"Connect"}
-                  </button>
+            {/* Canopy reference checks status bar */}
+            <div style={{background:C.card,border:`1px solid ${canopyConn?C.sage+"44":C.border}`,borderRadius:12,padding:"12px 18px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:14}}>{canopyConn?"✓":"○"}</span>
+                <div>
+                  <p style={{fontSize:12,fontWeight:600,color:canopyConn?C.sage:C.muted,margin:0}}>
+                    {canopyLoad ? "Loading Canopy checks…" : canopyConn ? `Canopy Reference Checks · ${canopyData?.totalRecords||0} records` : "Canopy Reference Checks"}
+                  </p>
+                  {canopyErr && <p style={{fontSize:10,color:C.rose,margin:"2px 0 0"}}>{canopyErr}</p>}
+                  {!canopyConn && !canopyLoad && !canopyErr && <p style={{fontSize:10,color:C.muted,margin:"2px 0 0"}}>Webhook data will appear here once Canopy is connected</p>}
                 </div>
               </div>
-              {canopyErr && <p style={{color:C.rose,fontSize:11,marginTop:8}}>⚠ {canopyErr}</p>}
-              {canopyConn && !canopyErr && <p style={{color:C.sage,fontSize:11,marginTop:8}}>✓ Loaded {canopyData?.totalRecords||0} reference checks — matching by email to residents</p>}
-            </details>
+              <button onClick={fetchCanopy} disabled={canopyLoad}
+                style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontWeight:600,fontSize:11,cursor:canopyLoad?"wait":"pointer",whiteSpace:"nowrap"}}>
+                {canopyLoad?"Loading…":"↻ Refresh"}
+              </button>
+            </div>
 
             {!pmsConn ? (
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px 20px",textAlign:"center"}}>
@@ -3841,9 +3776,9 @@ export default function Dashboard() {
                                         if (!canopyConn) return <span style={{fontSize:10,color:C.muted}}>—</span>;
                                         const check = canopyData?.byEmail?.[e.email];
                                         if (!check) return <span style={{fontSize:9,color:C.muted,background:C.muted+"18",padding:"2px 6px",borderRadius:6}}>No Check</span>;
-                                        const colors = { PASS: C.sage, FAIL: C.rose, PENDING: C.gold, UNKNOWN: C.muted };
-                                        const icons = { PASS: "✓", FAIL: "✗", PENDING: "◌", UNKNOWN: "?" };
-                                        const labels = { PASS: "Pass", FAIL: "Fail", PENDING: "Pending", UNKNOWN: "Unknown" };
+                                        const colors = { PASS: C.sage, FAIL: C.rose, CONDITIONAL: "#e09f3e", PENDING: C.gold, NOT_STARTED: C.muted, UNKNOWN: C.muted };
+                                        const icons = { PASS: "✓", FAIL: "✗", CONDITIONAL: "⚠", PENDING: "◌", NOT_STARTED: "○", UNKNOWN: "?" };
+                                        const labels = { PASS: "Pass", FAIL: "High Risk", CONDITIONAL: "Consider", PENDING: "In Progress", NOT_STARTED: "Not Started", UNKNOWN: "Unknown" };
                                         const c = colors[check.signal] || C.muted;
                                         return (
                                           <span title={`Canopy: ${check.rawStatus}${check.updatedAt ? ` (${new Date(check.updatedAt).toLocaleDateString("en-GB")})` : ""}`}
