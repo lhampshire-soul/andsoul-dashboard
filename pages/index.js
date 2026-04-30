@@ -665,7 +665,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const net = parseFloat(b.netAmount ?? 0);
     const vat = parseFloat(b.vatAmount ?? 0);
     const gross = net + (isNaN(vat) ? 0 : vat);
-    const months = days > 0 ? days / 30.44 : 1;
+    // Use calendar month diff for more accurate PCM (avoids 30-day stays showing inflated rates)
+    const sD = new Date(startDate), eD = new Date(endDate);
+    const calMonths = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
+    const months = calMonths > 0 ? calMonths : (days > 0 ? days / 30.44 : 1);
     const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
     const followOnStatus = renewalFollowOnStatus[b.roomStayId] || null;
     // Renewed = follow-on is CONFIRMED, CHECKED_IN, or CHECKED_OUT
@@ -687,7 +690,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       const fStart = (fb.startDate ?? "").slice(0, 10);
       const fEnd = (fb.endDate ?? "").slice(0, 10);
       const fDays = Math.round((new Date(fEnd) - new Date(fStart)) / 864e5);
-      const fMonths = fDays > 0 ? fDays / 30.44 : 1;
+      // Calendar month diff for accurate PCM
+      const fsD = new Date(fStart), feD = new Date(fEnd);
+      const fCalMonths = (feD.getFullYear() - fsD.getFullYear()) * 12 + (feD.getMonth() - fsD.getMonth()) + (feD.getDate() - fsD.getDate()) / 30;
+      const fMonths = fCalMonths > 0 ? fCalMonths : (fDays > 0 ? fDays / 30.44 : 1);
       renewalPcm = fMonths > 0 ? Math.round(fGross / fMonths) : 0;
     }
 
