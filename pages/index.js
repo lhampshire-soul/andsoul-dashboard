@@ -1499,21 +1499,11 @@ export default function Dashboard() {
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState(null);
 
-  // Manual "leaving" markers — persisted in localStorage by roomStayId
+  // Manual "leaving" markers — persisted in Redis (with localStorage fallback)
   const [leavingSet, setLeavingSet] = useState(() => {
     if (typeof window === "undefined") return new Set();
     try { return new Set(JSON.parse(localStorage.getItem("renewal_leaving_v1") || "[]")); } catch { return new Set(); }
   });
-  const toggleLeaving = useCallback((roomStayId) => {
-    setLeavingSet(prev => {
-      const next = new Set(prev);
-      if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
-      try { localStorage.setItem("renewal_leaving_v1", JSON.stringify([...next])); } catch {}
-      return next;
-    });
-    // Remove from pendingSet if marking as leaving
-    setPendingSet(prev => { const next = new Set(prev); next.delete(roomStayId); try { localStorage.setItem("renewal_pending_v1", JSON.stringify([...next])); } catch {} return next; });
-  }, []);
 
   // Manual "pending renewal" markers — for cases where RH has a pending room stay
   // that the API doesn't expose (API excludes PENDING status)
@@ -1521,16 +1511,68 @@ export default function Dashboard() {
     if (typeof window === "undefined") return new Set();
     try { return new Set(JSON.parse(localStorage.getItem("renewal_pending_v1") || "[]")); } catch { return new Set(); }
   });
+
+  // Helper: save both sets to Redis + localStorage
+  const persistRenewalState = useCallback((newLeaving, newPending) => {
+    const lArr = [...newLeaving];
+    const pArr = [...newPending];
+    try { localStorage.setItem("renewal_leaving_v1", JSON.stringify(lArr)); } catch {}
+    try { localStorage.setItem("renewal_pending_v1", JSON.stringify(pArr)); } catch {}
+    fetch("/api/renewal-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leaving: lArr, pending: pArr }),
+    }).catch(() => {});
+  }, []);
+
+  // Load from Redis on mount — overrides localStorage with server state
+  useEffect(() => {
+    fetch("/api/renewal-state")
+      .then(r => r.json())
+      .then(data => {
+        if (data.leaving && data.leaving.length > 0) {
+          const ls = new Set(data.leaving);
+          setLeavingSet(ls);
+          try { localStorage.setItem("renewal_leaving_v1", JSON.stringify(data.leaving)); } catch {}
+        }
+        if (data.pending && data.pending.length > 0) {
+          const ps = new Set(data.pending);
+          setPendingSet(ps);
+          try { localStorage.setItem("renewal_pending_v1", JSON.stringify(data.pending)); } catch {}
+        }
+      })
+      .catch(() => {}); // fall back to localStorage values already in state
+  }, []);
+
+  const toggleLeaving = useCallback((roomStayId) => {
+    setLeavingSet(prev => {
+      const next = new Set(prev);
+      if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
+      // Also remove from pendingSet
+      setPendingSet(prevP => {
+        const nextP = new Set(prevP);
+        nextP.delete(roomStayId);
+        persistRenewalState(next, nextP);
+        return nextP;
+      });
+      return next;
+    });
+  }, [persistRenewalState]);
+
   const togglePending = useCallback((roomStayId) => {
     setPendingSet(prev => {
       const next = new Set(prev);
       if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
-      try { localStorage.setItem("renewal_pending_v1", JSON.stringify([...next])); } catch {}
+      // Also remove from leavingSet
+      setLeavingSet(prevL => {
+        const nextL = new Set(prevL);
+        nextL.delete(roomStayId);
+        persistRenewalState(nextL, next);
+        return nextL;
+      });
       return next;
     });
-    // Remove from leavingSet if marking as pending
-    setLeavingSet(prev => { const next = new Set(prev); next.delete(roomStayId); try { localStorage.setItem("renewal_leaving_v1", JSON.stringify([...next])); } catch {} return next; });
-  }, []);
+  }, [persistRenewalState]);
 
   // Messaging state — supports SMS and Email via GHL
   const [msgChannel, setMsgChannel] = useState("sms"); // "sms" | "email"
