@@ -119,74 +119,32 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, token: token.slice(0, 20) + "...", cached: Date.now() < tokenExpiry });
     }
 
-    // ── Debug action: raw token exchange response for diagnosing auth issues ──
+    // ── Debug action: try different auth patterns with the access token ──
     if (action === "debug") {
-      const results = [];
+      const accessToken = await getAccessToken(baseUrl, clientId, apiKey, secretKey);
       const base = `${baseUrl}/referencing-requests/client/${clientId}`;
+      const results = [];
 
-      // 1. Try POST /token with JSON body variations
-      const bodyVariants = [
-        { name: "json:secret", ct: "application/json", body: JSON.stringify({ secret: secretKey }) },
-        { name: "json:secretKey", ct: "application/json", body: JSON.stringify({ secretKey: secretKey }) },
-        { name: "json:key", ct: "application/json", body: JSON.stringify({ key: secretKey }) },
-        { name: "json:apiKey+secretKey", ct: "application/json", body: JSON.stringify({ apiKey: apiKey, secretKey: secretKey }) },
+      // Try different header combos for the list endpoint
+      const headerVariants = [
+        { name: "token-as-x-api-key", headers: { "x-api-key": accessToken, Accept: "application/json" } },
+        { name: "both-keys-bearer", headers: { "x-api-key": apiKey, Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
+        { name: "token-only-bearer", headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
+        { name: "token-in-x-auth", headers: { "x-api-key": apiKey, "x-authorization": accessToken, Accept: "application/json" } },
+        { name: "token-in-x-access-token", headers: { "x-api-key": apiKey, "x-access-token": accessToken, Accept: "application/json" } },
+        { name: "apikey-only", headers: { "x-api-key": apiKey, Accept: "application/json" } },
       ];
-      for (const v of bodyVariants) {
+
+      for (const v of headerVariants) {
         try {
-          const r = await fetch(`${base}/token`, {
-            method: "POST",
-            headers: { "x-api-key": apiKey, "Content-Type": v.ct, Accept: "application/json" },
-            body: v.body,
-          });
+          const r = await fetch(base, { method: "GET", headers: v.headers });
           const txt = await r.text();
-          results.push({ format: v.name, url: "/token", status: r.status, response: txt.slice(0, 400) });
+          results.push({ format: v.name, status: r.status, response: txt.slice(0, 400) });
           if (r.ok) break;
         } catch (e) { results.push({ format: v.name, error: e.message }); }
       }
 
-      // 2. Try form-encoded
-      try {
-        const formBody = `secret=${encodeURIComponent(secretKey)}`;
-        const r = await fetch(`${base}/token`, {
-          method: "POST",
-          headers: { "x-api-key": apiKey, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-          body: formBody,
-        });
-        const txt = await r.text();
-        results.push({ format: "form-encoded:secret", url: "/token", status: r.status, response: txt.slice(0, 400) });
-      } catch (e) { results.push({ format: "form-encoded", error: e.message }); }
-
-      // 3. Try GET /token
-      try {
-        const r = await fetch(`${base}/token`, {
-          method: "GET",
-          headers: { "x-api-key": apiKey, Accept: "application/json" },
-        });
-        const txt = await r.text();
-        results.push({ format: "GET", url: "/token", status: r.status, response: txt.slice(0, 400) });
-      } catch (e) { results.push({ format: "GET", error: e.message }); }
-
-      // 4. Try listing directly with just x-api-key (maybe no token needed)
-      try {
-        const r = await fetch(`${base}`, {
-          method: "GET",
-          headers: { "x-api-key": apiKey, Accept: "application/json" },
-        });
-        const txt = await r.text();
-        results.push({ format: "direct-list-apikey-only", url: "/", status: r.status, response: txt.slice(0, 400) });
-      } catch (e) { results.push({ format: "direct-list", error: e.message }); }
-
-      // 5. Try with secret in Authorization header
-      try {
-        const r = await fetch(`${base}`, {
-          method: "GET",
-          headers: { "x-api-key": apiKey, Authorization: `Bearer ${secretKey}`, Accept: "application/json" },
-        });
-        const txt = await r.text();
-        results.push({ format: "list-with-secret-as-bearer", url: "/", status: r.status, response: txt.slice(0, 400) });
-      } catch (e) { results.push({ format: "bearer-secret", error: e.message }); }
-
-      return res.status(200).json({ base: base.slice(0, 60) + "...", results });
+      return res.status(200).json({ tokenPreview: accessToken.slice(0, 30) + "...", results });
     }
 
     // For all other actions, get an access token first
