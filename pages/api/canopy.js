@@ -73,10 +73,15 @@ async function getAccessToken(baseUrl, clientId, apiKey, secretKey) {
   }
 
   // The token might be in various fields depending on Canopy's response shape
-  const token = tokenData.token || tokenData.access_token || tokenData.accessToken || tokenData.jwt;
+  let token = tokenData.token || tokenData.access_token || tokenData.accessToken || tokenData.jwt;
   if (!token) {
     // Return the full response so we can see the actual shape
     throw new Error(`No token in response. Keys: ${Object.keys(tokenData).join(", ")}. Full: ${JSON.stringify(tokenData).slice(0, 500)}`);
+  }
+
+  // Strip "Bearer " prefix if present — we add it ourselves in the Authorization header
+  if (typeof token === "string" && token.startsWith("Bearer ")) {
+    token = token.slice(7);
   }
 
   cachedToken = token;
