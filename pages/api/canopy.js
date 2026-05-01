@@ -44,7 +44,7 @@ async function getAccessToken(baseUrl, clientId, apiKey, secretKey) {
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ secret: secretKey }),
+    body: JSON.stringify({ jwtKey: secretKey }),
   });
 
   const tokenText = await tokenRes.text();
