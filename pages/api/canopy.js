@@ -103,31 +103,72 @@ export default async function handler(req, res) {
 
     // ── Debug action: raw token exchange response for diagnosing auth issues ──
     if (action === "debug") {
-      const debugUrl = `${baseUrl}/referencing-requests/client/${clientId}/token`;
-      // Try multiple body formats to find the right one
-      const bodies = [
-        { name: "secret", body: { secret: secretKey } },
-        { name: "secretKey", body: { secretKey } },
-        { name: "client_secret", body: { client_secret: secretKey } },
-        { name: "apiKey+secret", body: { apiKey, secret: secretKey } },
-        { name: "empty", body: {} },
-      ];
       const results = [];
-      for (const b of bodies) {
+      const base = `${baseUrl}/referencing-requests/client/${clientId}`;
+
+      // 1. Try POST /token with JSON body variations
+      const bodyVariants = [
+        { name: "json:secret", ct: "application/json", body: JSON.stringify({ secret: secretKey }) },
+        { name: "json:secretKey", ct: "application/json", body: JSON.stringify({ secretKey: secretKey }) },
+        { name: "json:key", ct: "application/json", body: JSON.stringify({ key: secretKey }) },
+        { name: "json:apiKey+secretKey", ct: "application/json", body: JSON.stringify({ apiKey: apiKey, secretKey: secretKey }) },
+      ];
+      for (const v of bodyVariants) {
         try {
-          const r = await fetch(debugUrl, {
+          const r = await fetch(`${base}/token`, {
             method: "POST",
-            headers: { "x-api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify(b.body),
+            headers: { "x-api-key": apiKey, "Content-Type": v.ct, Accept: "application/json" },
+            body: v.body,
           });
           const txt = await r.text();
-          results.push({ format: b.name, status: r.status, response: txt.slice(0, 300) });
-          if (r.ok) break; // found working format
-        } catch (e) {
-          results.push({ format: b.name, error: e.message });
-        }
+          results.push({ format: v.name, url: "/token", status: r.status, response: txt.slice(0, 400) });
+          if (r.ok) break;
+        } catch (e) { results.push({ format: v.name, error: e.message }); }
       }
-      return res.status(200).json({ debugUrl, clientId: clientId.slice(0, 8) + "...", results });
+
+      // 2. Try form-encoded
+      try {
+        const formBody = `secret=${encodeURIComponent(secretKey)}`;
+        const r = await fetch(`${base}/token`, {
+          method: "POST",
+          headers: { "x-api-key": apiKey, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+          body: formBody,
+        });
+        const txt = await r.text();
+        results.push({ format: "form-encoded:secret", url: "/token", status: r.status, response: txt.slice(0, 400) });
+      } catch (e) { results.push({ format: "form-encoded", error: e.message }); }
+
+      // 3. Try GET /token
+      try {
+        const r = await fetch(`${base}/token`, {
+          method: "GET",
+          headers: { "x-api-key": apiKey, Accept: "application/json" },
+        });
+        const txt = await r.text();
+        results.push({ format: "GET", url: "/token", status: r.status, response: txt.slice(0, 400) });
+      } catch (e) { results.push({ format: "GET", error: e.message }); }
+
+      // 4. Try listing directly with just x-api-key (maybe no token needed)
+      try {
+        const r = await fetch(`${base}`, {
+          method: "GET",
+          headers: { "x-api-key": apiKey, Accept: "application/json" },
+        });
+        const txt = await r.text();
+        results.push({ format: "direct-list-apikey-only", url: "/", status: r.status, response: txt.slice(0, 400) });
+      } catch (e) { results.push({ format: "direct-list", error: e.message }); }
+
+      // 5. Try with secret in Authorization header
+      try {
+        const r = await fetch(`${base}`, {
+          method: "GET",
+          headers: { "x-api-key": apiKey, Authorization: `Bearer ${secretKey}`, Accept: "application/json" },
+        });
+        const txt = await r.text();
+        results.push({ format: "list-with-secret-as-bearer", url: "/", status: r.status, response: txt.slice(0, 400) });
+      } catch (e) { results.push({ format: "bearer-secret", error: e.message }); }
+
+      return res.status(200).json({ base: base.slice(0, 60) + "...", results });
     }
 
     // For all other actions, get an access token first
