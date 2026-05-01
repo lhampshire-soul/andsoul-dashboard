@@ -1,43 +1,120 @@
 // pages/api/canopy.js
 // Server-side proxy for Canopy Referencing API.
-// Browser calls /api/canopy?action=list&clientId=XXX
-// This function forwards to Canopy with auth headers — no CORS issues.
+//
+// Auth flow (per Canopy docs):
+//   1. POST /referencing-requests/client/:clientId/token  (x-api-key + secretKey → access token)
+//   2. Use Bearer <token> for all subsequent calls
 //
 // Actions:
+//   token    — POST to get an access token (returns JWT)
 //   list     — GET /referencing-requests/client/:clientId  (list all references)
 //   get      — GET /referencing-requests/client/:clientId/rent-passport/:referenceId
 //   search   — GET /referencing-requests/client/:clientId?email=...
-//   refresh  — POST /referencing-requests/client/:clientId/refresh (refresh auth token)
+//   create   — POST /referencing-requests/client/:clientId  (create a new referencing request)
+//   test     — GET connectivity test
+//
+// Env vars:
+//   CANOPY_API_KEY      — x-api-key header value
+//   CANOPY_SECRET_KEY   — secret used in token exchange
+//   CANOPY_CLIENT_ID    — default clientId (can be overridden via query param)
 
 const CANOPY_API_KEY = process.env.CANOPY_API_KEY || "";
-const CANOPY_AUTH_TOKEN = process.env.CANOPY_AUTH_TOKEN || "";
+const CANOPY_SECRET_KEY = process.env.CANOPY_SECRET_KEY || "";
+const CANOPY_CLIENT_ID = process.env.CANOPY_CLIENT_ID || "";
 
 // Toggle between staging and production
 const CANOPY_BASE_STG = "https://api.stg.canopy.rent/v2";
 const CANOPY_BASE_PROD = "https://api.canopy.rent/v2";
 
+// In-memory token cache (per serverless instance)
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getAccessToken(baseUrl, clientId, apiKey, secretKey) {
+  // Return cached token if still valid (with 60s buffer)
+  if (cachedToken && Date.now() < tokenExpiry - 60000) {
+    return cachedToken;
+  }
+
+  const tokenUrl = `${baseUrl}/referencing-requests/client/${clientId}/token`;
+  const tokenRes = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ secretKey }),
+  });
+
+  const tokenText = await tokenRes.text();
+  let tokenData;
+  try {
+    tokenData = JSON.parse(tokenText);
+  } catch {
+    throw new Error(`Token exchange failed (${tokenRes.status}): ${tokenText.slice(0, 300)}`);
+  }
+
+  if (!tokenRes.ok) {
+    throw new Error(`Token exchange failed (${tokenRes.status}): ${JSON.stringify(tokenData).slice(0, 300)}`);
+  }
+
+  // The token might be in various fields depending on Canopy's response shape
+  const token = tokenData.token || tokenData.access_token || tokenData.accessToken || tokenData.jwt;
+  if (!token) {
+    // Return the full response so we can see the actual shape
+    throw new Error(`No token in response. Keys: ${Object.keys(tokenData).join(", ")}. Full: ${JSON.stringify(tokenData).slice(0, 500)}`);
+  }
+
+  cachedToken = token;
+  // Default 1 hour expiry if not specified
+  const expiresIn = tokenData.expiresIn || tokenData.expires_in || 3600;
+  tokenExpiry = Date.now() + expiresIn * 1000;
+
+  return token;
+}
+
 export default async function handler(req, res) {
-  const { action, clientId, referenceId, email, env } = req.query;
+  const { action, referenceId, email, env } = req.query;
+  const clientId = req.query.clientId || CANOPY_CLIENT_ID;
 
   // Use staging by default until production creds are ready
   const baseUrl = env === "prod" ? CANOPY_BASE_PROD : CANOPY_BASE_STG;
-
-  // Use env-specific keys if provided, otherwise fall back to defaults
-  const apiKey = req.headers["x-canopy-api-key"] || CANOPY_API_KEY;
-  const authToken = req.headers["x-canopy-auth-token"] || CANOPY_AUTH_TOKEN;
+  const apiKey = CANOPY_API_KEY;
+  const secretKey = CANOPY_SECRET_KEY;
 
   if (!clientId) {
-    return res.status(400).json({ error: "Missing clientId parameter" });
+    return res.status(400).json({ error: "Missing clientId. Set CANOPY_CLIENT_ID env var or pass ?clientId=..." });
   }
 
-  const headers = {
-    "x-api-key": apiKey,
-    Authorization: authToken,
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
+  if (!apiKey) {
+    return res.status(500).json({ error: "CANOPY_API_KEY not configured" });
+  }
 
   try {
+    // ── Token action: just return the access token (for debugging) ──
+    if (action === "token") {
+      if (!secretKey) {
+        return res.status(500).json({ error: "CANOPY_SECRET_KEY not configured" });
+      }
+      const token = await getAccessToken(baseUrl, clientId, apiKey, secretKey);
+      return res.status(200).json({ ok: true, token: token.slice(0, 20) + "...", cached: Date.now() < tokenExpiry });
+    }
+
+    // For all other actions, get an access token first
+    if (!secretKey) {
+      return res.status(500).json({ error: "CANOPY_SECRET_KEY not configured" });
+    }
+
+    const accessToken = await getAccessToken(baseUrl, clientId, apiKey, secretKey);
+
+    const headers = {
+      "x-api-key": apiKey,
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+
     let targetUrl;
     let method = "GET";
     let body = undefined;
@@ -46,7 +123,6 @@ export default async function handler(req, res) {
       // List all referencing requests for the client
       case "list": {
         targetUrl = `${baseUrl}/referencing-requests/client/${clientId}`;
-        // Pass through any query params for pagination/filtering
         const params = new URLSearchParams();
         if (email) params.set("email", email);
         if (req.query.page) params.set("page", req.query.page);
@@ -65,7 +141,7 @@ export default async function handler(req, res) {
         break;
       }
 
-      // Search by email — convenience wrapper around list with email filter
+      // Search by email
       case "search": {
         if (!email) {
           return res.status(400).json({ error: "Missing email parameter for search" });
@@ -74,15 +150,18 @@ export default async function handler(req, res) {
         break;
       }
 
-      // Refresh the auth token
-      case "refresh": {
-        targetUrl = `${baseUrl}/referencing-requests/client/${clientId}/refresh`;
+      // Create a new referencing request (for staging testing)
+      case "create": {
+        if (req.method !== "POST") {
+          return res.status(405).json({ error: "Use POST for create action" });
+        }
+        targetUrl = `${baseUrl}/referencing-requests/client/${clientId}`;
         method = "POST";
-        body = JSON.stringify({});
+        body = JSON.stringify(req.body || {});
         break;
       }
 
-      // Discovery — hit a known endpoint to test connectivity
+      // Connectivity test — try to list references
       case "test": {
         targetUrl = `${baseUrl}/referencing-requests/client/${clientId}`;
         break;
@@ -90,7 +169,7 @@ export default async function handler(req, res) {
 
       default:
         return res.status(400).json({
-          error: `Unknown action: ${action}. Use: list, get, search, refresh, test`,
+          error: `Unknown action: ${action}. Use: token, list, get, search, create, test`,
         });
     }
 
@@ -112,11 +191,19 @@ export default async function handler(req, res) {
         `Canopy ${canopyRes.status} for ${action} (${targetUrl}):`,
         JSON.stringify(data).slice(0, 500)
       );
+      // If 401/403, clear cached token so next request re-authenticates
+      if (canopyRes.status === 401 || canopyRes.status === 403) {
+        cachedToken = null;
+        tokenExpiry = 0;
+      }
     }
 
     return res.status(canopyRes.status).json(data);
   } catch (err) {
     console.error("Canopy proxy error:", err);
+    // Clear token cache on auth errors
+    cachedToken = null;
+    tokenExpiry = 0;
     return res.status(500).json({ error: "Proxy error: " + err.message });
   }
 }
