@@ -44,7 +44,7 @@ async function getAccessToken(baseUrl, clientId, apiKey, secretKey) {
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ secretKey }),
+    body: JSON.stringify({ secret: secretKey }),
   });
 
   const tokenText = await tokenRes.text();
@@ -99,6 +99,35 @@ export default async function handler(req, res) {
       }
       const token = await getAccessToken(baseUrl, clientId, apiKey, secretKey);
       return res.status(200).json({ ok: true, token: token.slice(0, 20) + "...", cached: Date.now() < tokenExpiry });
+    }
+
+    // ── Debug action: raw token exchange response for diagnosing auth issues ──
+    if (action === "debug") {
+      const debugUrl = `${baseUrl}/referencing-requests/client/${clientId}/token`;
+      // Try multiple body formats to find the right one
+      const bodies = [
+        { name: "secret", body: { secret: secretKey } },
+        { name: "secretKey", body: { secretKey } },
+        { name: "client_secret", body: { client_secret: secretKey } },
+        { name: "apiKey+secret", body: { apiKey, secret: secretKey } },
+        { name: "empty", body: {} },
+      ];
+      const results = [];
+      for (const b of bodies) {
+        try {
+          const r = await fetch(debugUrl, {
+            method: "POST",
+            headers: { "x-api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(b.body),
+          });
+          const txt = await r.text();
+          results.push({ format: b.name, status: r.status, response: txt.slice(0, 300) });
+          if (r.ok) break; // found working format
+        } catch (e) {
+          results.push({ format: b.name, error: e.message });
+        }
+      }
+      return res.status(200).json({ debugUrl, clientId: clientId.slice(0, 8) + "...", results });
     }
 
     // For all other actions, get an access token first
