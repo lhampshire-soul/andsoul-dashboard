@@ -36,6 +36,19 @@ async function getAccessToken(baseUrl, clientId, apiKey, secretKey) {
     return cachedToken;
   }
 
+  // Step 1: Generate a JWT signed with the secretKey
+  const jwt = require("jsonwebtoken");
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: clientId,
+    sub: clientId,
+    aud: "canopy",
+    iat: now,
+    exp: now + 300, // 5 min expiry
+  };
+  const signedJwt = jwt.sign(payload, secretKey, { algorithm: "HS256" });
+
+  // Step 2: Exchange the signed JWT for an access token
   const tokenUrl = `${baseUrl}/referencing-requests/client/${clientId}/token`;
   const tokenRes = await fetch(tokenUrl, {
     method: "POST",
@@ -44,7 +57,7 @@ async function getAccessToken(baseUrl, clientId, apiKey, secretKey) {
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ jwtKey: secretKey }),
+    body: JSON.stringify({ jwtKey: signedJwt }),
   });
 
   const tokenText = await tokenRes.text();
