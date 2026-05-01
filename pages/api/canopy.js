@@ -36,13 +36,13 @@ async function getAccessToken(baseUrl, clientId, apiKey, secretKey) {
     return cachedToken;
   }
 
-  // Step 1: Generate a JWT signed with the secretKey
+  // Step 1: Generate a JWT signed with the secretKey (per Canopy docs)
   const jwt = require("jsonwebtoken");
   const now = Math.floor(Date.now() / 1000);
   const payload = {
-    iss: clientId,
-    sub: clientId,
-    aud: "canopy",
+    iss: "canopy.rent",
+    scope: "request.write_only document.read_only",
+    aud: clientId,
     iat: now,
     exp: now + 300, // 5 min expiry
   };
