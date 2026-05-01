@@ -110,13 +110,24 @@ export default async function handler(req, res) {
   }
 
   try {
-    // ── Token action: just return the access token (for debugging) ──
+    // ── Token action: return full token response for debugging ──
     if (action === "token") {
       if (!secretKey) {
         return res.status(500).json({ error: "CANOPY_SECRET_KEY not configured" });
       }
-      const token = await getAccessToken(baseUrl, clientId, apiKey, secretKey);
-      return res.status(200).json({ ok: true, token: token.slice(0, 20) + "...", cached: Date.now() < tokenExpiry });
+      // Get raw response from token endpoint
+      const jwt = require("jsonwebtoken");
+      const now = Math.floor(Date.now() / 1000);
+      const payload = { iss: "canopy.rent", scope: "request.write_only document.read_only", aud: clientId, iat: now, exp: now + 300 };
+      const signedJwt = jwt.sign(payload, secretKey, { algorithm: "HS256" });
+      const tokenUrl = `${baseUrl}/referencing-requests/client/${clientId}/token`;
+      const tokenRes = await fetch(tokenUrl, {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ jwtKey: signedJwt }),
+      });
+      const txt = await tokenRes.text();
+      return res.status(200).json({ status: tokenRes.status, rawResponse: txt.slice(0, 1000), responseHeaders: Object.fromEntries(tokenRes.headers) });
     }
 
     // ── Debug action: try different auth patterns with the access token ──
