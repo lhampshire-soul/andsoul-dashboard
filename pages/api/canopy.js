@@ -138,19 +138,18 @@ export default async function handler(req, res) {
 
       // Try different header combos for the list endpoint
       const headerVariants = [
+        { name: "auth-raw-token-no-bearer", headers: { "x-api-key": apiKey, Authorization: accessToken, Accept: "application/json" } },
+        { name: "auth-raw-token-accept-version", headers: { "x-api-key": apiKey, Authorization: accessToken, "Accept-Version": "v2", Accept: "application/json" } },
         { name: "token-as-x-api-key", headers: { "x-api-key": accessToken, Accept: "application/json" } },
         { name: "both-keys-bearer", headers: { "x-api-key": apiKey, Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
-        { name: "token-only-bearer", headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
-        { name: "token-in-x-auth", headers: { "x-api-key": apiKey, "x-authorization": accessToken, Accept: "application/json" } },
-        { name: "token-in-x-access-token", headers: { "x-api-key": apiKey, "x-access-token": accessToken, Accept: "application/json" } },
-        { name: "apikey-only", headers: { "x-api-key": apiKey, Accept: "application/json" } },
+        { name: "apikey-only-accept-v", headers: { "x-api-key": apiKey, "Accept-Version": "v2", Accept: "application/json" } },
       ];
 
       for (const v of headerVariants) {
         try {
           const r = await fetch(base, { method: "GET", headers: v.headers });
           const txt = await r.text();
-          results.push({ format: v.name, status: r.status, response: txt.slice(0, 400) });
+          results.push({ format: v.name, status: r.status, response: txt.slice(0, 500) });
           if (r.ok) break;
         } catch (e) { results.push({ format: v.name, error: e.message }); }
       }
