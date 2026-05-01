@@ -136,18 +136,26 @@ export default async function handler(req, res) {
       const base = `${baseUrl}/referencing-requests/client/${clientId}`;
       const results = [];
 
-      // Try query param, different paths, and no Authorization header at all
+      const authHeaders = { "x-api-key": apiKey, Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" };
+
+      // Try POST endpoints (POST works for /token, so try creating a reference)
       const variants = [
-        { name: "query-access_token", url: `${base}?access_token=${encodeURIComponent(accessToken)}`, headers: { "x-api-key": apiKey, Accept: "application/json" } },
-        { name: "query-token", url: `${base}?token=${encodeURIComponent(accessToken)}`, headers: { "x-api-key": apiKey, Accept: "application/json" } },
-        { name: "query-bearer-token", url: `${base}?access_token=${encodeURIComponent("Bearer " + accessToken)}`, headers: { "x-api-key": apiKey, Accept: "application/json" } },
-        { name: "v1-base-bearer", url: `https://api.stg.canopy.rent/v1/referencing-requests/client/${clientId}`, headers: { "x-api-key": apiKey, Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
-        { name: "no-v-base-bearer", url: `https://api.stg.canopy.rent/referencing-requests/client/${clientId}`, headers: { "x-api-key": apiKey, Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
+        // POST to create a referencing request (Joab says this is the way to test)
+        { name: "POST-create-ref", method: "POST", url: `${base}/referencing-request`, headers: authHeaders, body: JSON.stringify({ email: "test@andsoul.com" }) },
+        { name: "POST-create-ref-v2", method: "POST", url: `${base}`, headers: authHeaders, body: JSON.stringify({ email: "test@andsoul.com" }) },
+        // Try GET on rent-passport path
+        { name: "GET-rent-passport-list", method: "GET", url: `${base}/rent-passport`, headers: authHeaders },
+        // Try v1 POST
+        { name: "POST-v1-create", method: "POST", url: `https://api.stg.canopy.rent/v1/referencing-requests/client/${clientId}/referencing-request`, headers: authHeaders, body: JSON.stringify({ email: "test@andsoul.com" }) },
+        // Try GET with POST method (some APIs do this)
+        { name: "POST-list", method: "POST", url: `${base}/list`, headers: authHeaders, body: JSON.stringify({}) },
       ];
 
       for (const v of variants) {
         try {
-          const r = await fetch(v.url, { method: "GET", headers: v.headers });
+          const opts = { method: v.method, headers: v.headers };
+          if (v.body) opts.body = v.body;
+          const r = await fetch(v.url, opts);
           const txt = await r.text();
           results.push({ format: v.name, status: r.status, response: txt.slice(0, 500) });
           if (r.ok) break;
