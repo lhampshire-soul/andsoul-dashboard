@@ -136,18 +136,18 @@ export default async function handler(req, res) {
       const base = `${baseUrl}/referencing-requests/client/${clientId}`;
       const results = [];
 
-      // Try different header combos for the list endpoint
-      const headerVariants = [
-        { name: "auth-raw-token-no-bearer", headers: { "x-api-key": apiKey, Authorization: accessToken, Accept: "application/json" } },
-        { name: "auth-raw-token-accept-version", headers: { "x-api-key": apiKey, Authorization: accessToken, "Accept-Version": "v2", Accept: "application/json" } },
-        { name: "token-as-x-api-key", headers: { "x-api-key": accessToken, Accept: "application/json" } },
-        { name: "both-keys-bearer", headers: { "x-api-key": apiKey, Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
-        { name: "apikey-only-accept-v", headers: { "x-api-key": apiKey, "Accept-Version": "v2", Accept: "application/json" } },
+      // Try query param, different paths, and no Authorization header at all
+      const variants = [
+        { name: "query-access_token", url: `${base}?access_token=${encodeURIComponent(accessToken)}`, headers: { "x-api-key": apiKey, Accept: "application/json" } },
+        { name: "query-token", url: `${base}?token=${encodeURIComponent(accessToken)}`, headers: { "x-api-key": apiKey, Accept: "application/json" } },
+        { name: "query-bearer-token", url: `${base}?access_token=${encodeURIComponent("Bearer " + accessToken)}`, headers: { "x-api-key": apiKey, Accept: "application/json" } },
+        { name: "v1-base-bearer", url: `https://api.stg.canopy.rent/v1/referencing-requests/client/${clientId}`, headers: { "x-api-key": apiKey, Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
+        { name: "no-v-base-bearer", url: `https://api.stg.canopy.rent/referencing-requests/client/${clientId}`, headers: { "x-api-key": apiKey, Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
       ];
 
-      for (const v of headerVariants) {
+      for (const v of variants) {
         try {
-          const r = await fetch(base, { method: "GET", headers: v.headers });
+          const r = await fetch(v.url, { method: "GET", headers: v.headers });
           const txt = await r.text();
           results.push({ format: v.name, status: r.status, response: txt.slice(0, 500) });
           if (r.ok) break;
