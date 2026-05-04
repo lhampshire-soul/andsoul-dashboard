@@ -4,7 +4,6 @@
 // Everything else requires a valid session cookie.
 
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 
 const COOKIE_NAME = "andsoul_session";
 
@@ -19,14 +18,20 @@ function isPublicPath(pathname) {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-function getExpectedToken() {
+// Edge-compatible HMAC-SHA256 using Web Crypto API
+async function getExpectedToken() {
   const pw = process.env.DASHBOARD_PASSWORD || "";
   if (!pw) return null; // No password = open access
   const salt = process.env.DASHBOARD_SECRET || "andsoul-dashboard-v1";
-  return crypto.createHmac("sha256", salt).update(pw).digest("hex");
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(salt), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(pw));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-export function middleware(request) {
+export async function middleware(request) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths through
@@ -46,7 +51,7 @@ export function middleware(request) {
   }
 
   // If no password is configured, allow everything through
-  const expectedToken = getExpectedToken();
+  const expectedToken = await getExpectedToken();
   if (!expectedToken) {
     return NextResponse.next();
   }
