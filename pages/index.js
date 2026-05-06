@@ -1505,6 +1505,7 @@ export default function Dashboard() {
     "Heating / Comfort / Health Issues",
     "Found Alternative Accommodation",
     "Affordability / Financial Constraints",
+    "No Reason Given",
   ];
 
   // Manual "leaving" markers — persisted in Redis (with localStorage fallback)
@@ -3814,7 +3815,7 @@ export default function Dashboard() {
                     const reasonEntries = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]);
                     if (noReasonCount > 0) reasonEntries.push(["No Reason Set", noReasonCount]);
                     const total = allLeavingEntries.length;
-                    const pieColors = ["#e55", "#e09f3e", "#4ea8de", "#c8a455", "#888"];
+                    const pieColors = ["#e55", "#e09f3e", "#4ea8de", "#c8a455", "#9b59b6", "#888"];
                     // SVG pie chart
                     const pieData = reasonEntries.map(([label, count], i) => ({
                       label, count, pct: Math.round((count / total) * 100),
