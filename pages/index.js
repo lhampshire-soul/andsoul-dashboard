@@ -1499,10 +1499,24 @@ export default function Dashboard() {
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState(null);
 
+  // Leaving reason options
+  const LEAVING_REASONS = [
+    "Travel / Temporary / Nomadic Stay",
+    "Heating / Comfort / Health Issues",
+    "Found Alternative Accommodation",
+    "Affordability / Financial Constraints",
+  ];
+
   // Manual "leaving" markers — persisted in Redis (with localStorage fallback)
   const [leavingSet, setLeavingSet] = useState(() => {
     if (typeof window === "undefined") return new Set();
     try { return new Set(JSON.parse(localStorage.getItem("renewal_leaving_v1") || "[]")); } catch { return new Set(); }
+  });
+
+  // Leaving reasons map: roomStayId → reason string
+  const [leavingReasons, setLeavingReasons] = useState(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem("renewal_leaving_reasons_v1") || "{}"); } catch { return {}; }
   });
 
   // Manual "pending renewal" markers — for cases where RH has a pending room stay
@@ -1512,18 +1526,20 @@ export default function Dashboard() {
     try { return new Set(JSON.parse(localStorage.getItem("renewal_pending_v1") || "[]")); } catch { return new Set(); }
   });
 
-  // Helper: save both sets to Redis + localStorage
-  const persistRenewalState = useCallback((newLeaving, newPending) => {
+  // Helper: save both sets + leaving reasons to Redis + localStorage
+  const persistRenewalState = useCallback((newLeaving, newPending, newReasons) => {
     const lArr = [...newLeaving];
     const pArr = [...newPending];
+    const reasons = newReasons || leavingReasons;
     try { localStorage.setItem("renewal_leaving_v1", JSON.stringify(lArr)); } catch {}
     try { localStorage.setItem("renewal_pending_v1", JSON.stringify(pArr)); } catch {}
+    try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(reasons)); } catch {}
     fetch("/api/renewal-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leaving: lArr, pending: pArr }),
+      body: JSON.stringify({ leaving: lArr, pending: pArr, leavingReasons: reasons }),
     }).catch(() => {});
-  }, []);
+  }, [leavingReasons]);
 
   // Load from Redis on mount — overrides localStorage with server state
   useEffect(() => {
@@ -1540,21 +1556,59 @@ export default function Dashboard() {
           setPendingSet(ps);
           try { localStorage.setItem("renewal_pending_v1", JSON.stringify(data.pending)); } catch {}
         }
+        if (data.leavingReasons && Object.keys(data.leavingReasons).length > 0) {
+          setLeavingReasons(data.leavingReasons);
+          try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(data.leavingReasons)); } catch {}
+        }
       })
       .catch(() => {}); // fall back to localStorage values already in state
   }, []);
 
+  // Set a leaving reason for a roomStayId and persist
+  const setLeavingReason = useCallback((roomStayId, reason) => {
+    setLeavingReasons(prev => {
+      const next = { ...prev, [roomStayId]: reason };
+      try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(next)); } catch {}
+      // persist with current sets
+      setLeavingSet(ls => {
+        setPendingSet(ps => {
+          persistRenewalState(ls, ps, next);
+          return ps;
+        });
+        return ls;
+      });
+      return next;
+    });
+  }, [persistRenewalState]);
+
   const toggleLeaving = useCallback((roomStayId) => {
     setLeavingSet(prev => {
       const next = new Set(prev);
-      if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
-      // Also remove from pendingSet
-      setPendingSet(prevP => {
-        const nextP = new Set(prevP);
-        nextP.delete(roomStayId);
-        persistRenewalState(next, nextP);
-        return nextP;
-      });
+      if (next.has(roomStayId)) {
+        next.delete(roomStayId);
+        // Clear reason when undoing
+        setLeavingReasons(prevR => {
+          const nextR = { ...prevR };
+          delete nextR[roomStayId];
+          try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(nextR)); } catch {}
+          setPendingSet(prevP => {
+            const nextP = new Set(prevP);
+            nextP.delete(roomStayId);
+            persistRenewalState(next, nextP, nextR);
+            return nextP;
+          });
+          return nextR;
+        });
+      } else {
+        next.add(roomStayId);
+        // Also remove from pendingSet
+        setPendingSet(prevP => {
+          const nextP = new Set(prevP);
+          nextP.delete(roomStayId);
+          persistRenewalState(next, nextP);
+          return nextP;
+        });
+      }
       return next;
     });
   }, [persistRenewalState]);
@@ -3744,6 +3798,82 @@ export default function Dashboard() {
                     <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, no action" accent={C.rose}/>
                   </div>
 
+                  {/* ── Leaving Reasons Pie Charts ── */}
+                  {(() => {
+                    // Gather all leaving entries across all months
+                    const allLeavingEntries = monthStats.flatMap(m => m.leaving);
+                    if (allLeavingEntries.length === 0) return null;
+                    // Count reasons
+                    const reasonCounts = {};
+                    let noReasonCount = 0;
+                    allLeavingEntries.forEach(e => {
+                      const reason = leavingReasons[e.roomStayId];
+                      if (reason) { reasonCounts[reason] = (reasonCounts[reason] || 0) + 1; }
+                      else { noReasonCount++; }
+                    });
+                    const reasonEntries = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]);
+                    if (noReasonCount > 0) reasonEntries.push(["No Reason Set", noReasonCount]);
+                    const total = allLeavingEntries.length;
+                    const pieColors = ["#e55", "#e09f3e", "#4ea8de", "#c8a455", "#888"];
+                    // SVG pie chart
+                    const pieData = reasonEntries.map(([label, count], i) => ({
+                      label, count, pct: Math.round((count / total) * 100),
+                      color: pieColors[i % pieColors.length]
+                    }));
+                    let cumAngle = 0;
+                    const slices = pieData.map(d => {
+                      const angle = (d.count / total) * 360;
+                      const startAngle = cumAngle;
+                      cumAngle += angle;
+                      const endAngle = cumAngle;
+                      const startRad = (startAngle - 90) * Math.PI / 180;
+                      const endRad = (endAngle - 90) * Math.PI / 180;
+                      const largeArc = angle > 180 ? 1 : 0;
+                      const x1 = 80 + 70 * Math.cos(startRad);
+                      const y1 = 80 + 70 * Math.sin(startRad);
+                      const x2 = 80 + 70 * Math.cos(endRad);
+                      const y2 = 80 + 70 * Math.sin(endRad);
+                      // For single-item pie, draw a full circle
+                      if (pieData.length === 1) {
+                        return { ...d, path: null, fullCircle: true };
+                      }
+                      return { ...d, path: `M80,80 L${x1},${y1} A70,70 0 ${largeArc},1 ${x2},${y2} Z`, fullCircle: false };
+                    });
+                    return (
+                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 22px",marginBottom:18}}>
+                        <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:14}}>Departure Reasons Breakdown</h3>
+                        <div style={{display:"flex",gap:30,alignItems:"center",flexWrap:"wrap"}}>
+                          <svg width="160" height="160" viewBox="0 0 160 160">
+                            {slices.map((s, i) => s.fullCircle ? (
+                              <circle key={i} cx="80" cy="80" r="70" fill={s.color}/>
+                            ) : (
+                              <path key={i} d={s.path} fill={s.color} stroke={C.card} strokeWidth="1.5"/>
+                            ))}
+                            <circle cx="80" cy="80" r="35" fill={C.card}/>
+                            <text x="80" y="76" textAnchor="middle" fill={C.text} fontSize="18" fontWeight="700">{total}</text>
+                            <text x="80" y="92" textAnchor="middle" fill={C.muted} fontSize="9">departing</text>
+                          </svg>
+                          <div style={{display:"flex",flexDirection:"column",gap:8,flex:1}}>
+                            {pieData.map((d, i) => (
+                              <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
+                                <div style={{width:12,height:12,borderRadius:3,background:d.color,flexShrink:0}}/>
+                                <div style={{flex:1}}>
+                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                                    <span style={{fontSize:12,color:C.text,fontWeight:600}}>{d.label}</span>
+                                    <span style={{fontSize:11,color:C.muted,fontFamily:"DM Mono,monospace"}}>{d.count} ({d.pct}%)</span>
+                                  </div>
+                                  <div style={{height:4,borderRadius:2,background:C.border,marginTop:3}}>
+                                    <div style={{height:"100%",borderRadius:2,background:d.color,width:`${d.pct}%`,transition:"width 0.3s"}}/>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Month grid */}
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:10,marginBottom:20}}>
                     {monthStats.map(m => {
@@ -3835,7 +3965,7 @@ export default function Dashboard() {
                               {key:"name",label:"Name"},{key:null,label:"Booking Ref"},{key:"expiry",label:"Expiry"},
                               {key:"los",label:"LoS"},{key:"room",label:"Room"},{key:"pcm",label:"PCM"},
                               {key:"status",label:"Status"},{key:null,label:"Ref Check"},
-                              {key:null,label:""},{key:null,label:""},{key:null,label:"SMS"},{key:null,label:"Email"}
+                              {key:null,label:""},{key:null,label:"Reason"},{key:null,label:""},{key:null,label:"SMS"},{key:null,label:"Email"}
                             ];
                             const arrow = (col) => renewalSort.col === col ? (renewalSort.dir === "asc" ? " ▲" : " ▼") : "";
                             const handleSort = (col) => {
@@ -3935,6 +4065,19 @@ export default function Dashboard() {
                                         style={{background:leavingSet.has(e.roomStayId)?C.sage+"22":C.rose+"22",color:leavingSet.has(e.roomStayId)?C.sage:C.rose,border:`1px solid ${leavingSet.has(e.roomStayId)?C.sage:C.rose}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
                                         {leavingSet.has(e.roomStayId) ? "↩ Undo" : "✗ Leaving"}
                                       </button>
+                                    </td>
+                                    <td style={{padding:"10px 6px",minWidth:140}}>
+                                      {(leavingSet.has(e.roomStayId) || (e.expired && !e.isRenewed && !e.isPendingRenewal && !isManualPending)) ? (
+                                        <select
+                                          value={leavingReasons[e.roomStayId] || ""}
+                                          onChange={(ev) => setLeavingReason(e.roomStayId, ev.target.value)}
+                                          style={{background:C.bg,color:leavingReasons[e.roomStayId]?C.text:C.muted,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 6px",fontSize:10,cursor:"pointer",maxWidth:160,width:"100%",appearance:"auto"}}>
+                                          <option value="">Select reason...</option>
+                                          {LEAVING_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                        </select>
+                                      ) : (
+                                        <span style={{fontSize:10,color:C.muted}}>—</span>
+                                      )}
                                     </td>
                                     <td style={{padding:"10px 6px"}}>
                                       <button onClick={() => togglePending(e.roomStayId)} title={pendingSet.has(e.roomStayId) ? "Undo pending" : "Mark as pending renewal"}

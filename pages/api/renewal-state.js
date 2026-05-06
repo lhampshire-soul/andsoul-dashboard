@@ -41,6 +41,7 @@ export default async function handler(req, res) {
         kvConfigured: true,
         leaving: data.leaving || [],
         pending: data.pending || [],
+        leavingReasons: data.leavingReasons || {},
         updatedAt: data.updatedAt || null,
       });
     }
@@ -50,6 +51,7 @@ export default async function handler(req, res) {
       const record = {
         leaving: Array.isArray(body.leaving) ? body.leaving : [],
         pending: Array.isArray(body.pending) ? body.pending : [],
+        leavingReasons: (body.leavingReasons && typeof body.leavingReasons === "object") ? body.leavingReasons : {},
         updatedAt: new Date().toISOString(),
       };
       await client.set(REDIS_KEY, JSON.stringify(record));
