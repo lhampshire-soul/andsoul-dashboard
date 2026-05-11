@@ -1649,7 +1649,7 @@ export default function Dashboard() {
   const [activityPreset, setActivityPreset] = useState(null);
 
   const recentActivity = useMemo(() => {
-    if (!rhAllBookings || !rhAllBookings.length) return { newBookings:[], renewals:[], pending:[], all:[], longStay:[], losBuckets:{"<8d":0,"<32d":0,"32-91d":0,"92-181d":0,"182-364d":0,"365d+":0}, roomBuckets:{}, stats:{newCount:0,renewalCount:0,pendingCount:0,totalActivity:0,totalAll:0} };
+    if (!rhAllBookings || !rhAllBookings.length) return { newBookings:[], renewals:[], pending:[], all:[], losBuckets:{"<32d":0,"32-91d":0,"92-181d":0,"182-364d":0,"365d+":0}, roomBuckets:{}, stats:{newCount:0,renewalCount:0,pendingCount:0,totalActivity:0} };
 
     const bookings = rhAllBookings;
     // Parse creation date from booking reference "YYYYMMDD-NNNNN"
@@ -1687,7 +1687,7 @@ export default function Dashboard() {
       const end = b.endDate?.slice(0,10);
       if (!start || !end) continue;
       const losDays = Math.round((new Date(end) - new Date(start)) / 86400000);
-      if (losDays < 1) continue;
+      if (losDays < 27) continue;
       const created = parseCreated(b.bookingReference);
       if (!created) continue;
       if (created < activityFrom || created > activityTo) continue;
@@ -1712,17 +1712,14 @@ export default function Dashboard() {
       });
     }
 
-    // LoS breakdown buckets
-    const losBuckets = { "<8d":0, "<32d":0, "32-91d":0, "92-181d":0, "182-364d":0, "365d+":0 };
-    const longStay = []; // 27+ day stays for KPI cards
+    // LoS breakdown buckets (all candidates are already 27+ days)
+    const losBuckets = { "<32d":0, "32-91d":0, "92-181d":0, "182-364d":0, "365d+":0 };
     for (const c of candidates) {
-      if (c.losDays < 8) losBuckets["<8d"]++;
-      else if (c.losDays < 32) losBuckets["<32d"]++;
+      if (c.losDays < 32) losBuckets["<32d"]++;
       else if (c.losDays <= 91) losBuckets["32-91d"]++;
       else if (c.losDays <= 181) losBuckets["92-181d"]++;
       else if (c.losDays <= 364) losBuckets["182-364d"]++;
       else losBuckets["365d+"]++;
-      if (c.losDays >= 27) longStay.push(c);
     }
 
     // Room type breakdown
@@ -1748,12 +1745,12 @@ export default function Dashboard() {
       contactHistory[cid].push({ start, end, roomStayId: b.roomStayId, bookingRef: b.bookingReference });
     }
 
-    // Classify each candidate (27+ day only) as new or renewal
+    // Classify each candidate as new or renewal
     // A renewal = contact has a prior 27+ day Southall stay from a DIFFERENT booking reference
     const newBookings = [];
     const renewalBookings = [];
     const pendingBookings = [];
-    for (const c of longStay) {
+    for (const c of candidates) {
       const cid = c.contactId;
       const history = cid ? (contactHistory[cid] || []) : [];
       const hasPrior = history.some(h => h.bookingRef !== c.bookingReference && h.roomStayId !== c.roomStayId && h.end <= c.startDate);
@@ -1769,24 +1766,18 @@ export default function Dashboard() {
       }
     }
 
-    // Mark short-stay candidates too
-    for (const c of candidates) {
-      if (c.losDays < 27) c.activityType = "Short Stay";
-    }
-
     // Sort by created descending
     candidates.sort((a,b) => b.created.localeCompare(a.created));
 
     return {
       newBookings, renewals: renewalBookings, pending: pendingBookings,
-      all: candidates, longStay,
+      all: candidates,
       losBuckets, roomBuckets,
       stats: {
         newCount: newBookings.length,
         renewalCount: renewalBookings.length,
         pendingCount: pendingBookings.length,
         totalActivity: newBookings.length + renewalBookings.length,
-        totalAll: candidates.length,
       }
     };
   }, [rhAllBookings, rhAllUnits, activityFrom, activityTo]);
@@ -2774,7 +2765,6 @@ export default function Dashboard() {
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <tbody>
                         {[
-                          {l:"< 8 days",k:"<8d"},
                           {l:"< 32 days",k:"<32d"},
                           {l:"32 – 91 days",k:"32-91d"},
                           {l:"92 – 181 days",k:"92-181d"},
@@ -2788,7 +2778,7 @@ export default function Dashboard() {
                         ))}
                         <tr style={{borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total New Bookings (Full)</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.stats.totalAll||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -2812,7 +2802,7 @@ export default function Dashboard() {
                         )}
                         <tr style={{borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.stats.totalAll||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -2834,7 +2824,7 @@ export default function Dashboard() {
                     <tbody>
                       {recentActivity.all.map((r,i)=>{
                         const statusColor = r.status==="CHECKED_IN"?C.sage:r.status==="CONFIRMED"?C.blue:C.gold;
-                        const typeColor = r.activityType==="Renewal"?C.sage:r.activityType==="Short Stay"?C.muted:C.blue;
+                        const typeColor = r.activityType==="Renewal"?C.sage:C.blue;
                         return (
                           <tr key={r.roomStayId||i} style={{borderBottom:`1px solid ${C.border}22`}}>
                             <td style={{padding:"8px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{r.name||"—"}</td>
