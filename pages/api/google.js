@@ -62,15 +62,16 @@ export default async function handler(req, res) {
     const windsorData = await windsorRes.json();
     const rows = windsorData.data || windsorData || [];
 
-    // Filter campaigns by property name (exclude GMB campaigns — they skew form submit stats)
+    // Filter campaigns by property name
     const filtered = rows.filter(r => {
       const name = (r.campaign || "").toLowerCase();
-      // Always exclude Google My Business / GMB campaigns
-      if (name.includes("google my business") || name.includes("gmb")) return false;
       if (propertyFilter === "shoreditch") {
-        return name.includes("shoreditch") || name.includes("sanctuary");
+        return (name.includes("shoreditch") || name.includes("sanctuary"))
+          && !name.includes("southall");
       }
-      return (name.includes("southall") || name.includes("&soul"))
+      // Southall: include anything with "southall", "&soul", or "heathrow"
+      // but exclude Shoreditch / Sanctuary campaigns
+      return (name.includes("southall") || name.includes("&soul") || name.includes("heathrow"))
         && !name.includes("shoreditch") && !name.includes("sanctuary");
     });
 
