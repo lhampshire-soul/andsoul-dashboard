@@ -1659,24 +1659,20 @@ export default function Dashboard() {
 
     // Filter to Southall, 27+ day LoS, active statuses, created within date range
     const activeStatuses = new Set(["PENDING","CONFIRMED","CHECKED_IN"]);
-    const debugNames = ["clarke","anderson","mackenzie","musa","christy","lewis","hassan","ali","silver","khan","gierczak","bowles","coke","jhamtani"];
     const candidates = [];
     for (const b of bookings) {
-      const fullName = `${b.bookingContact?.firstName||""} ${b.bookingContact?.lastName||""}`.toLowerCase();
-      const isDebug = debugNames.some(n => fullName.includes(n));
       const bld = (b.unit?.buildingName || "").toLowerCase();
-      if (!bld.includes("southall")) { if(isDebug) console.log("EXCLUDED (building):", fullName, "bld:", bld, "ref:", b.bookingReference); continue; }
+      if (!bld.includes("southall")) continue;
       const status = (b.roomStayStatus ?? "").toUpperCase();
-      if (!activeStatuses.has(status)) { if(isDebug) console.log("EXCLUDED (status):", fullName, "status:", status, "ref:", b.bookingReference); continue; }
+      if (!activeStatuses.has(status)) continue;
       const start = b.startDate?.slice(0,10);
       const end = b.endDate?.slice(0,10);
-      if (!start || !end) { if(isDebug) console.log("EXCLUDED (dates):", fullName, "ref:", b.bookingReference); continue; }
+      if (!start || !end) continue;
       const losDays = Math.round((new Date(end) - new Date(start)) / 86400000);
-      if (losDays < 27) { if(isDebug) console.log("EXCLUDED (LoS<27):", fullName, "losDays:", losDays, "ref:", b.bookingReference, start, "->", end); continue; }
+      if (losDays < 27) continue;
       const created = parseCreated(b.bookingReference);
-      if (!created) { if(isDebug) console.log("EXCLUDED (no created):", fullName, "ref:", b.bookingReference); continue; }
-      if (created < activityFrom || created > activityTo) { if(isDebug) console.log("EXCLUDED (date range):", fullName, "created:", created, "range:", activityFrom, "->", activityTo, "ref:", b.bookingReference); continue; }
-      if(isDebug) console.log("INCLUDED:", fullName, "created:", created, "losDays:", losDays, "status:", status, "ref:", b.bookingReference);
+      if (!created) continue;
+      if (created < activityFrom || created > activityTo) continue;
       candidates.push({
         bookingReference: b.bookingReference,
         created,
@@ -1696,6 +1692,7 @@ export default function Dashboard() {
     }
 
     // Build contact history from ALL bookings (not just filtered) to detect renewals
+    // Only include 27+ day Southall stays from DIFFERENT booking references
     const contactHistory = {};
     for (const b of bookings) {
       const cid = b.contactId || b.bookingContact?.id;
@@ -1705,18 +1702,21 @@ export default function Dashboard() {
       const start = b.startDate?.slice(0,10);
       const end = b.endDate?.slice(0,10);
       if (!start || !end) continue;
+      const los = Math.round((new Date(end) - new Date(start)) / 86400000);
+      if (los < 27) continue; // Only track meaningful stays for renewal detection
       if (!contactHistory[cid]) contactHistory[cid] = [];
-      contactHistory[cid].push({ start, end, roomStayId: b.roomStayId });
+      contactHistory[cid].push({ start, end, roomStayId: b.roomStayId, bookingRef: b.bookingReference });
     }
 
     // Classify each candidate as new or renewal
+    // A renewal = contact has a prior 27+ day Southall stay from a DIFFERENT booking reference
     const newBookings = [];
     const renewalBookings = [];
     const pendingBookings = [];
     for (const c of candidates) {
       const cid = c.contactId;
       const history = cid ? (contactHistory[cid] || []) : [];
-      const hasPrior = history.some(h => h.roomStayId !== c.roomStayId && h.end <= c.startDate);
+      const hasPrior = history.some(h => h.bookingRef !== c.bookingReference && h.roomStayId !== c.roomStayId && h.end <= c.startDate);
       const isRenewal = hasPrior;
       c.activityType = isRenewal ? "Renewal" : "New";
       if (isRenewal) {
