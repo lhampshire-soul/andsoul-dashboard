@@ -1249,6 +1249,7 @@ export default function Dashboard() {
   // if we find the guest's email on a GHL opp with a Facebook/Google utmSource;
   // otherwise they count as "Other" for blended CAC.
   const [rhAllBookings, setRhAllBookings] = useState([]);
+  const [rhAllUnits, setRhAllUnits] = useState([]);
   const [ghlData, setGhlData] = useState(null);
   const [cpbExpanded, setCpbExpanded] = useState(false);
   const cacStats = useMemo(() => {
@@ -1657,6 +1658,23 @@ export default function Dashboard() {
       return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
     };
 
+    // Build unit ID → room type map from rhAllUnits
+    const unitTypeMap = {};
+    for (const u of (rhAllUnits || [])) {
+      const tn = (u.unitTypeName || "").toLowerCase();
+      let rt = "Other";
+      if (tn.includes("nook")) rt = "Nook";
+      else if (tn.includes("ensuite") || tn.includes("nomad")) rt = "Ensuite/Nomad";
+      else if (tn.includes("snug plus") || tn.includes("snug +")) rt = "Snug / +";
+      else if (tn.includes("snug")) rt = "Snug / +";
+      else if (tn.includes("cosy") || tn.includes("cozy")) rt = "Cosy";
+      else if (tn.includes("roomy")) rt = "Roomy";
+      else if (tn.includes("spacious")) rt = "Spacious";
+      else if (tn.includes("deluxe accessible") || tn.includes("dda")) rt = "Deluxe/DDA";
+      else if (tn.includes("deluxe")) rt = "Deluxe/DDA";
+      unitTypeMap[u.id] = rt;
+    }
+
     // Filter to Southall, active statuses, created within date range
     const activeStatuses = new Set(["PENDING","CONFIRMED","CHECKED_IN"]);
     const candidates = [];
@@ -1673,16 +1691,8 @@ export default function Dashboard() {
       const created = parseCreated(b.bookingReference);
       if (!created) continue;
       if (created < activityFrom || created > activityTo) continue;
-      // Classify room type from unit name
-      const unitName = (b.unit?.name || "").toLowerCase();
-      let roomType = "Other";
-      if (unitName.includes("nook")) roomType = "Nook";
-      else if (unitName.includes("ensuite") || unitName.includes("nomad")) roomType = "Ensuite/Nomad";
-      else if (unitName.includes("snug")) roomType = "Snug / +";
-      else if (unitName.includes("cosy") || unitName.includes("cozy")) roomType = "Cosy";
-      else if (unitName.includes("roomy")) roomType = "Roomy";
-      else if (unitName.includes("spacious")) roomType = "Spacious";
-      else if (unitName.includes("deluxe") || unitName.includes("dda")) roomType = "Deluxe/DDA";
+      // Classify room type from unit ID → unitTypeName map
+      const roomType = unitTypeMap[b.unit?.id] || "Other";
       candidates.push({
         bookingReference: b.bookingReference,
         created,
@@ -1779,7 +1789,7 @@ export default function Dashboard() {
         totalAll: candidates.length,
       }
     };
-  }, [rhAllBookings, activityFrom, activityTo]);
+  }, [rhAllBookings, rhAllUnits, activityFrom, activityTo]);
 
   const openSmsModal = useCallback((entry, channel = "sms") => {
     const firstName = entry.name.split(" ")[0];
@@ -1884,6 +1894,7 @@ export default function Dashboard() {
       const metrics = computePmsMetrics(allGuestStays, mergedBookings, allUnits);
       setPmsData(metrics);
       setRhAllBookings(mergedBookings);
+      setRhAllUnits(allUnits);
       console.log("PMS silent refresh complete, bookings:", mergedBookings.length, "(incl", pendingBookings.length, "pending)");
     }catch(e){ console.log("PMS silent refresh error:", e.message); }
   },[cid,csec]);
@@ -1930,6 +1941,7 @@ export default function Dashboard() {
       console.log(`RH: occupied=${metrics.occupied}, checkIns=${metrics.checkInsWeek}, checkOuts=${metrics.checkOutsWeek}, monthRev=${metrics.revenue}, awr=${metrics.globalAwr}`);
       setPmsData(metrics);
       setRhAllBookings(allBookings);
+      setRhAllUnits(allUnits);
       setPmsConn(true);
     }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
     finally{setPmsLoad(false);}
