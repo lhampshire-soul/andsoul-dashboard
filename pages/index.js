@@ -1635,6 +1635,110 @@ export default function Dashboard() {
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
 
+  // ── Recent Booking Activity state ──
+  const [activityFrom, setActivityFrom] = useState(() => {
+    const today = new Date();
+    const day = today.getDay(); // 0=Sun, 1=Mon, 2=Tue...
+    const daysBack = day >= 2 ? day - 2 : day + 5;
+    const lastTue = new Date(today);
+    lastTue.setDate(lastTue.getDate() - daysBack);
+    return lastTue.toISOString().slice(0,10);
+  });
+  const [activityTo, setActivityTo] = useState(() => new Date().toISOString().slice(0,10));
+  const [activityPreset, setActivityPreset] = useState(null);
+
+  const recentActivity = useMemo(() => {
+    if (!rhAllBookings || !rhAllBookings.length) return { newBookings:[], renewals:[], pending:[], all:[], stats:{newCount:0,renewalCount:0,pendingCount:0,totalActivity:0} };
+
+    const bookings = rhAllBookings;
+    // Parse creation date from booking reference "YYYYMMDD-NNNNN"
+    const parseCreated = (ref) => {
+      if (!ref || ref.length < 8) return null;
+      return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+    };
+
+    // Filter to Southall, 27+ day LoS, active statuses, created within date range
+    const activeStatuses = new Set(["PENDING","CONFIRMED","CHECKED_IN"]);
+    const candidates = [];
+    for (const b of bookings) {
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) continue;
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (!activeStatuses.has(status)) continue;
+      const start = b.startDate?.slice(0,10);
+      const end = b.endDate?.slice(0,10);
+      if (!start || !end) continue;
+      const losDays = Math.round((new Date(end) - new Date(start)) / 86400000);
+      if (losDays < 27) continue;
+      const created = parseCreated(b.bookingReference);
+      if (!created) continue;
+      if (created < activityFrom || created > activityTo) continue;
+      candidates.push({
+        bookingReference: b.bookingReference,
+        created,
+        startDate: start,
+        endDate: end,
+        losDays,
+        status,
+        firstName: b.bookingContact?.firstName || "",
+        lastName: b.bookingContact?.lastName || "",
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        contactId: b.contactId || b.bookingContact?.id,
+        room: b.unit?.name || "—",
+        roomStayId: b.roomStayId,
+        bookingType: b.bookingType || "",
+        bookingId: b.bookingId,
+      });
+    }
+
+    // Build contact history from ALL bookings (not just filtered) to detect renewals
+    const contactHistory = {};
+    for (const b of bookings) {
+      const cid = b.contactId || b.bookingContact?.id;
+      if (!cid) continue;
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) continue;
+      const start = b.startDate?.slice(0,10);
+      const end = b.endDate?.slice(0,10);
+      if (!start || !end) continue;
+      if (!contactHistory[cid]) contactHistory[cid] = [];
+      contactHistory[cid].push({ start, end, roomStayId: b.roomStayId });
+    }
+
+    // Classify each candidate as new or renewal
+    const newBookings = [];
+    const renewalBookings = [];
+    const pendingBookings = [];
+    for (const c of candidates) {
+      const cid = c.contactId;
+      const history = cid ? (contactHistory[cid] || []) : [];
+      const hasPrior = history.some(h => h.roomStayId !== c.roomStayId && h.end <= c.startDate);
+      const isRenewal = hasPrior;
+      c.activityType = isRenewal ? "Renewal" : "New";
+      if (isRenewal) {
+        renewalBookings.push(c);
+      } else {
+        newBookings.push(c);
+      }
+      if (c.status === "PENDING") {
+        pendingBookings.push(c);
+      }
+    }
+
+    // Sort by created descending
+    candidates.sort((a,b) => b.created.localeCompare(a.created));
+
+    return {
+      newBookings, renewals: renewalBookings, pending: pendingBookings, all: candidates,
+      stats: {
+        newCount: newBookings.length,
+        renewalCount: renewalBookings.length,
+        pendingCount: pendingBookings.length,
+        totalActivity: newBookings.length + renewalBookings.length,
+      }
+    };
+  }, [rhAllBookings, activityFrom, activityTo]);
+
   const openSmsModal = useCallback((entry, channel = "sms") => {
     const firstName = entry.name.split(" ")[0];
     const expiryStr = new Date(entry.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
@@ -2566,6 +2670,78 @@ export default function Dashboard() {
           <div style={{padding:"22px 26px"}}>
             <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · 300 beds</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 16px"}}>Occupancy & Revenue</h2>
+
+            {/* ── RECENT BOOKING ACTIVITY ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Recent Booking Activity</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>New bookings & renewals created in period (27+ day stays)</p>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  {[
+                    {l:"Last 7d",k:"7d",fn:()=>{const d=new Date();d.setDate(d.getDate()-6);setActivityFrom(d.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("7d");}},
+                    {l:"Last 14d",k:"14d",fn:()=>{const d=new Date();d.setDate(d.getDate()-13);setActivityFrom(d.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("14d");}},
+                    {l:"This week",k:"week",fn:()=>{const d=new Date();const day=d.getDay();const diff=day===0?6:day-1;const mon=new Date(d);mon.setDate(mon.getDate()-diff);setActivityFrom(mon.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("week");}},
+                  ].map(o=>(
+                    <button key={o.k} onClick={o.fn} style={{padding:"4px 13px",borderRadius:20,border:`1px solid ${activityPreset===o.k?C.gold:C.border}`,background:activityPreset===o.k?C.gold+"22":"transparent",color:activityPreset===o.k?C.gold:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>{o.l}</button>
+                  ))}
+                  <input type="date" value={activityFrom} onChange={e=>{setActivityFrom(e.target.value);setActivityPreset(null);}} style={dinp}/>
+                  <span style={{fontSize:11,color:C.muted}}>→</span>
+                  <input type="date" value={activityTo} onChange={e=>{setActivityTo(e.target.value);setActivityPreset(null);}} style={dinp}/>
+                </div>
+              </div>
+
+              {/* KPI cards */}
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
+                <KPI label="New Bookings" value={recentActivity.stats.newCount} sub="First-time tenants" accent={C.blue}/>
+                <KPI label="Renewals" value={recentActivity.stats.renewalCount} sub="Returning tenants" accent={C.sage}/>
+                <KPI label="Moved to Pending" value={recentActivity.stats.pendingCount} sub="Status: PENDING" accent={C.gold}/>
+                <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Renewals" accent={C.text}/>
+              </div>
+
+              {/* Breakdown table */}
+              {recentActivity.all.length > 0 && (
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        {["Name","Booking Ref","Created","Start → End","LoS","Room","Status","Type"].map(h=>(
+                          <th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentActivity.all.map((r,i)=>{
+                        const statusColor = r.status==="CHECKED_IN"?C.sage:r.status==="CONFIRMED"?C.blue:C.gold;
+                        const typeColor = r.activityType==="Renewal"?C.sage:C.blue;
+                        return (
+                          <tr key={r.roomStayId||i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"8px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{r.name||"—"}</td>
+                            <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",fontSize:11}}>
+                              {r.bookingId?(
+                                <a href={`https://app.resharmonics.com/bookings/${r.bookingId}`} target="_blank" rel="noopener noreferrer" style={{color:C.gold,textDecoration:"none",borderBottom:`1px dashed ${C.gold}55`}}>{r.bookingReference}</a>
+                              ):(
+                                <span style={{color:C.muted}}>{r.bookingReference||"—"}</span>
+                              )}
+                            </td>
+                            <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{r.created}</td>
+                            <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap",fontSize:11}}>{r.startDate} → {r.endDate}</td>
+                            <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace"}}>{r.losDays}d</td>
+                            <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap"}}>{r.room}</td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:statusColor+"22",color:statusColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.status}</span></td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:typeColor+"22",color:typeColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.activityType}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {recentActivity.all.length === 0 && (
+                <p style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>No qualifying bookings found in this date range.</p>
+              )}
+            </div>
 
             {!pmsConn&&(
               <div style={{background:C.card,border:`1px solid ${C.goldDim}`,borderRadius:14,padding:18,marginBottom:18}}>
