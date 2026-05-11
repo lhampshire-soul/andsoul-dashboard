@@ -69,9 +69,9 @@ export default async function handler(req, res) {
         return (name.includes("shoreditch") || name.includes("sanctuary"))
           && !name.includes("southall");
       }
-      // Southall: include anything with "southall", "&soul", or "heathrow"
+      // Southall: include anything with "southall" or "&soul" (incl. GMB)
       // but exclude Shoreditch / Sanctuary campaigns
-      return (name.includes("southall") || name.includes("&soul") || name.includes("heathrow"))
+      return (name.includes("southall") || name.includes("&soul"))
         && !name.includes("shoreditch") && !name.includes("sanctuary");
     });
 
