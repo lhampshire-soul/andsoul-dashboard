@@ -1693,6 +1693,9 @@ export default function Dashboard() {
       if (created < activityFrom || created > activityTo) continue;
       // Classify room type from unit ID → unitTypeName map
       const roomType = unitTypeMap[b.unit?.id] || "Other";
+      // Compute AWR from netAmount
+      const net = parseFloat(b.netAmount ?? 0);
+      const weeklyRate = (losDays > 0 && net > 0) ? Math.round((net / losDays) * 7) : 0;
       candidates.push({
         bookingReference: b.bookingReference,
         created,
@@ -1709,6 +1712,8 @@ export default function Dashboard() {
         roomStayId: b.roomStayId,
         bookingType: b.bookingType || "",
         bookingId: b.bookingId,
+        netAmount: net,
+        weeklyRate,
       });
     }
 
@@ -1727,6 +1732,29 @@ export default function Dashboard() {
     for (const c of candidates) {
       roomBuckets[c.roomType] = (roomBuckets[c.roomType] || 0) + 1;
     }
+
+    // Move-in by month breakdown (next 6 months: May–Oct or whatever the current window is)
+    const moveInMonths = {};
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    for (const c of candidates) {
+      const d = new Date(c.startDate);
+      const key = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+      moveInMonths[key] = (moveInMonths[key] || 0) + 1;
+    }
+    // Build ordered list of months from earliest to latest move-in
+    const moveInOrdered = Object.entries(moveInMonths)
+      .map(([month, count]) => ({ month, count }))
+      .sort((a, b) => {
+        const parse = s => { const [m, y] = s.split(" "); return new Date(`${m} 1, ${y}`); };
+        return parse(a.month) - parse(b.month);
+      });
+
+    // AWR summary
+    const awrCandidates = candidates.filter(c => c.weeklyRate > 0 && c.weeklyRate < 5000);
+    const avgAwr = awrCandidates.length > 0 ? Math.round(awrCandidates.reduce((s, c) => s + c.weeklyRate, 0) / awrCandidates.length) : 0;
+    const minAwr = awrCandidates.length > 0 ? Math.min(...awrCandidates.map(c => c.weeklyRate)) : 0;
+    const maxAwr = awrCandidates.length > 0 ? Math.max(...awrCandidates.map(c => c.weeklyRate)) : 0;
+    const totalContractValue = candidates.reduce((s, c) => s + c.netAmount, 0);
 
     // Build contact history from ALL bookings (not just filtered) to detect renewals
     // Only include 27+ day Southall stays from DIFFERENT booking references
@@ -1772,7 +1800,8 @@ export default function Dashboard() {
     return {
       newBookings, renewals: renewalBookings, pending: pendingBookings,
       all: candidates,
-      losBuckets, roomBuckets,
+      losBuckets, roomBuckets, moveInOrdered,
+      awrSummary: { avg: avgAwr, min: minAwr, max: maxAwr, totalContractValue, count: awrCandidates.length },
       stats: {
         newCount: newBookings.length,
         renewalCount: renewalBookings.length,
@@ -2810,13 +2839,65 @@ export default function Dashboard() {
                 </div>
               )}
 
+              {/* Move-in by Month & AWR Summary */}
+              {recentActivity.all.length > 0 && (
+                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
+                  {/* Move-in by Month */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Move-in by Month</p>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <tbody>
+                        {(recentActivity.moveInOrdered||[]).map(row=>(
+                          <tr key={row.month} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>{row.month}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:row.count>0?C.text:C.muted}}>{row.count}</td>
+                          </tr>
+                        ))}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* AWR Summary */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Closed Bookings — AWR Summary</p>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <tbody>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Avg Weekly Rent</td>
+                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>£{recentActivity.awrSummary?.avg||0}</td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Min AWR</td>
+                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.min||0}</td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Max AWR</td>
+                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.max||0}</td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Bookings with rate data</td>
+                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>{recentActivity.awrSummary?.count||0} / {recentActivity.all?.length||0}</td>
+                        </tr>
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total Contract Value</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>£{(recentActivity.awrSummary?.totalContractValue||0).toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {/* Breakdown table */}
               {recentActivity.all.length > 0 && (
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        {["Name","Booking Ref","Created","Start → End","LoS","Room","Status","Type"].map(h=>(
+                        {["Name","Booking Ref","Created","Start → End","LoS","Room","AWR","Status","Type"].map(h=>(
                           <th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{h}</th>
                         ))}
                       </tr>
@@ -2839,6 +2920,7 @@ export default function Dashboard() {
                             <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap",fontSize:11}}>{r.startDate} → {r.endDate}</td>
                             <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace"}}>{r.losDays}d</td>
                             <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap"}}>{r.room}</td>
+                            <td style={{padding:"8px 10px",color:r.weeklyRate>0?C.text:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{r.weeklyRate>0?`£${r.weeklyRate}`:"—"}</td>
                             <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:statusColor+"22",color:statusColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.status}</span></td>
                             <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:typeColor+"22",color:typeColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.activityType}</span></td>
                           </tr>
