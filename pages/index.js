@@ -1648,7 +1648,7 @@ export default function Dashboard() {
   const [activityPreset, setActivityPreset] = useState(null);
 
   const recentActivity = useMemo(() => {
-    if (!rhAllBookings || !rhAllBookings.length) return { newBookings:[], renewals:[], pending:[], all:[], stats:{newCount:0,renewalCount:0,pendingCount:0,totalActivity:0} };
+    if (!rhAllBookings || !rhAllBookings.length) return { newBookings:[], renewals:[], pending:[], all:[], longStay:[], losBuckets:{"<8d":0,"<32d":0,"32-91d":0,"92-181d":0,"182-364d":0,"365d+":0}, roomBuckets:{}, stats:{newCount:0,renewalCount:0,pendingCount:0,totalActivity:0,totalAll:0} };
 
     const bookings = rhAllBookings;
     // Parse creation date from booking reference "YYYYMMDD-NNNNN"
@@ -1657,7 +1657,7 @@ export default function Dashboard() {
       return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
     };
 
-    // Filter to Southall, 27+ day LoS, active statuses, created within date range
+    // Filter to Southall, active statuses, created within date range
     const activeStatuses = new Set(["PENDING","CONFIRMED","CHECKED_IN"]);
     const candidates = [];
     for (const b of bookings) {
@@ -1669,10 +1669,20 @@ export default function Dashboard() {
       const end = b.endDate?.slice(0,10);
       if (!start || !end) continue;
       const losDays = Math.round((new Date(end) - new Date(start)) / 86400000);
-      if (losDays < 27) continue;
+      if (losDays < 1) continue;
       const created = parseCreated(b.bookingReference);
       if (!created) continue;
       if (created < activityFrom || created > activityTo) continue;
+      // Classify room type from unit name
+      const unitName = (b.unit?.name || "").toLowerCase();
+      let roomType = "Other";
+      if (unitName.includes("nook")) roomType = "Nook";
+      else if (unitName.includes("ensuite") || unitName.includes("nomad")) roomType = "Ensuite/Nomad";
+      else if (unitName.includes("snug")) roomType = "Snug / +";
+      else if (unitName.includes("cosy") || unitName.includes("cozy")) roomType = "Cosy";
+      else if (unitName.includes("roomy")) roomType = "Roomy";
+      else if (unitName.includes("spacious")) roomType = "Spacious";
+      else if (unitName.includes("deluxe") || unitName.includes("dda")) roomType = "Deluxe/DDA";
       candidates.push({
         bookingReference: b.bookingReference,
         created,
@@ -1685,10 +1695,30 @@ export default function Dashboard() {
         name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
         contactId: b.contactId || b.bookingContact?.id,
         room: b.unit?.name || "—",
+        roomType,
         roomStayId: b.roomStayId,
         bookingType: b.bookingType || "",
         bookingId: b.bookingId,
       });
+    }
+
+    // LoS breakdown buckets
+    const losBuckets = { "<8d":0, "<32d":0, "32-91d":0, "92-181d":0, "182-364d":0, "365d+":0 };
+    const longStay = []; // 27+ day stays for KPI cards
+    for (const c of candidates) {
+      if (c.losDays < 8) losBuckets["<8d"]++;
+      else if (c.losDays < 32) losBuckets["<32d"]++;
+      else if (c.losDays <= 91) losBuckets["32-91d"]++;
+      else if (c.losDays <= 181) losBuckets["92-181d"]++;
+      else if (c.losDays <= 364) losBuckets["182-364d"]++;
+      else losBuckets["365d+"]++;
+      if (c.losDays >= 27) longStay.push(c);
+    }
+
+    // Room type breakdown
+    const roomBuckets = {};
+    for (const c of candidates) {
+      roomBuckets[c.roomType] = (roomBuckets[c.roomType] || 0) + 1;
     }
 
     // Build contact history from ALL bookings (not just filtered) to detect renewals
@@ -1708,12 +1738,12 @@ export default function Dashboard() {
       contactHistory[cid].push({ start, end, roomStayId: b.roomStayId, bookingRef: b.bookingReference });
     }
 
-    // Classify each candidate as new or renewal
+    // Classify each candidate (27+ day only) as new or renewal
     // A renewal = contact has a prior 27+ day Southall stay from a DIFFERENT booking reference
     const newBookings = [];
     const renewalBookings = [];
     const pendingBookings = [];
-    for (const c of candidates) {
+    for (const c of longStay) {
       const cid = c.contactId;
       const history = cid ? (contactHistory[cid] || []) : [];
       const hasPrior = history.some(h => h.bookingRef !== c.bookingReference && h.roomStayId !== c.roomStayId && h.end <= c.startDate);
@@ -1729,16 +1759,24 @@ export default function Dashboard() {
       }
     }
 
+    // Mark short-stay candidates too
+    for (const c of candidates) {
+      if (c.losDays < 27) c.activityType = "Short Stay";
+    }
+
     // Sort by created descending
     candidates.sort((a,b) => b.created.localeCompare(a.created));
 
     return {
-      newBookings, renewals: renewalBookings, pending: pendingBookings, all: candidates,
+      newBookings, renewals: renewalBookings, pending: pendingBookings,
+      all: candidates, longStay,
+      losBuckets, roomBuckets,
       stats: {
         newCount: newBookings.length,
         renewalCount: renewalBookings.length,
         pendingCount: pendingBookings.length,
         totalActivity: newBookings.length + renewalBookings.length,
+        totalAll: candidates.length,
       }
     };
   }, [rhAllBookings, activityFrom, activityTo]);
@@ -1835,13 +1873,18 @@ export default function Dashboard() {
       try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { console.log("silent refresh guestStays error:", e.message); }
       let allBookings = [];
       try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) {}
+      // RH API excludes PENDING bookings by default — fetch them separately and merge
+      let pendingBookings = [];
+      try { pendingBookings = await rhFetchAll(tok, "/api/v3/bookings?statuses=PENDING"); } catch(e) {}
+      const pendingRefs = new Set(pendingBookings.map(b => `${b.bookingReference}-${b.roomStayId}`));
+      const mergedBookings = [...allBookings.filter(b => !pendingRefs.has(`${b.bookingReference}-${b.roomStayId}`)), ...pendingBookings];
       let allUnits = [];
       try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) {}
 
-      const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
+      const metrics = computePmsMetrics(allGuestStays, mergedBookings, allUnits);
       setPmsData(metrics);
-      setRhAllBookings(allBookings);
-      console.log("PMS silent refresh complete");
+      setRhAllBookings(mergedBookings);
+      console.log("PMS silent refresh complete, bookings:", mergedBookings.length, "(incl", pendingBookings.length, "pending)");
     }catch(e){ console.log("PMS silent refresh error:", e.message); }
   },[cid,csec]);
 
@@ -1874,6 +1917,12 @@ export default function Dashboard() {
       try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { console.log("guestStays error:", e.message); }
       let allBookings = [];
       try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) { console.log("bookings error:", e.message); }
+      // RH API excludes PENDING bookings by default — fetch them separately and merge
+      let pendingBookings = [];
+      try { pendingBookings = await rhFetchAll(tok, "/api/v3/bookings?statuses=PENDING"); } catch(e) { console.log("pending bookings error:", e.message); }
+      const pendingRefSet = new Set(pendingBookings.map(b => `${b.bookingReference}-${b.roomStayId}`));
+      allBookings = [...allBookings.filter(b => !pendingRefSet.has(`${b.bookingReference}-${b.roomStayId}`)), ...pendingBookings];
+      console.log("Bookings loaded:", allBookings.length, "(incl", pendingBookings.length, "pending)");
       let allUnits = [];
       try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) { console.log("units error:", e.message); }
 
@@ -2680,7 +2729,7 @@ export default function Dashboard() {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
                 <div>
                   <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Recent Booking Activity</p>
-                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>New bookings & renewals created in period (27+ day stays)</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>New bookings & renewals created in period</p>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                   {[
@@ -2704,6 +2753,61 @@ export default function Dashboard() {
                 <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Renewals" accent={C.text}/>
               </div>
 
+              {/* LoS & Room Type breakdown */}
+              {recentActivity.all.length > 0 && (
+                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
+                  {/* LoS Breakdown */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>LoS Breakdown</p>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <tbody>
+                        {[
+                          {l:"< 8 days",k:"<8d"},
+                          {l:"< 32 days",k:"<32d"},
+                          {l:"32 – 91 days",k:"32-91d"},
+                          {l:"92 – 181 days",k:"92-181d"},
+                          {l:"182 – 364 days",k:"182-364d"},
+                          {l:"365+ days",k:"365d+"},
+                        ].map(row=>(
+                          <tr key={row.k} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>{row.l}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:(recentActivity.losBuckets?.[row.k]||0)>0?C.text:C.muted}}>{recentActivity.losBuckets?.[row.k]||0}</td>
+                          </tr>
+                        ))}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total New Bookings (Full)</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.stats.totalAll||0}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Room Type Breakdown */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Room Type Breakdown</p>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <tbody>
+                        {["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].map(rt=>(
+                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>{rt}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:(recentActivity.roomBuckets?.[rt]||0)>0?C.text:C.muted}}>{recentActivity.roomBuckets?.[rt]||0}</td>
+                          </tr>
+                        ))}
+                        {(recentActivity.roomBuckets?.Other||0) > 0 && (
+                          <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>Other</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>{recentActivity.roomBuckets.Other}</td>
+                          </tr>
+                        )}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.stats.totalAll||0}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {/* Breakdown table */}
               {recentActivity.all.length > 0 && (
                 <div style={{overflowX:"auto"}}>
@@ -2718,7 +2822,7 @@ export default function Dashboard() {
                     <tbody>
                       {recentActivity.all.map((r,i)=>{
                         const statusColor = r.status==="CHECKED_IN"?C.sage:r.status==="CONFIRMED"?C.blue:C.gold;
-                        const typeColor = r.activityType==="Renewal"?C.sage:C.blue;
+                        const typeColor = r.activityType==="Renewal"?C.sage:r.activityType==="Short Stay"?C.muted:C.blue;
                         return (
                           <tr key={r.roomStayId||i} style={{borderBottom:`1px solid ${C.border}22`}}>
                             <td style={{padding:"8px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{r.name||"—"}</td>
