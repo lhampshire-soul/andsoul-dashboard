@@ -2105,10 +2105,19 @@ export default function Dashboard() {
   }, []);
   useEffect(()=>{ fetchSdLiveGoogle(from, to); },[from, to]);
   // Prefer live data (GMB excluded), fall back to static
-  const sdGSpend = sdGoogleIsLive && sdLiveGoogleData ? sdLiveGoogleData.totalSpend : sdGoogleFiltered.reduce((s,r)=>s+r.spend,0);
-  const sdGConvs = sdGoogleIsLive && sdLiveGoogleData ? sdLiveGoogleData.totalConversions : sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
+  // Use filtered campaigns (excl Sanctuary) for spend/conv totals
+  const sdGSpendRaw = sdGoogleIsLive && sdLiveGoogleData ? sdLiveGoogleData.totalSpend : sdGoogleFiltered.reduce((s,r)=>s+r.spend,0);
+  const sdGConvsRaw = sdGoogleIsLive && sdLiveGoogleData ? sdLiveGoogleData.totalConversions : sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
+  const sdLiveCampaignsAllTemp = sdGoogleIsLive && sdLiveGoogleData?.campaigns ? sdLiveGoogleData.campaigns : [];
+  const sdSanctuaryCamps = sdLiveCampaignsAllTemp.filter(c => (c.name||"").toLowerCase().includes("sanctuary"));
+  const sdSanctuarySpend = sdSanctuaryCamps.reduce((s,c)=>s+c.spend,0);
+  const sdSanctuaryConvs = sdSanctuaryCamps.reduce((s,c)=>s+c.convs,0);
+  const sdGSpend = sdGoogleIsLive ? sdGSpendRaw - sdSanctuarySpend : sdGSpendRaw;
+  const sdGConvs = sdGoogleIsLive ? sdGConvsRaw - sdSanctuaryConvs : sdGConvsRaw;
   const sdGCPC = sdGConvs>0?sdGSpend/sdGConvs:0;
-  const sdLiveCampaigns = sdGoogleIsLive && sdLiveGoogleData?.campaigns ? sdLiveGoogleData.campaigns : [];
+  const sdLiveCampaignsAll = sdGoogleIsLive && sdLiveGoogleData?.campaigns ? sdLiveGoogleData.campaigns : [];
+  // Filter out Sanctuary campaigns — only show Shoreditch Apartments campaigns
+  const sdLiveCampaigns = sdLiveCampaignsAll.filter(c => !(c.name||"").toLowerCase().includes("sanctuary"));
   const sdGoogleDaily = sdGoogleIsLive && sdLiveGoogleData?.daily ? sdLiveGoogleData.daily.map(r=>({date:r.date,spend:r.spend,convs:r.convs})) : sdGoogleFiltered;
   // Shoreditch Meta: prefer live data, fall back to static
   const sdMetaSpend = (property==="shoreditch" && metaIsLive && liveMetaData) ? liveMetaData.totalSpend : SD_META.spend;
