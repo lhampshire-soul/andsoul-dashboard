@@ -642,8 +642,56 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     if (b.roomStayId) bookingByRoomStayId[b.roomStayId] = b;
   });
 
+  // ─── Build consecutive stay chains per contact ─────────────────────────────
+  // Chain = sequence of stays where gap between end→start is ≤ 14 days.
+  // If a chain's cumulative days ≥ 27, ALL stays in that chain qualify for the
+  // renewals board — even individually short extensions (e.g. 14d, 9d, 1d).
+  // Any stay that follows a prior stay in the chain is marked as an extension/renewal.
+  const chainCumulDays = {}; // roomStayId → cumulative days of its chain
+  const isChainExtension = {}; // roomStayId → true if this stay follows a prior in its chain
+  {
+    // Group bookings by contact
+    const byContact = {};
+    allBookings.forEach(b => {
+      const cid = b.contactId;
+      if (!cid) return;
+      const start = (b.startDate ?? "").slice(0, 10);
+      const end = (b.endDate ?? "").slice(0, 10);
+      if (!start || !end) return;
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
+      if (!byContact[cid]) byContact[cid] = [];
+      byContact[cid].push({ rsid: b.roomStayId, start, end, days: Math.round((new Date(end) - new Date(start)) / 864e5) });
+    });
+    // For each contact, sort stays by start date and build chains
+    Object.values(byContact).forEach(stays => {
+      stays.sort((a, b) => a.start.localeCompare(b.start));
+      // Build chains: a stay joins the current chain if it starts within 14 days of the previous stay's end
+      let chains = [];
+      let current = [stays[0]];
+      for (let i = 1; i < stays.length; i++) {
+        const prevEnd = new Date(current[current.length - 1].end).getTime();
+        const gap = (new Date(stays[i].start).getTime() - prevEnd) / 864e5;
+        if (gap >= -7 && gap <= 14) {
+          current.push(stays[i]);
+        } else {
+          chains.push(current);
+          current = [stays[i]];
+        }
+      }
+      chains.push(current);
+      // Calculate cumulative days for each chain and mark extensions
+      for (const chain of chains) {
+        const totalDays = chain.reduce((s, c) => s + c.days, 0);
+        chain.forEach((c, idx) => {
+          chainCumulDays[c.rsid] = totalDays;
+          if (idx > 0) isChainExtension[c.rsid] = true;
+        });
+      }
+    });
+  }
+
   const renewalsMap = {};
-  // Include CHECKED_OUT for past months so historical renewal data is accurate
   const todayStr = localDateStr(now);
   allBookings.forEach(b => {
     const status = (b.roomStayStatus ?? "").toUpperCase();
@@ -656,7 +704,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const startDate = (b.startDate ?? "").slice(0, 10);
     if (!startDate) return;
     const days = Math.round((new Date(endDate) - new Date(startDate)) / 864e5);
-    if (days < 27) return; // Skip short stays — only long-term contracts (27+ nights) for renewals
+    // Use cumulative chain days for the 27-day threshold — if a contact's consecutive
+    // stays total 27+ days, include ALL stays in that chain (even short extensions)
+    const cumulDays = chainCumulDays[b.roomStayId] || days;
+    if (cumulDays < 27) return;
     const monthKey = endDate.slice(0, 7);
     if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
     const net = parseFloat(b.netAmount ?? 0);
@@ -673,6 +724,8 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const isRenewed = followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT" || followOnStatus === "CONFIRMED";
     // Pending = only via manual pendingSet (for cases where RH API doesn't expose the pending stay)
     const isPendingRenewal = followOnStatus === "PENDING";
+    // Is this stay itself an extension/renewal of a prior stay in the chain?
+    const isExtension = !!isChainExtension[b.roomStayId];
     // Auto-mark as expired/leaving if:
     // - end date has passed and no follow-on, OR
     // - guest already CHECKED_OUT (early checkout) and no follow-on
@@ -705,13 +758,14 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
       email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
       phone: b.bookingContact?.mobileNumber || b.bookingContact?.phoneNumber || "",
-      startDate, endDate, losDays: days,
+      startDate, endDate, losDays: days, cumulDays: cumulDays,
       room: b.unit?.name || "—",
       status, pcm: months > 0 ? Math.round(gross / months) : 0,
       renewalPcm, // PCM of the follow-on stay (null if no follow-on)
       grossTotal: Math.round(gross),
       isRenewed,
       isPendingRenewal,
+      isExtension, // true = this stay is a follow-on/extension in a consecutive chain
       followOnStatus,
       daysUntilExpiry,
       critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14 && !isRenewed && !isPendingRenewal,
@@ -4397,7 +4451,7 @@ export default function Dashboard() {
                                         <span style={{marginLeft:6,fontSize:9,background:C.rose,color:"#fff",padding:"1px 5px",borderRadius:4,fontWeight:700}}>{e.daysUntilExpiry}d</span>
                                       )}
                                     </td>
-                                    <td style={{padding:"10px 10px",color:C.muted}}>{e.losDays}d</td>
+                                    <td style={{padding:"10px 10px",color:C.muted}}>{e.losDays}d{e.cumulDays && e.cumulDays !== e.losDays ? <span style={{fontSize:9,color:C.gold,marginLeft:4}} title={`Cumulative stay: ${e.cumulDays}d`}>({e.cumulDays}d)</span> : ""}</td>
                                     <td style={{padding:"10px 10px",color:C.muted,whiteSpace:"nowrap"}}>{e.room}</td>
                                     <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>
                                       {e.renewalPcm && e.isRenewed ? (
