@@ -650,12 +650,9 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const endDate = (b.endDate ?? "").slice(0, 10);
     if (!endDate) return;
     const isPast = endDate < todayStr;
-    // Past: include CHECKED_OUT too; Current/Future: only active statuses
-    if (isPast) {
-      if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
-    } else {
-      if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
-    }
+    // Include CHECKED_OUT for ALL dates — covers early checkouts (contract end in future
+    // but guest already departed). Without this, early checkouts vanish from the renewals board.
+    if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
     const startDate = (b.startDate ?? "").slice(0, 10);
     if (!startDate) return;
     const days = Math.round((new Date(endDate) - new Date(startDate)) / 864e5);
@@ -676,8 +673,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const isRenewed = followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT" || followOnStatus === "CONFIRMED";
     // Pending = only via manual pendingSet (for cases where RH API doesn't expose the pending stay)
     const isPendingRenewal = followOnStatus === "PENDING";
-    // Auto-mark as expired/leaving if end date has passed and no follow-on at all
-    const expired = isPast && !isRenewed && !isPendingRenewal;
+    // Auto-mark as expired/leaving if:
+    // - end date has passed and no follow-on, OR
+    // - guest already CHECKED_OUT (early checkout) and no follow-on
+    const isEarlyCheckout = status === "CHECKED_OUT" && !isPast;
+    const expired = (isPast || isEarlyCheckout) && !isRenewed && !isPendingRenewal;
 
     // Calculate follow-on stay's PCM rate when available (shows renewal rate, not expiring rate)
     let renewalPcm = null;
