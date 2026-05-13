@@ -163,7 +163,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   // Add bookings that don't have a guestStay record yet (e.g. future CONFIRMED/PENDING)
   allBookings.forEach(b => {
     if (seenRoomStayIds.has(b.roomStayId)) return; // already covered by guestStays
-    const cid = b.contactId;
+    const cid = b.contactId || b.bookingContact?.id;
     if (!cid) return;
     if (!contactStays[cid]) contactStays[cid] = [];
     contactStays[cid].push({
@@ -621,7 +621,8 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       for (let j = 0; j < stays.length; j++) {
         if (j === i) continue;
         const gap = (new Date(stays[j].dateFrom).getTime() - endMs) / 864e5;
-        if (gap >= -7 && gap <= 14) {
+        // Allow up to 30 days of overlap (room moves / mid-stay extensions can have large overlaps)
+        if (gap >= -30 && gap <= 14) {
           const followStatus = (stays[j].status || "").toUpperCase();
           const prev = renewalFollowOnStatus[stays[i].roomStayId];
           // Prefer CHECKED_OUT/CHECKED_IN (proven) > CONFIRMED (signed) > PENDING
@@ -653,7 +654,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     // Group bookings by contact
     const byContact = {};
     allBookings.forEach(b => {
-      const cid = b.contactId;
+      const cid = b.contactId || b.bookingContact?.id;
       if (!cid) return;
       const start = (b.startDate ?? "").slice(0, 10);
       const end = (b.endDate ?? "").slice(0, 10);
@@ -672,7 +673,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       for (let i = 1; i < stays.length; i++) {
         const prevEnd = new Date(current[current.length - 1].end).getTime();
         const gap = (new Date(stays[i].start).getTime() - prevEnd) / 864e5;
-        if (gap >= -7 && gap <= 14) {
+        if (gap >= -30 && gap <= 14) {
           current.push(stays[i]);
         } else {
           chains.push(current);
