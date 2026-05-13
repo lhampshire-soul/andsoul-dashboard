@@ -755,7 +755,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       bookingId: b.bookingId,
       bookingReference: b.bookingReference,
       roomStayId: b.roomStayId,
-      contactId: b.contactId,
+      contactId: b.contactId || b.bookingContact?.id,
       name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
       email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
       phone: b.bookingContact?.mobileNumber || b.bookingContact?.phoneNumber || "",
@@ -772,6 +772,21 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14 && !isRenewed && !isPendingRenewal,
       expired, // true = contract ended without any follow-on → auto-leaving
     });
+  });
+  // Deduplicate: if the same contact has multiple stays ending in the same month
+  // (chain extensions / room moves), keep only the latest-ending stay.
+  // Earlier stays in the chain are intermediate — not separate renewal decisions.
+  Object.keys(renewalsMap).forEach(monthKey => {
+    const arr = renewalsMap[monthKey];
+    const byContact = {};
+    arr.forEach(e => {
+      const cid = e.contactId;
+      if (!cid) { byContact[e.roomStayId] = e; return; } // no contact → keep as-is
+      if (!byContact[cid] || e.endDate > byContact[cid].endDate) {
+        byContact[cid] = e; // keep latest-ending stay per contact
+      }
+    });
+    renewalsMap[monthKey] = Object.values(byContact);
   });
   Object.values(renewalsMap).forEach(arr => arr.sort((a, b) => a.endDate.localeCompare(b.endDate)));
 
