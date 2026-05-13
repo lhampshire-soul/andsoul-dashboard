@@ -4198,9 +4198,18 @@ export default function Dashboard() {
               // Statuses: Renewed (CONFIRMED/CHECKED_IN follow-on), Pending (PENDING follow-on),
               //           Not Yet Started (no follow-on, not expired), Left (expired, no follow-on), Leaving (manual override)
               const monthStats = months.map(m => {
-                // Manual pendingSet overrides auto-detection; leavingSet overrides everything
-                const leaving = m.entries.filter(e => (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal && !pendingSet.has(e.roomStayId));
-                const renewed = m.entries.filter(e => e.isRenewed && !leavingSet.has(e.roomStayId) && !pendingSet.has(e.roomStayId));
+                // Categories are mutually exclusive with clear priority:
+                // 1. leavingSet (manual override) → leaving
+                // 2. isRenewed (auto-detected follow-on) → renewed
+                // 3. isPendingRenewal or pendingSet → pending
+                // 4. expired (past end date, no follow-on) → leaving
+                // 5. everything else → not started
+                const leaving = m.entries.filter(e => {
+                  if (leavingSet.has(e.roomStayId)) return true;
+                  if (e.isRenewed || e.isPendingRenewal || pendingSet.has(e.roomStayId)) return false;
+                  return e.expired;
+                });
+                const renewed = m.entries.filter(e => e.isRenewed && !leavingSet.has(e.roomStayId));
                 const pendingRenewal = m.entries.filter(e => (e.isPendingRenewal || pendingSet.has(e.roomStayId)) && !e.isRenewed && !leavingSet.has(e.roomStayId));
                 const notStarted = m.entries.filter(e => !e.isRenewed && !e.isPendingRenewal && !e.expired && !leavingSet.has(e.roomStayId) && !pendingSet.has(e.roomStayId));
                 const critical = notStarted.filter(e => e.critical);
@@ -4370,12 +4379,11 @@ export default function Dashboard() {
                           {(() => {
                             // Sort entries based on current sort state
                             const statusRank = (e) => {
-                              const mp = pendingSet.has(e.roomStayId);
-                              const leaving = (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal && !mp;
-                              const pending = e.isPendingRenewal || mp;
-                              if (leaving || (leavingSet.has(e.roomStayId) && !e.isRenewed)) return 4; // leaving/left
+                              if (leavingSet.has(e.roomStayId)) return 4; // manual leaving
                               if (e.isRenewed) return 3; // renewed
-                              if (pending) return 2; // pending
+                              const mp = pendingSet.has(e.roomStayId);
+                              if (e.isPendingRenewal || mp) return 2; // pending
+                              if (e.expired) return 4; // auto-expired/left
                               return 1; // not started (highest priority)
                             };
                             const sorted = [...selected.entries].sort((a, b) => {
@@ -4421,8 +4429,8 @@ export default function Dashboard() {
                             <tbody>
                               {sorted.map((e, i) => {
                                 const isManualPending = pendingSet.has(e.roomStayId);
-                                const isLeaving = (leavingSet.has(e.roomStayId) || e.expired) && !e.isRenewed && !e.isPendingRenewal && !isManualPending;
-                                const isPending = e.isPendingRenewal || isManualPending;
+                                const isLeaving = leavingSet.has(e.roomStayId) || (e.expired && !e.isRenewed && !e.isPendingRenewal && !isManualPending);
+                                const isPending = (e.isPendingRenewal || isManualPending) && !e.isRenewed && !leavingSet.has(e.roomStayId);
                                 const rowBg = isLeaving ? C.rose + "0a" : isPending ? C.blue + "0a" : (e.critical && !e.isRenewed ? C.rose + "12" : "transparent");
                                 const expiryColor = e.critical && !e.isRenewed && !isLeaving && !isPending ? C.rose : C.text;
                                 // Determine display status
