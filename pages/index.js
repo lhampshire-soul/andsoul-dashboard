@@ -4387,6 +4387,38 @@ export default function Dashboard() {
                         <button onClick={() => setRenewalSelectedMonth(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,padding:"4px 12px",borderRadius:8,cursor:"pointer",fontSize:11}}>Close</button>
                       </div>
 
+                      {/* Per-month leaving reasons summary */}
+                      {selected.leaving.length > 0 && (() => {
+                        const monthReasonCounts = {};
+                        let monthNoReason = 0;
+                        selected.leaving.forEach(e => {
+                          const reason = leavingReasons[e.roomStayId];
+                          if (reason) { monthReasonCounts[reason] = (monthReasonCounts[reason] || 0) + 1; }
+                          else { monthNoReason++; }
+                        });
+                        const monthReasonEntries = Object.entries(monthReasonCounts).sort((a,b) => b[1] - a[1]);
+                        const pieColors = ["#e55", "#e09f3e", "#4ea8de", "#c8a455", "#9b59b6", "#e07c5a", "#888"];
+                        return (
+                          <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+                            <p style={{fontSize:11,fontWeight:700,color:C.rose,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                              Departure Reasons - {selected.label} ({selected.leaving.length} departed)
+                            </p>
+                            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                              {monthReasonEntries.map(([reason, count], i) => (
+                                <span key={reason} style={{fontSize:10,background:pieColors[i % pieColors.length]+"22",color:pieColors[i % pieColors.length],padding:"3px 10px",borderRadius:8,fontWeight:600}}>
+                                  {reason}: {count}
+                                </span>
+                              ))}
+                              {monthNoReason > 0 && (
+                                <span style={{fontSize:10,background:C.muted+"22",color:C.muted,padding:"3px 10px",borderRadius:8,fontWeight:600}}>
+                                  No Reason Set: {monthNoReason}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {selected.entries.length === 0 ? (
                         <p style={{color:C.muted,fontSize:13}}>No contracts expiring this month.</p>
                       ) : (
