@@ -4671,9 +4671,11 @@ export default function Dashboard() {
                         const endD = new Date(e.endDate);
                         endD.setDate(endD.getDate() + 1);
                         const availableFrom = endD.toISOString().slice(0, 10);
+                        // Skip non-residential units (parking, bike stores, etc.)
+                        if (!e.roomType || e.roomType === "Other") return;
                         availableRooms.push({
                           room: e.room,
-                          roomType: e.roomType || "Other",
+                          roomType: e.roomType,
                           availableFrom,
                           endDate: e.endDate,
                           name: e.name,
