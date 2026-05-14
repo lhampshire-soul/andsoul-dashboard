@@ -761,6 +761,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       phone: b.bookingContact?.mobileNumber || b.bookingContact?.phoneNumber || "",
       startDate, endDate, losDays: days, cumulDays: cumulDays,
       room: b.unit?.name || "—",
+      roomType: unitIdToRoomType[b.unit?.id] || "Other",
       status, pcm: months > 0 ? Math.round(gross / months) : 0,
       renewalPcm, // PCM of the follow-on stay (null if no follow-on)
       grossTotal: Math.round(gross),
@@ -4646,6 +4647,115 @@ export default function Dashboard() {
                       </div>
                     </div>
                   )}
+
+                  {/* ── Room Availability — rooms becoming available from confirmed departures ── */}
+                  {(() => {
+                    const today = new Date();
+                    const todayStr = today.toISOString().slice(0, 10);
+                    // 3-month lookahead
+                    const cutoff = new Date(today);
+                    cutoff.setMonth(cutoff.getMonth() + 3);
+                    const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+                    // Collect rooms from leaving/left entries across all months
+                    const availableRooms = [];
+                    monthStats.forEach(m => {
+                      m.leaving.forEach(e => {
+                        // Only future: end date >= today
+                        if (e.endDate < todayStr) return;
+                        // Within 3-month window
+                        if (e.endDate > cutoffStr) return;
+                        // Skip if this person actually renewed (safety check)
+                        if (e.isRenewed) return;
+                        // Available date = end date + 1 day (handover day)
+                        const endD = new Date(e.endDate);
+                        endD.setDate(endD.getDate() + 1);
+                        const availableFrom = endD.toISOString().slice(0, 10);
+                        availableRooms.push({
+                          room: e.room,
+                          roomType: e.roomType || "Other",
+                          availableFrom,
+                          endDate: e.endDate,
+                          name: e.name,
+                          pcm: e.pcm,
+                          roomStayId: e.roomStayId,
+                          isManualLeaving: leavingSet.has(e.roomStayId),
+                          reason: leavingReasons[e.roomStayId] || null,
+                        });
+                      });
+                    });
+
+                    if (availableRooms.length === 0) return null;
+
+                    // Group by room type
+                    const byType = {};
+                    availableRooms.forEach(r => {
+                      if (!byType[r.roomType]) byType[r.roomType] = [];
+                      byType[r.roomType].push(r);
+                    });
+                    // Sort each group by available date
+                    Object.values(byType).forEach(arr => arr.sort((a, b) => a.availableFrom.localeCompare(b.availableFrom)));
+                    // Sort room types by count (most rooms first)
+                    const sortedTypes = Object.entries(byType).sort((a, b) => b[1].length - a[1].length);
+
+                    return (
+                      <div style={{marginTop:24}}>
+                        <div style={{marginBottom:14}}>
+                          <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
+                          <p style={{fontSize:12,color:C.muted}}>
+                            Rooms becoming available in the next 3 months from confirmed departures.
+                            {" "}<span style={{color:C.sage,fontSize:10}}>Live data — rooms disappear if the resident renews.</span>
+                          </p>
+                        </div>
+
+                        <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                            <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total Rooms</p>
+                            <p style={{fontSize:22,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{availableRooms.length}</p>
+                          </div>
+                          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                            <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Room Types</p>
+                            <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{sortedTypes.length}</p>
+                          </div>
+                          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                            <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Earliest Available</p>
+                            <p style={{fontSize:14,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{new Date(availableRooms.sort((a,b) => a.availableFrom.localeCompare(b.availableFrom))[0].availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</p>
+                          </div>
+                        </div>
+
+                        {sortedTypes.map(([type, rooms]) => (
+                          <div key={type} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",marginBottom:10}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                                <span style={{fontSize:14,fontWeight:700,color:C.text}}>{type}</span>
+                                <span style={{fontSize:10,background:C.gold+"22",color:C.gold,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{rooms.length} room{rooms.length!==1?"s":""}</span>
+                              </div>
+                            </div>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:8}}>
+                              {rooms.map((r, i) => (
+                                <div key={r.roomStayId || i} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>
+                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                                    <span style={{fontSize:13,fontWeight:700,color:C.text}}>{r.room}</span>
+                                    <span style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{r.pcm.toLocaleString()}/mo</span>
+                                  </div>
+                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                                    <span style={{fontSize:11,color:C.sage,fontWeight:600}}>
+                                      Available {new Date(r.availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
+                                    </span>
+                                  </div>
+                                  <div style={{marginTop:4,display:"flex",gap:4,alignItems:"center"}}>
+                                    <span style={{fontSize:9,color:C.muted}}>Departing: {r.name}</span>
+                                    {r.reason && <span style={{fontSize:8,background:C.rose+"18",color:C.rose,padding:"1px 5px",borderRadius:4}}>{r.reason}</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                 </div>
               );
             })()}
