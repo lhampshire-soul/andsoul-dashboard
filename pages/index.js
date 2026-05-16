@@ -649,6 +649,8 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   // renewals board — even individually short extensions (e.g. 14d, 9d, 1d).
   // Any stay that follows a prior stay in the chain is marked as an extension/renewal.
   const chainCumulDays = {}; // roomStayId → cumulative days of its chain
+  const chainMaxSingleStay = {}; // roomStayId → longest individual stay (days) in its chain
+  const chainStayCount = {}; // roomStayId → number of stays in its chain
   const isChainExtension = {}; // roomStayId → true if this stay follows a prior in its chain
   {
     // Group bookings by contact
@@ -684,8 +686,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       // Calculate cumulative days for each chain and mark extensions
       for (const chain of chains) {
         const totalDays = chain.reduce((s, c) => s + c.days, 0);
+        const maxSingle = Math.max(...chain.map(c => c.days));
         chain.forEach((c, idx) => {
           chainCumulDays[c.rsid] = totalDays;
+          chainMaxSingleStay[c.rsid] = maxSingle;
+          chainStayCount[c.rsid] = chain.length;
           if (idx > 0) isChainExtension[c.rsid] = true;
         });
       }
@@ -709,11 +714,28 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     // stays total 27+ days, include ALL stays in that chain (even short extensions)
     const cumulDays = chainCumulDays[b.roomStayId] || days;
     if (cumulDays < 27) return;
+
+    // ─── EXCLUSION FILTERS (align dashboard with manual tracker) ─────────────
+    // 1. Non-residential units: parking, bike storage, corridors etc.
+    const unitRoomType = unitIdToRoomType[b.unit?.id];
+    if (!unitRoomType) return; // null = excluded unit type (parking, bike, corridor, etc.)
+
+    // 2. £0 stays: staff/internal rooms (e.g. Manan Maqsood, Paul Gillingham)
+    const netAmt = parseFloat(b.netAmount ?? 0);
+    const vatAmt = parseFloat(b.vatAmount ?? 0);
+    const grossAmt = netAmt + (isNaN(vatAmt) ? 0 : vatAmt);
+    if (grossAmt <= 0) return; // skip £0 PCM / staff rooms
+
+    // 3. Short-stay / nightly-rate guests: chains of multiple short bookings where
+    //    no single stay reaches 28 days. These are transient guests, not standard
+    //    residential contracts (e.g. Cody Moir, Callum Webber, Joseph Levi Ryan).
+    const maxSingle = chainMaxSingleStay[b.roomStayId] || days;
+    const stayCount = chainStayCount[b.roomStayId] || 1;
+    if (stayCount >= 2 && maxSingle < 28) return; // multiple short stays chained = nightly/short-stay pattern
+
     const monthKey = endDate.slice(0, 7);
     if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
-    const net = parseFloat(b.netAmount ?? 0);
-    const vat = parseFloat(b.vatAmount ?? 0);
-    const gross = net + (isNaN(vat) ? 0 : vat);
+    const gross = grossAmt; // reuse from filter calculation above
     // Use calendar month diff for more accurate PCM (avoids 30-day stays showing inflated rates)
     const sD = new Date(startDate), eD = new Date(endDate);
     const calMonths = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
@@ -761,7 +783,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       phone: b.bookingContact?.mobileNumber || b.bookingContact?.phoneNumber || "",
       startDate, endDate, losDays: days, cumulDays: cumulDays,
       room: b.unit?.name || "—",
-      roomType: unitIdToRoomType[b.unit?.id] || "Other",
+      roomType: unitRoomType, // already validated non-null above
       status, pcm: months > 0 ? Math.round(gross / months) : 0,
       renewalPcm, // PCM of the follow-on stay (null if no follow-on)
       grossTotal: Math.round(gross),
