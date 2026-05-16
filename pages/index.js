@@ -733,6 +733,12 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const stayCount = chainStayCount[b.roomStayId] || 1;
     if (stayCount >= 2 && maxSingle < 28) return; // multiple short stays chained = nightly/short-stay pattern
 
+    // 4. Chain extension bridge stays: if this stay is a follow-on in a consecutive
+    //    chain AND its own duration is < 28 days, it's a bridge/gap-fill — not a
+    //    separate renewal decision. The real renewal was on the main contract.
+    //    (e.g. 1-day or 3-day extensions that spill into a new month)
+    if (!!isChainExtension[b.roomStayId] && days < 28) return;
+
     const monthKey = endDate.slice(0, 7);
     if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
     const gross = grossAmt; // reuse from filter calculation above
