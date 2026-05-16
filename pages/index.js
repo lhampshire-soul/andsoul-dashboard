@@ -733,11 +733,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const stayCount = chainStayCount[b.roomStayId] || 1;
     if (stayCount >= 2 && maxSingle < 28) return; // multiple short stays chained = nightly/short-stay pattern
 
-    // 4. Very short stays in multi-stay chains: if this stay is < 7 days AND part of
+    // 4. Very short stays in multi-stay chains: if this stay is ≤ 3 days AND part of
     //    a chain with 2+ stays, it's a trial/bridge/gap-fill — not a real renewal
     //    decision. Applies to any position in the chain (first or follow-on).
     //    The actual renewal decision is on the longer stay(s) in the chain.
-    if (days < 7 && stayCount >= 2) return;
+    if (days <= 3 && stayCount >= 2) return;
 
     const monthKey = endDate.slice(0, 7);
     if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
