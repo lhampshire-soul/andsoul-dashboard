@@ -50,7 +50,32 @@ export default async function handler(req, res) {
       return res.status(apiRes.status).json(parsed);
     }
 
-    // Step 3: Discover valid endpoints by probing many paths
+    // Step 3: Update a resource (PATCH)
+    if (action === "update") {
+      const token = req.headers["x-rh-token"];
+      if (!token || !path) {
+        return res.status(400).json({ error: "Missing token or path" });
+      }
+      // Body comes from POST request body
+      const body = req.body;
+      const url = `https://apiv3.rerumapp.uk${path}`;
+      console.log(`RH PATCH: ${url}`, JSON.stringify(body).slice(0, 300));
+      const apiRes = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await apiRes.text();
+      console.log(`RH PATCH RESPONSE ${apiRes.status}: ${data.slice(0, 300)}`);
+      let parsed;
+      try { parsed = JSON.parse(data); } catch { parsed = { rawResponse: data }; }
+      return res.status(apiRes.status).json(parsed);
+    }
+
+    // Step 4: Discover valid endpoints by probing many paths
     if (action === "discover") {
       const token = req.headers["x-rh-token"];
       if (!token) {

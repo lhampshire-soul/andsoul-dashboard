@@ -782,6 +782,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     renewalsMap[monthKey].push({
       bookingId: b.bookingId,
       bookingReference: b.bookingReference,
+      customerReference: b.customerReference || "",
       roomStayId: b.roomStayId,
       contactId: b.contactId || b.bookingContact?.id,
       name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
@@ -989,6 +990,78 @@ async function loadGHL(dateFrom, dateTo) {
 }
 
 // ─── RES HARMONICS — routes through /api/rh (server-side, no CORS issues) ───
+// ─── EXCEL EXPORT HELPER ─────────────────────────────────────────────────────
+// Dynamically loads SheetJS from CDN and generates .xlsx file
+async function exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs) {
+  // Load SheetJS if not already loaded
+  if (!window.XLSX) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+  const XLSX = window.XLSX;
+
+  // Collect all renewed + pending entries across all months
+  const rows = [];
+  monthStats.forEach(m => {
+    const exportEntries = [...m.renewed, ...m.pendingRenewal];
+    exportEntries.forEach(e => {
+      const status = e.isRenewed ? "Renewed" : (e.isPendingRenewal || pendingSet.has(e.roomStayId)) ? "Pending" : "Not Started";
+      rows.push({
+        "Name": e.name || "—",
+        "Email": e.email || "—",
+        "Phone": e.phone || "—",
+        "Room": e.room || "—",
+        "Room Type": e.roomType || "—",
+        "Booking Ref": e.bookingReference || "—",
+        "Customer Ref": (customerRefs && customerRefs[e.roomStayId]) || e.customerReference || "—",
+        "Contract Start": e.startDate || "—",
+        "Contract End": e.endDate || "—",
+        "Days Until Expiry": e.daysUntilExpiry ?? "—",
+        "Current PCM (£)": e.pcm || 0,
+        "Renewal PCM (£)": e.renewalPcm ?? "—",
+        "Status": status,
+        "Renewal Month": m.label,
+        "Departure Reason": leavingReasons[e.roomStayId] || "—",
+      });
+    });
+  });
+
+  if (rows.length === 0) {
+    alert("No renewed or pending entries to export.");
+    return;
+  }
+
+  // Create workbook
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Set column widths
+  ws["!cols"] = [
+    { wch: 22 }, // Name
+    { wch: 28 }, // Email
+    { wch: 16 }, // Phone
+    { wch: 14 }, // Room
+    { wch: 16 }, // Room Type
+    { wch: 18 }, // Booking Ref
+    { wch: 18 }, // Customer Ref
+    { wch: 14 }, // Contract Start
+    { wch: 14 }, // Contract End
+    { wch: 16 }, // Days Until Expiry
+    { wch: 14 }, // Current PCM
+    { wch: 14 }, // Renewal PCM
+    { wch: 12 }, // Status
+    { wch: 14 }, // Renewal Month
+    { wch: 22 }, // Departure Reason
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Renewals");
+  const today = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `AndSoul_Renewals_${today}.xlsx`);
+}
+
 async function getRHToken(cid, sec) {
   const r = await fetch(`/api/rh?action=token&client_id=${encodeURIComponent(cid)}&client_secret=${encodeURIComponent(sec)}`);
   const data = await r.json();
@@ -999,6 +1072,17 @@ async function rhFetch(tok,path) {
   const r = await fetch(`/api/rh?action=fetch&path=${encodeURIComponent(path)}`,{headers:{"x-rh-token":tok}});
   const data = await r.json();
   if(!r.ok) throw new Error(data?.error ?? `${r.status}`);
+  return data;
+}
+
+async function rhUpdate(tok, path, body) {
+  const r = await fetch(`/api/rh?action=update&path=${encodeURIComponent(path)}`, {
+    method: "POST",
+    headers: { "x-rh-token": tok, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data?.error ?? `${r.status}`);
   return data;
 }
 
@@ -1628,6 +1712,43 @@ export default function Dashboard() {
     try { return new Set(JSON.parse(localStorage.getItem("renewal_pending_v1") || "[]")); } catch { return new Set(); }
   });
 
+  // Customer reference map: roomStayId → free-text reference
+  const [customerRefs, setCustomerRefs] = useState(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem("renewal_customer_refs_v1") || "{}"); } catch { return {}; }
+  });
+
+  // Save customer ref locally (and to RH API if connected)
+  const saveCustomerRef = useCallback((roomStayId, bookingId, value) => {
+    setCustomerRefs(prev => {
+      const next = { ...prev, [roomStayId]: value };
+      try { localStorage.setItem("renewal_customer_refs_v1", JSON.stringify(next)); } catch {}
+      return next;
+    });
+    // Also persist customerRefs to Redis (merge — API now does read-merge-write)
+    setCustomerRefs(prev => {
+      fetch("/api/renewal-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerRefs: prev }),
+      }).catch(() => {});
+      return prev;
+    });
+    // Attempt to update RH API if we have credentials
+    if (cid && csec && bookingId) {
+      (async () => {
+        try {
+          const tok = await getRHToken(cid, csec);
+          await rhUpdate(tok, `/api/v3/bookings/${bookingId}`, { customerReference: value });
+          console.log(`RH: Updated customerReference for booking ${bookingId} to "${value}"`);
+        } catch (e) {
+          console.log(`RH: Could not update customerReference for ${bookingId}:`, e.message);
+          // Still saved locally — will show in dashboard regardless
+        }
+      })();
+    }
+  }, [cid, csec]);
+
   // Helper: save both sets + leaving reasons to Redis + localStorage
   const persistRenewalState = useCallback((newLeaving, newPending, newReasons) => {
     const lArr = [...newLeaving];
@@ -1661,6 +1782,10 @@ export default function Dashboard() {
         if (data.leavingReasons && Object.keys(data.leavingReasons).length > 0) {
           setLeavingReasons(data.leavingReasons);
           try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(data.leavingReasons)); } catch {}
+        }
+        if (data.customerRefs && Object.keys(data.customerRefs).length > 0) {
+          setCustomerRefs(data.customerRefs);
+          try { localStorage.setItem("renewal_customer_refs_v1", JSON.stringify(data.customerRefs)); } catch {}
         }
       })
       .catch(() => {}); // fall back to localStorage values already in state
@@ -4275,14 +4400,20 @@ export default function Dashboard() {
 
               return (
                 <div>
-                  {/* Summary KPIs */}
-                  <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+                  {/* Summary KPIs + Export button */}
+                  <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap",alignItems:"flex-start"}}>
                     <KPI label="Expiring (12mo)" value={totalAll} sub="All contracts ending" accent={C.gold}/>
                     <KPI label="Renewed" value={`${totalRenewed} (${overallRenewedPct}%)`} sub="Contract signed" accent={C.sage}/>
                     <KPI label="Pending" value={totalPending} sub="Contract sent, awaiting signature" accent={C.blue}/>
                     <KPI label="Not Yet Started" value={totalNotStarted} sub="No renewal action yet" accent={C.gold}/>
                     <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub="Left or marked leaving" accent={C.rose}/>
                     <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, no action" accent={C.rose}/>
+                  </div>
+                  <div style={{display:"flex",gap:10,marginBottom:16}}>
+                    <button onClick={() => exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs)}
+                      style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.sage}`,background:C.sage+"22",color:C.sage,fontWeight:700,fontSize:11,cursor:"pointer",letterSpacing:"0.04em",display:"flex",alignItems:"center",gap:6}}>
+                      ↓ Export Renewed + Pending (.xlsx)
+                    </button>
                   </div>
 
                   {/* ── Leaving Reasons Pie Charts ── */}
@@ -4480,7 +4611,7 @@ export default function Dashboard() {
                               return renewalSort.dir === "desc" ? -cmp : cmp;
                             });
                             const sortCols = [
-                              {key:"name",label:"Name"},{key:null,label:"Booking Ref"},{key:"expiry",label:"Expiry"},
+                              {key:"name",label:"Name"},{key:null,label:"Booking Ref"},{key:null,label:"Cust Ref"},{key:"expiry",label:"Expiry"},
                               {key:"los",label:"LoS"},{key:"room",label:"Room"},{key:"pcm",label:"PCM"},
                               {key:"status",label:"Status"},{key:null,label:"Ref Check"},
                               {key:null,label:""},{key:null,label:"Reason"},{key:null,label:""},{key:null,label:"SMS"},{key:null,label:"Email"}
@@ -4529,6 +4660,18 @@ export default function Dashboard() {
                                       ) : (
                                         <span style={{color:C.muted}}>{e.bookingReference || "—"}</span>
                                       )}
+                                    </td>
+                                    <td style={{padding:"10px 6px",minWidth:110}}>
+                                      <input type="text"
+                                        value={customerRefs[e.roomStayId] ?? e.customerReference ?? ""}
+                                        onChange={ev => setCustomerRefs(prev => ({...prev, [e.roomStayId]: ev.target.value}))}
+                                        onBlur={ev => saveCustomerRef(e.roomStayId, e.bookingId, ev.target.value)}
+                                        onKeyDown={ev => { if (ev.key === "Enter") { ev.target.blur(); } }}
+                                        placeholder="Add ref..."
+                                        style={{width:"100%",background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 6px",fontSize:10,color:C.text,fontFamily:"DM Mono,monospace",outline:"none"}}
+                                        onFocus={ev => ev.target.style.borderColor = C.gold}
+                                        onBlurCapture={ev => ev.target.style.borderColor = C.border}
+                                      />
                                     </td>
                                     <td style={{padding:"10px 10px",color:expiryColor,fontWeight:e.critical&&displayStatus==="not_started"?700:400,whiteSpace:"nowrap"}}>
                                       {new Date(e.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}

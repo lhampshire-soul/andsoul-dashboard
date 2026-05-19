@@ -42,16 +42,21 @@ export default async function handler(req, res) {
         leaving: data.leaving || [],
         pending: data.pending || [],
         leavingReasons: data.leavingReasons || {},
+        customerRefs: data.customerRefs || {},
         updatedAt: data.updatedAt || null,
       });
     }
 
     if (req.method === "POST") {
       const body = req.body || {};
+      // Merge: read existing state first so partial updates don't clobber other fields
+      const existing = await client.get(REDIS_KEY);
+      const prev = existing ? JSON.parse(existing) : {};
       const record = {
-        leaving: Array.isArray(body.leaving) ? body.leaving : [],
-        pending: Array.isArray(body.pending) ? body.pending : [],
-        leavingReasons: (body.leavingReasons && typeof body.leavingReasons === "object") ? body.leavingReasons : {},
+        leaving: Array.isArray(body.leaving) ? body.leaving : (prev.leaving || []),
+        pending: Array.isArray(body.pending) ? body.pending : (prev.pending || []),
+        leavingReasons: (body.leavingReasons && typeof body.leavingReasons === "object") ? body.leavingReasons : (prev.leavingReasons || {}),
+        customerRefs: (body.customerRefs && typeof body.customerRefs === "object") ? body.customerRefs : (prev.customerRefs || {}),
         updatedAt: new Date().toISOString(),
       };
       await client.set(REDIS_KEY, JSON.stringify(record));
