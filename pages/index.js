@@ -1647,6 +1647,7 @@ export default function Dashboard() {
   const [rateAdjustments, setRateAdjustments] = useState({});
   const [forecastAwrOverride, setForecastAwrOverride] = useState(null); // null = use live AWR from RH
   const [offlineRooms, setOfflineRooms] = useState(10);
+  const [occupancyOverrides, setOccupancyOverrides] = useState({}); // monthIdx → occupancy % (0-100)
 
   // ── Canopy Reference Checks (loaded from Redis via webhook data) ──
   const [canopyData, setCanopyData] = useState(null); // { byEmail: { email -> { signal, rawStatus, ... } }, totalRecords }
@@ -3776,46 +3777,60 @@ export default function Dashboard() {
                   const liveAwrGross = pmsData?.awrByStatus?.all?.awrGross || Math.round(liveAwr * 1.07);
                   const useAwr = forecastAwrOverride ?? liveAwr;
                   const useAwrGross = forecastAwrOverride ? Math.round(forecastAwrOverride * 1.07) : liveAwrGross;
-                  // Build revenue rows from predRows
+                  const USABLE_REV = BEDS - offlineRooms;
+
+                  // Build revenue rows from predRows — with per-month occupancy overrides
                   const revRows = predRows.map((pr, i) => {
                     const dim = pr.daysInMonth || 30;
                     const confirmedRooms = pr.confirmedRooms || 0;
-                    const predictedRooms = pr.predictedRooms || 0;
-                    const newRooms = Math.max(0, predictedRooms - confirmedRooms);
-                    // Confirmed revenue: use actual RH booked days revenue if available, else estimate
+                    const modelPredictedRooms = pr.predictedRooms || 0;
+
+                    // Model occupancy % (what the prediction engine computed)
+                    const modelOccPct = USABLE_REV > 0 ? Math.round((modelPredictedRooms / USABLE_REV) * 100) : 0;
+
+                    // Effective occupancy: use override if set, else model prediction
+                    const occOverride = occupancyOverrides[i];
+                    const useOccPct = occOverride != null ? occOverride : modelOccPct;
+                    const effectiveRooms = occOverride != null ? Math.round(USABLE_REV * occOverride / 100) : modelPredictedRooms;
+
+                    const newRooms = Math.max(0, effectiveRooms - confirmedRooms);
                     const confirmedRevNet = Math.round(confirmedRooms * useAwr * (dim / 7));
                     const confirmedRevGross = Math.round(confirmedRooms * useAwrGross * (dim / 7));
-                    // Predicted additional revenue from new rooms
                     const newRevNet = Math.round(newRooms * useAwr * (dim / 7));
                     const newRevGross = Math.round(newRooms * useAwrGross * (dim / 7));
                     const totalRevNet = confirmedRevNet + newRevNet;
                     const totalRevGross = confirmedRevGross + newRevGross;
                     return {
-                      label: pr.label, confirmedRooms, predictedRooms, newRooms,
+                      label: pr.label, confirmedRooms, modelPredictedRooms, effectiveRooms, newRooms,
+                      modelOccPct, useOccPct, isOverridden: occOverride != null,
                       confirmedRevNet, confirmedRevGross, newRevNet, newRevGross,
                       totalRevNet, totalRevGross, isActual: pr.isPast || pr.isCurrent, isCurrent: pr.isCurrent, isPast: pr.isPast,
                     };
                   });
                   const totalPredRevNet = revRows.reduce((s, r) => s + r.totalRevNet, 0);
                   const totalPredRevGross = revRows.reduce((s, r) => s + r.totalRevGross, 0);
+                  const totalConfRevNet = revRows.reduce((s, r) => s + r.confirmedRevNet, 0);
+                  const totalNewRevNet = revRows.reduce((s, r) => s + r.newRevNet, 0);
                   const avgMonthlyNet = revRows.length > 0 ? Math.round(totalPredRevNet / revRows.length) : 0;
+                  const avgOccPct = revRows.length > 0 ? Math.round(revRows.reduce((s, r) => s + r.useOccPct, 0) / revRows.length) : 0;
                   // At full 95% occupancy monthly revenue
                   const full95Net = Math.round(TARGET_95 * useAwr * (30 / 7));
                   const full95Gross = Math.round(TARGET_95 * useAwrGross * (30 / 7));
+                  const hasAnyOccOverride = Object.keys(occupancyOverrides).length > 0;
 
                   return (
                     <div style={{marginTop:18,background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                         <div>
                           <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Predictive Revenue Model</p>
-                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Based on predicted occupancy × AWR · confirmed from Res Harmonics + forecasted new bookings</p>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Editable occupancy × AWR · live from Res Harmonics · adjust per month to model scenarios</p>
                         </div>
                         <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
                       </div>
 
-                      {/* AWR control */}
+                      {/* Controls row: AWR + 95% target + avg predicted */}
                       <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16,alignItems:"flex-end"}}>
-                        <div style={{flex:"1 1 250px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                        <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                             <span style={{fontSize:12,color:C.muted}}>AWR (net, ex-VAT)</span>
                             <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -3843,7 +3858,7 @@ export default function Dashboard() {
                         <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
                           <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Avg predicted monthly (net)</p>
                           <p style={{fontSize:20,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{avgMonthlyNet.toLocaleString()}</p>
-                          <p style={{fontSize:10,color:C.muted,marginTop:4}}>Across {revRows.length} forecast months</p>
+                          <p style={{fontSize:10,color:C.muted,marginTop:4}}>Avg occupancy: {avgOccPct}% · {revRows.length} months</p>
                         </div>
                       </div>
 
@@ -3866,17 +3881,20 @@ export default function Dashboard() {
                       <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginBottom:14}}>
                         <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.sage}}/> Confirmed revenue</span>
                         <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue+"66"}}/> Predicted new revenue</span>
+                        {hasAnyOccOverride && <button onClick={()=>setOccupancyOverrides({})}
+                          style={{background:"none",border:"none",color:C.blue,cursor:"pointer",fontSize:10,padding:0,marginLeft:"auto"}}>Reset all occupancy overrides</button>}
                       </div>
 
-                      {/* Revenue table */}
+                      {/* Revenue table with editable occupancy */}
                       <div style={{overflowX:"auto"}}>
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                           <thead>
                             <tr style={{borderBottom:`1px solid ${C.border}`}}>
                               <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
-                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed Rooms</th>
-                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Rooms</th>
-                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed Rev (net)</th>
+                              <th style={{textAlign:"center",padding:"8px 10px",color:C.gold,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Occupancy %</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Conf Rev (net)</th>
                               <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Rev (net)</th>
                               <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Total Rev (net)</th>
                               <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Total Rev (gross)</th>
@@ -3885,23 +3903,35 @@ export default function Dashboard() {
                           <tbody>
                             {revRows.map((r, i) => (
                               <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:r.isCurrent?C.gold+"0a":r.isPast?C.bg+"88":"transparent"}}>
-                                <td style={{padding:"8px 10px",color:r.isActual?C.text:C.muted,fontWeight:r.isCurrent?700:400}}>{r.label}{r.isCurrent?" (current)":r.isPast?" (actual)":""}</td>
+                                <td style={{padding:"8px 10px",color:r.isActual?C.text:C.muted,fontWeight:r.isCurrent?700:400,whiteSpace:"nowrap"}}>{r.label}{r.isCurrent?" (current)":r.isPast?" (actual)":""}</td>
+                                <td style={{padding:"4px 6px",textAlign:"center"}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:4,justifyContent:"center"}}>
+                                    <input type="number" min={0} max={100}
+                                      value={r.useOccPct}
+                                      onChange={e=>{const v=Math.max(0,Math.min(100,+e.target.value||0));setOccupancyOverrides(prev=>({...prev,[i]:v}));}}
+                                      style={{width:42,fontSize:12,fontWeight:700,color:r.isOverridden?C.gold:C.text,fontFamily:"DM Mono,monospace",background:r.isOverridden?C.gold+"12":"transparent",border:`1px solid ${r.isOverridden?C.gold+"66":C.border}`,borderRadius:4,padding:"2px 4px",textAlign:"right",outline:"none"}}/>
+                                    <span style={{fontSize:10,color:C.muted}}>%</span>
+                                    {r.isOverridden && <button onClick={()=>setOccupancyOverrides(prev=>{const n={...prev};delete n[i];return n;})}
+                                      style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:9,padding:0}} title="Reset to model">✕</button>}
+                                  </div>
+                                </td>
                                 <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{r.confirmedRooms}</td>
-                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue,fontWeight:600}}>{Math.round(r.predictedRooms)}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.isOverridden?C.gold:C.blue,fontWeight:600}}>{Math.round(r.effectiveRooms)}</td>
                                 <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>£{r.confirmedRevNet.toLocaleString()}</td>
                                 <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newRevNet>0?C.blue:C.muted}}>{r.newRevNet>0?`+£${r.newRevNet.toLocaleString()}`:"—"}</td>
                                 <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:700}}>£{r.totalRevNet.toLocaleString()}</td>
                                 <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>£{r.totalRevGross.toLocaleString()}</td>
                               </tr>
                             ))}
-                            <tr style={{borderTop:`2px solid ${C.border}`,fontWeight:700}}>
-                              <td style={{padding:"8px 10px",color:C.text}}>Total ({revRows.length} months)</td>
-                              <td style={{padding:"8px 10px"}}/>
-                              <td style={{padding:"8px 10px"}}/>
-                              <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>£{revRows.reduce((s,r)=>s+r.confirmedRevNet,0).toLocaleString()}</td>
-                              <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue}}>+£{revRows.reduce((s,r)=>s+r.newRevNet,0).toLocaleString()}</td>
-                              <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>£{totalPredRevNet.toLocaleString()}</td>
-                              <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>£{totalPredRevGross.toLocaleString()}</td>
+                            <tr style={{borderTop:`2px solid ${C.gold}44`,background:C.gold+"08",fontWeight:700}}>
+                              <td style={{padding:"10px 10px",color:C.gold,fontSize:13}}>Annual Total</td>
+                              <td style={{padding:"10px 10px",textAlign:"center",fontFamily:"DM Mono,monospace",fontSize:11,color:C.gold}}>{avgOccPct}% avg</td>
+                              <td style={{padding:"10px 10px"}}/>
+                              <td style={{padding:"10px 10px"}}/>
+                              <td style={{padding:"10px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage,fontSize:13}}>£{totalConfRevNet.toLocaleString()}</td>
+                              <td style={{padding:"10px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue,fontSize:13}}>+£{totalNewRevNet.toLocaleString()}</td>
+                              <td style={{padding:"10px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold,fontSize:14}}>£{totalPredRevNet.toLocaleString()}</td>
+                              <td style={{padding:"10px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted,fontSize:13}}>£{totalPredRevGross.toLocaleString()}</td>
                             </tr>
                           </tbody>
                         </table>
