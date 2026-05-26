@@ -1719,6 +1719,29 @@ export default function Dashboard() {
     try { return JSON.parse(localStorage.getItem("renewal_customer_refs_v1") || "{}"); } catch { return {}; }
   });
 
+  // ─── Lead Source Data ──────────────────────────────────────────────────────────
+  const [leadsData, setLeadsData] = useState([]);
+  const [leadsUpdatedAt, setLeadsUpdatedAt] = useState(null);
+  useEffect(() => {
+    fetch("/api/leads").then(r => r.json()).then(d => {
+      if (d.leads && d.leads.length) { setLeadsData(d.leads); setLeadsUpdatedAt(d.updatedAt); }
+    }).catch(() => {});
+  }, []);
+
+  const leadsFiltered = useMemo(() => {
+    if (!leadsData.length) return { bySource: {}, byChannel: {}, byDay: {}, total: 0, dateRange: "" };
+    const filtered = leadsData.filter(l => l.date >= from && l.date <= to);
+    const bySource = {};
+    const byChannel = {};
+    const byDay = {};
+    for (const l of filtered) {
+      bySource[l.source] = (bySource[l.source] || 0) + 1;
+      byChannel[l.channel] = (byChannel[l.channel] || 0) + 1;
+      byDay[l.date] = (byDay[l.date] || 0) + 1;
+    }
+    return { bySource, byChannel, byDay, total: filtered.length, dateRange: `${from} → ${to}` };
+  }, [leadsData, from, to]);
+
   // Save customer ref locally (and to RH API if connected)
   const saveCustomerRef = useCallback((roomStayId, bookingId, value) => {
     setCustomerRefs(prev => {
@@ -1863,15 +1886,11 @@ export default function Dashboard() {
 
   // ── Recent Booking Activity state ──
   const [activityFrom, setActivityFrom] = useState(() => {
-    const today = new Date();
-    const day = today.getDay(); // 0=Sun, 1=Mon, 2=Tue...
-    const daysBack = day >= 2 ? day - 2 : day + 5;
-    const lastTue = new Date(today);
-    lastTue.setDate(lastTue.getDate() - daysBack);
-    return lastTue.toISOString().slice(0,10);
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0,10);
   });
   const [activityTo, setActivityTo] = useState(() => new Date().toISOString().slice(0,10));
-  const [activityPreset, setActivityPreset] = useState(null);
+  const [activityPreset, setActivityPreset] = useState("7d");
 
   const recentActivity = useMemo(() => {
     if (!rhAllBookings || !rhAllBookings.length) return { newBookings:[], renewals:[], pending:[], all:[], losBuckets:{"<32d":0,"32-91d":0,"92-181d":0,"182-364d":0,"365d+":0}, roomBuckets:{}, stats:{newCount:0,renewalCount:0,pendingCount:0,totalActivity:0} };
@@ -2760,6 +2779,121 @@ export default function Dashboard() {
                   <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(gConvs>0?liveCampaigns.reduce((s,c)=>s+c.spend,0)/gConvs:0,"£",2)}/submit</td>
                 </tr></tfoot>
               </table>
+            </div>
+
+            {/* ── LEAD SOURCE BREAKDOWN ── */}
+            <div style={{marginTop:24}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:2}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Southall · {rangeLabel} · CSV Upload Data</p>
+                {leadsUpdatedAt && <p style={{fontSize:10,color:C.muted}}>Last updated: {new Date(leadsUpdatedAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</p>}
+              </div>
+              <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Lead Source Breakdown</h2>
+
+              {leadsData.length === 0 ? (
+                <div style={{padding:"16px 18px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,color:C.muted,fontSize:13}}>
+                  No lead data uploaded yet. Upload your weekly CSV in the chat to populate this section.
+                </div>
+              ) : (
+                <>
+                  {/* Summary KPIs */}
+                  <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                    <KPI label="Total Leads" value={leadsFiltered.total} sub={`In selected period`} accent={C.gold}/>
+                    <KPI label="Website Form" value={Object.entries(leadsFiltered.byChannel).filter(([k])=>k==="Organic").reduce((s,[,v])=>s+v,0)} sub="Direct / organic" accent={C.sage}/>
+                    <KPI label="Google Ads" value={leadsFiltered.bySource["Google Ads"]||0} sub="Paid search leads" accent={C.blue}/>
+                    <KPI label="Meta Ads" value={(leadsFiltered.bySource["Instagram Ad"]||0)+(leadsFiltered.bySource["Facebook Ad"]||0)+(leadsFiltered.bySource["Meta Ad"]||0)} sub="FB + IG paid leads" accent={C.purple}/>
+                    <KPI label="Instagram (Organic)" value={leadsFiltered.bySource["Instagram"]||0} sub="Non-paid IG" accent={C.rose}/>
+                  </div>
+
+                  <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+                    {/* Source breakdown table */}
+                    <div style={{flex:"1 1 400px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Leads by Source</p>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
+                          <th style={{padding:"5px 10px",textAlign:"left",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase"}}>Source</th>
+                          <th style={{padding:"5px 10px",textAlign:"right",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase"}}>Leads</th>
+                          <th style={{padding:"5px 10px",textAlign:"right",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase"}}>%</th>
+                          <th style={{padding:"5px 10px",textAlign:"left",color:C.muted,fontWeight:500,fontSize:10,width:"40%"}}></th>
+                        </tr></thead>
+                        <tbody>
+                          {Object.entries(leadsFiltered.bySource).sort((a,b)=>b[1]-a[1]).map(([src, count], i) => {
+                            const pct = leadsFiltered.total > 0 ? (count / leadsFiltered.total * 100) : 0;
+                            const maxCount = Math.max(...Object.values(leadsFiltered.bySource));
+                            const barPct = maxCount > 0 ? (count / maxCount * 100) : 0;
+                            const srcColors = {"Google Ads":C.blue,"Google Search":C.blue,"Instagram Ad":"#E1306C","Instagram":"#E1306C","Facebook Ad":"#4267B2","Meta Ad":"#4267B2","LinkedIn":"#0A66C2","Word of Mouth":C.sage,"Online Ad":C.gold,"TikTok":"#69C9D0"};
+                            const barColor = srcColors[src] || C.muted;
+                            return (
+                              <tr key={src} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                <td style={{padding:"7px 10px",color:C.text,fontSize:12}}>
+                                  <span style={{display:"inline-block",width:8,height:8,borderRadius:4,background:barColor,marginRight:6,verticalAlign:"middle"}}/>
+                                  {src}
+                                </td>
+                                <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{count}</td>
+                                <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted,fontSize:11}}>{pct.toFixed(1)}%</td>
+                                <td style={{padding:"7px 10px"}}>
+                                  <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden"}}>
+                                    <div style={{height:6,background:barColor,borderRadius:3,width:`${barPct}%`,opacity:0.7,transition:"width 0.3s ease"}}/>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot><tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"7px 10px",color:C.muted,fontSize:11,fontWeight:600}}>Total</td>
+                          <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{leadsFiltered.total}</td>
+                          <td colSpan={2}/>
+                        </tr></tfoot>
+                      </table>
+                    </div>
+
+                    {/* Channel breakdown */}
+                    <div style={{flex:"1 1 250px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>By Channel</p>
+                      {Object.entries(leadsFiltered.byChannel).sort((a,b)=>b[1]-a[1]).map(([ch, count]) => {
+                        const pct = leadsFiltered.total > 0 ? (count / leadsFiltered.total * 100) : 0;
+                        const chColors = {"Google Ads":C.blue,"Meta Ads":"#4267B2","Organic":C.sage,"Paid":C.gold};
+                        const cc = chColors[ch] || C.muted;
+                        return (
+                          <div key={ch} style={{marginBottom:12}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                              <span style={{fontSize:12,color:C.text}}>{ch}</span>
+                              <span style={{fontSize:12,fontFamily:"DM Mono,monospace",color:cc,fontWeight:600}}>{count} <span style={{color:C.muted,fontWeight:400}}>({pct.toFixed(0)}%)</span></span>
+                            </div>
+                            <div style={{height:8,background:C.border,borderRadius:4,overflow:"hidden"}}>
+                              <div style={{height:8,background:cc,borderRadius:4,width:`${pct}%`,opacity:0.7,transition:"width 0.3s ease"}}/>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Daily lead volume sparkline */}
+                      <div style={{marginTop:20}}>
+                        <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Daily Volume</p>
+                        {(() => {
+                          const days = Object.entries(leadsFiltered.byDay).sort((a,b)=>a[0].localeCompare(b[0]));
+                          if (!days.length) return <p style={{fontSize:11,color:C.muted}}>No data</p>;
+                          const maxD = Math.max(...days.map(d=>d[1]));
+                          return (
+                            <div style={{display:"flex",alignItems:"flex-end",gap:2,height:50}}>
+                              {days.map(([day, cnt]) => (
+                                <div key={day} title={`${day}: ${cnt} leads`} style={{flex:1,background:C.gold,borderRadius:"2px 2px 0 0",height:`${maxD>0?(cnt/maxD*100):0}%`,minHeight:2,opacity:0.65,cursor:"default",transition:"height 0.3s ease"}}/>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                        <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+                          {(() => {
+                            const days = Object.keys(leadsFiltered.byDay).sort();
+                            if (days.length < 2) return null;
+                            return <><span style={{fontSize:9,color:C.muted}}>{days[0].slice(5)}</span><span style={{fontSize:9,color:C.muted}}>{days[days.length-1].slice(5)}</span></>;
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* ── COST PER BOOKING ── */}
