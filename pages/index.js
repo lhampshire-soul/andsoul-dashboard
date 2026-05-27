@@ -859,22 +859,20 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       return localDateStr(mon);
     };
     // Collect all follow-on bookings with their creation dates
-    console.log("[WeeklyRenewals] renewalFollowOnRoomStayId entries:", Object.keys(renewalFollowOnRoomStayId).length, "bookingByRoomStayId entries:", Object.keys(bookingByRoomStayId).length);
     const renewalEvents = [];
-    let debugSkips = { noFollowOn: 0, noCreated: 0, noStatus: 0, noExpiring: 0, noSouthall: 0 };
     Object.entries(renewalFollowOnRoomStayId).forEach(([expiringRsId, followOnRsId]) => {
       const followOnBooking = bookingByRoomStayId[followOnRsId];
-      if (!followOnBooking) { debugSkips.noFollowOn++; return; }
+      if (!followOnBooking) return;
       const created = parseCreated(followOnBooking.bookingReference);
-      if (!created) { debugSkips.noCreated++; return; }
+      if (!created) return;
       const followOnStatus = (followOnBooking.roomStayStatus ?? "").toUpperCase();
-      if (!["PENDING","CONFIRMED","CHECKED_IN","CHECKED_OUT"].includes(followOnStatus)) { debugSkips.noStatus++; return; }
+      if (!["PENDING","CONFIRMED","CHECKED_IN","CHECKED_OUT"].includes(followOnStatus)) return;
       // Get the expiring booking details
       const expiringBooking = bookingByRoomStayId[Number(expiringRsId)];
-      if (!expiringBooking) { debugSkips.noExpiring++; return; }
+      if (!expiringBooking) return;
       // Only Southall
       const bld = (expiringBooking.unit?.buildingName || followOnBooking.unit?.buildingName || "").toLowerCase();
-      if (!bld.includes("southall")) { debugSkips.noSouthall++; return; }
+      if (!bld.includes("southall")) return;
       // Determine effective status: CHECKED_IN/CHECKED_OUT count as confirmed
       const effectiveStatus = (followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT") ? "CONFIRMED" : followOnStatus;
       renewalEvents.push({
@@ -889,8 +887,6 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         followOnEnd: (followOnBooking.endDate ?? "").slice(0,10),
       });
     });
-    console.log("[WeeklyRenewals] events:", renewalEvents.length, "skips:", debugSkips);
-    if (renewalEvents.length > 0) console.log("[WeeklyRenewals] sample:", renewalEvents[0]);
     // Group by week
     const byWeek = {};
     for (const ev of renewalEvents) {
