@@ -839,6 +839,77 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     });
   }
 
+  // ─── Weekly Renewals Activity ──────────────────────────────────────────────
+  // A "renewal done" = a follow-on booking was CREATED for an in-house or expiring tenant.
+  // We detect this by finding follow-on bookings (from renewalFollowOnRoomStayId) and
+  // parsing the creation date from the follow-on booking's bookingReference (YYYYMMDD-NNNNN).
+  // Group by ISO week of creation, showing PENDING vs CONFIRMED breakdown.
+  const weeklyRenewals = (() => {
+    const parseCreated = (ref) => {
+      if (!ref || ref.length < 8) return null;
+      return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+    };
+    // Get Monday of a given date's ISO week
+    const getWeekMonday = (dateStr) => {
+      const d = new Date(dateStr);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+      const mon = new Date(d);
+      mon.setDate(diff);
+      return localDateStr(mon);
+    };
+    // Collect all follow-on bookings with their creation dates
+    const renewalEvents = [];
+    Object.entries(renewalFollowOnRoomStayId).forEach(([expiringRsId, followOnRsId]) => {
+      const followOnBooking = bookingByRoomStayId[followOnRsId];
+      if (!followOnBooking) return;
+      const created = parseCreated(followOnBooking.bookingReference);
+      if (!created) return;
+      const followOnStatus = (followOnBooking.roomStayStatus ?? "").toUpperCase();
+      if (!["PENDING","CONFIRMED","CHECKED_IN","CHECKED_OUT"].includes(followOnStatus)) return;
+      // Get the expiring booking details
+      const expiringBooking = bookingByRoomStayId[Number(expiringRsId)];
+      if (!expiringBooking) return;
+      // Only Southall
+      const bld = (expiringBooking.unit?.buildingName || followOnBooking.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) return;
+      // Determine effective status: CHECKED_IN/CHECKED_OUT count as confirmed
+      const effectiveStatus = (followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT") ? "CONFIRMED" : followOnStatus;
+      renewalEvents.push({
+        created,
+        weekMonday: getWeekMonday(created),
+        status: effectiveStatus,
+        name: `${followOnBooking.bookingContact?.firstName || ""} ${followOnBooking.bookingContact?.lastName || ""}`.trim(),
+        bookingRef: followOnBooking.bookingReference,
+        expiringRef: expiringBooking.bookingReference,
+        room: followOnBooking.unit?.name || expiringBooking.unit?.name || "—",
+        followOnStart: (followOnBooking.startDate ?? "").slice(0,10),
+        followOnEnd: (followOnBooking.endDate ?? "").slice(0,10),
+      });
+    });
+    // Group by week
+    const byWeek = {};
+    for (const ev of renewalEvents) {
+      if (!byWeek[ev.weekMonday]) byWeek[ev.weekMonday] = [];
+      byWeek[ev.weekMonday].push(ev);
+    }
+    // Build sorted weeks array (last 12 weeks)
+    const weekKeys = Object.keys(byWeek).sort().slice(-12);
+    return weekKeys.map(wk => {
+      const events = byWeek[wk];
+      const wkEnd = new Date(wk);
+      wkEnd.setDate(wkEnd.getDate() + 6);
+      return {
+        weekMonday: wk,
+        weekLabel: `${new Date(wk).toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – ${wkEnd.toLocaleDateString("en-GB",{day:"numeric",month:"short"})}`,
+        events,
+        total: events.length,
+        confirmed: events.filter(e => e.status === "CONFIRMED").length,
+        pending: events.filter(e => e.status === "PENDING").length,
+      };
+    });
+  })();
+
   return {
     occupied: inHouseCount,
     inHouseGuests: inHouseGuestCount,
@@ -857,6 +928,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     losByStatus,
     awrByStatus,
     renewalMonths,
+    weeklyRenewals,
   };
 }
 
@@ -2027,7 +2099,7 @@ export default function Dashboard() {
       const history = cid ? (contactHistory[cid] || []) : [];
       const hasPrior = history.some(h => h.bookingRef !== c.bookingReference && h.roomStayId !== c.roomStayId && h.end <= c.startDate);
       const isRenewal = hasPrior;
-      c.activityType = isRenewal ? "Renewal" : "New";
+      c.activityType = isRenewal ? "Returning" : "New";
       if (isRenewal) {
         renewalBookings.push(c);
       } else {
@@ -3148,9 +3220,9 @@ export default function Dashboard() {
               {/* KPI cards */}
               <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
                 <KPI label="New Bookings" value={recentActivity.stats.newCount} sub="First-time tenants" accent={C.blue}/>
-                <KPI label="Renewals" value={recentActivity.stats.renewalCount} sub="Returning tenants" accent={C.sage}/>
+                <KPI label="Returning" value={recentActivity.stats.renewalCount} sub="Returning residents" accent={C.sage}/>
                 <KPI label="Moved to Pending" value={recentActivity.stats.pendingCount} sub="Status: PENDING" accent={C.gold}/>
-                <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Renewals" accent={C.text}/>
+                <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Returning" accent={C.text}/>
               </div>
 
               {/* LoS & Room Type breakdown */}
@@ -3273,7 +3345,7 @@ export default function Dashboard() {
                     <tbody>
                       {recentActivity.all.map((r,i)=>{
                         const statusColor = r.status==="CHECKED_IN"?C.sage:r.status==="CONFIRMED"?C.blue:C.gold;
-                        const typeColor = r.activityType==="Renewal"?C.sage:C.blue;
+                        const typeColor = r.activityType==="Returning"?C.sage:C.blue;
                         return (
                           <tr key={r.roomStayId||i} style={{borderBottom:`1px solid ${C.border}22`}}>
                             <td style={{padding:"8px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{r.name||"—"}</td>
@@ -4500,6 +4572,119 @@ export default function Dashboard() {
           <div style={{padding:"22px 26px"}}>
             <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Contract Management · Res Harmonics{pmsConn?" · live":""}{canopyConn?" · Canopy ✓":""}</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Renewals Dashboard</h2>
+
+            {/* ── Weekly Renewals Activity ── */}
+            {pmsConn && pmsData?.weeklyRenewals && pmsData.weeklyRenewals.length > 0 && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 22px",marginBottom:18}}>
+                <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>Weekly Renewal Activity</h3>
+                <p style={{fontSize:11,color:C.muted,marginBottom:14}}>Renewals processed each week — when a follow-on booking was created for an in-house resident</p>
+
+                {/* Bar chart */}
+                {(() => {
+                  const weeks = pmsData.weeklyRenewals;
+                  const maxTotal = Math.max(...weeks.map(w => w.total), 1);
+                  // Current week highlight
+                  const todayDate = new Date();
+                  const todayDay = todayDate.getDay();
+                  const mondayOffset = todayDate.getDate() - todayDay + (todayDay === 0 ? -6 : 1);
+                  const thisMonday = new Date(todayDate);
+                  thisMonday.setDate(mondayOffset);
+                  const thisMondayStr = thisMonday.toISOString().slice(0,10);
+                  return (
+                    <div>
+                      <div style={{display:"flex",gap:6,alignItems:"flex-end",marginBottom:14,minHeight:120}}>
+                        {weeks.map(w => {
+                          const isCurrentWeek = w.weekMonday === thisMondayStr;
+                          const barH = Math.max((w.total / maxTotal) * 100, 4);
+                          const confirmedH = w.total > 0 ? (w.confirmed / w.total) * barH : 0;
+                          const pendingH = barH - confirmedH;
+                          return (
+                            <div key={w.weekMonday} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                              <span style={{fontSize:11,fontWeight:700,color:w.total>0?C.text:C.muted,fontFamily:"DM Mono,monospace"}}>{w.total}</span>
+                              <div style={{width:"100%",maxWidth:48,display:"flex",flexDirection:"column",borderRadius:6,overflow:"hidden",border:isCurrentWeek?`2px solid ${C.gold}`:"none"}}>
+                                {pendingH > 0 && <div style={{height:pendingH,background:C.blue,transition:"height 0.3s"}}/>}
+                                {confirmedH > 0 && <div style={{height:confirmedH,background:C.sage,transition:"height 0.3s"}}/>}
+                                {w.total === 0 && <div style={{height:4,background:C.border}}/>}
+                              </div>
+                              <span style={{fontSize:9,color:isCurrentWeek?C.gold:C.muted,fontWeight:isCurrentWeek?700:400,textAlign:"center",lineHeight:"1.2"}}>{w.weekLabel.split(" – ")[0]}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Legend */}
+                      <div style={{display:"flex",gap:16,marginBottom:14}}>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <div style={{width:10,height:10,borderRadius:2,background:C.sage}}/>
+                          <span style={{fontSize:10,color:C.muted}}>Confirmed</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <div style={{width:10,height:10,borderRadius:2,background:C.blue}}/>
+                          <span style={{fontSize:10,color:C.muted}}>Pending</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <div style={{width:8,height:8,borderRadius:1,border:`2px solid ${C.gold}`}}/>
+                          <span style={{fontSize:10,color:C.muted}}>This week</span>
+                        </div>
+                      </div>
+
+                      {/* Summary KPIs for current week */}
+                      {(() => {
+                        const thisWeek = weeks.find(w => w.weekMonday === thisMondayStr);
+                        const lastWeek = weeks.length >= 2 ? weeks[weeks.length - 2] : null;
+                        const totalAllWeeks = weeks.reduce((s,w) => s + w.total, 0);
+                        const avgPerWeek = weeks.length > 0 ? Math.round(totalAllWeeks / weeks.length * 10) / 10 : 0;
+                        return (
+                          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                            <KPI label="This Week" value={thisWeek?.total || 0} sub={thisWeek ? `${thisWeek.confirmed} confirmed · ${thisWeek.pending} pending` : "No data"} accent={C.gold}/>
+                            {lastWeek && <KPI label="Last Week" value={lastWeek.total} sub={`${lastWeek.confirmed} confirmed · ${lastWeek.pending} pending`} accent={C.muted}/>}
+                            <KPI label="Avg / Week" value={avgPerWeek} sub={`Over ${weeks.length} weeks`} accent={C.blue}/>
+                            <KPI label="Total (12wk)" value={totalAllWeeks} sub={`${weeks.reduce((s,w)=>s+w.confirmed,0)} confirmed · ${weeks.reduce((s,w)=>s+w.pending,0)} pending`} accent={C.sage}/>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Expandable detail: list renewals for current week */}
+                      {(() => {
+                        const thisWeek = weeks.find(w => w.weekMonday === thisMondayStr);
+                        if (!thisWeek || thisWeek.events.length === 0) return null;
+                        return (
+                          <div style={{marginTop:14}}>
+                            <p style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>This Week's Renewals</p>
+                            <div style={{overflowX:"auto"}}>
+                              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                                <thead>
+                                  <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Created</th>
+                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
+                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
+                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {thisWeek.events.map((ev,i) => (
+                                    <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                      <td style={{padding:"8px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
+                                      <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.created}</td>
+                                      <td style={{padding:"8px 10px",color:C.muted}}>{ev.room}</td>
+                                      <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
+                                      <td style={{padding:"8px 10px"}}>
+                                        <span style={{fontSize:10,fontWeight:700,color:ev.status==="CONFIRMED"?C.sage:C.blue,background:(ev.status==="CONFIRMED"?C.sage:C.blue)+"22",padding:"2px 8px",borderRadius:8}}>{ev.status}</span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Canopy reference checks status bar */}
             <div style={{background:C.card,border:`1px solid ${canopyConn?C.sage+"44":C.border}`,borderRadius:12,padding:"12px 18px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
