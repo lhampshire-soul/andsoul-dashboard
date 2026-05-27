@@ -1749,6 +1749,12 @@ export default function Dashboard() {
   useEffect(() => { if (tab === "renewals" && !canopyConn && !canopyLoad) fetchCanopy(); }, [tab]);
 
   // ── Renewals state ──
+  const [renewalTrackerFrom, setRenewalTrackerFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0,10);
+  });
+  const [renewalTrackerTo, setRenewalTrackerTo] = useState(() => new Date().toISOString().slice(0,10));
+  const [renewalTrackerPreset, setRenewalTrackerPreset] = useState("7d");
   const [renewalSelectedMonth, setRenewalSelectedMonth] = useState(null);
   const [renewalSort, setRenewalSort] = useState({ col: "expiry", dir: "asc" }); // default sort by expiry ascending
   const [smsModal, setSmsModal] = useState(null);
@@ -4573,113 +4579,124 @@ export default function Dashboard() {
             <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Contract Management · Res Harmonics{pmsConn?" · live":""}{canopyConn?" · Canopy ✓":""}</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Renewals Dashboard</h2>
 
-            {/* ── Weekly Renewals Activity ── */}
-            {pmsConn && pmsData?.weeklyRenewals && pmsData.weeklyRenewals.length > 0 && (
+            {/* ── Renewal Activity Tracker (date-filtered, reconciles with board below) ── */}
+            {pmsConn && pmsData?.weeklyRenewals && (
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 22px",marginBottom:18}}>
-                <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>Weekly Renewal Activity</h3>
-                <p style={{fontSize:11,color:C.muted,marginBottom:14}}>Renewals processed each week — when a follow-on booking was created for an in-house resident</p>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10,marginBottom:14}}>
+                  <div>
+                    <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>Renewal Activity</h3>
+                    <p style={{fontSize:11,color:C.muted}}>Renewals processed in period + departing residents marked below</p>
+                  </div>
+                  {/* Date range picker */}
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                    {[{l:"Last 7d",k:"7d"},{l:"Last 14d",k:"14d"},{l:"Last 30d",k:"30d"}].map(p => (
+                      <button key={p.k} onClick={() => { const d=new Date(); d.setDate(d.getDate()-(p.k==="7d"?6:p.k==="14d"?13:29)); setRenewalTrackerFrom(d.toISOString().slice(0,10)); setRenewalTrackerTo(new Date().toISOString().slice(0,10)); setRenewalTrackerPreset(p.k); }}
+                        style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${renewalTrackerPreset===p.k?C.gold:C.border}`,background:renewalTrackerPreset===p.k?C.gold+"22":"transparent",color:renewalTrackerPreset===p.k?C.gold:C.muted,fontWeight:renewalTrackerPreset===p.k?700:500,fontSize:11,cursor:"pointer"}}>{p.l}</button>
+                    ))}
+                    <input type="date" value={renewalTrackerFrom} onChange={e=>{setRenewalTrackerFrom(e.target.value);setRenewalTrackerPreset(null);}} style={{padding:"4px 8px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:11,fontFamily:"DM Mono,monospace"}}/>
+                    <span style={{color:C.muted,fontSize:11}}>→</span>
+                    <input type="date" value={renewalTrackerTo} onChange={e=>{setRenewalTrackerTo(e.target.value);setRenewalTrackerPreset(null);}} style={{padding:"4px 8px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:11,fontFamily:"DM Mono,monospace"}}/>
+                  </div>
+                </div>
 
-                {/* Bar chart */}
                 {(() => {
-                  const weeks = pmsData.weeklyRenewals;
-                  const maxTotal = Math.max(...weeks.map(w => w.total), 1);
-                  // Current week highlight
-                  const todayDate = new Date();
-                  const todayDay = todayDate.getDay();
-                  const mondayOffset = todayDate.getDate() - todayDay + (todayDay === 0 ? -6 : 1);
-                  const thisMonday = new Date(todayDate);
-                  thisMonday.setDate(mondayOffset);
-                  const thisMondayStr = thisMonday.toISOString().slice(0,10);
+                  // Filter renewal events by selected date range
+                  const allEvents = pmsData.weeklyRenewals.flatMap(w => w.events);
+                  const filtered = allEvents.filter(ev => ev.created >= renewalTrackerFrom && ev.created <= renewalTrackerTo);
+                  const confirmed = filtered.filter(e => e.status === "CONFIRMED");
+                  const pending = filtered.filter(e => e.status === "PENDING");
+
+                  // Departing: count from the renewals board below — entries marked leaving whose
+                  // expiry falls in the selected period, reconciling with the board data
+                  const allRenewalEntries = (pmsData.renewalMonths || []).flatMap(m => m.entries);
+                  const departingInPeriod = allRenewalEntries.filter(e => {
+                    // Must be marked as leaving (manual override) or auto-expired
+                    const isLeaving = leavingSet.has(e.roomStayId);
+                    const isAutoLeft = e.expired && !e.isRenewed && !e.isPendingRenewal && !pendingSet.has(e.roomStayId);
+                    if (!isLeaving && !isAutoLeft) return false;
+                    // Filter by expiry date within range
+                    return e.endDate >= renewalTrackerFrom && e.endDate <= renewalTrackerTo;
+                  });
+
                   return (
                     <div>
-                      <div style={{display:"flex",gap:6,alignItems:"flex-end",marginBottom:14,minHeight:120}}>
-                        {weeks.map(w => {
-                          const isCurrentWeek = w.weekMonday === thisMondayStr;
-                          const barH = Math.max((w.total / maxTotal) * 100, 4);
-                          const confirmedH = w.total > 0 ? (w.confirmed / w.total) * barH : 0;
-                          const pendingH = barH - confirmedH;
-                          return (
-                            <div key={w.weekMonday} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                              <span style={{fontSize:11,fontWeight:700,color:w.total>0?C.text:C.muted,fontFamily:"DM Mono,monospace"}}>{w.total}</span>
-                              <div style={{width:"100%",maxWidth:48,display:"flex",flexDirection:"column",borderRadius:6,overflow:"hidden",border:isCurrentWeek?`2px solid ${C.gold}`:"none"}}>
-                                {pendingH > 0 && <div style={{height:pendingH,background:C.blue,transition:"height 0.3s"}}/>}
-                                {confirmedH > 0 && <div style={{height:confirmedH,background:C.sage,transition:"height 0.3s"}}/>}
-                                {w.total === 0 && <div style={{height:4,background:C.border}}/>}
-                              </div>
-                              <span style={{fontSize:9,color:isCurrentWeek?C.gold:C.muted,fontWeight:isCurrentWeek?700:400,textAlign:"center",lineHeight:"1.2"}}>{w.weekLabel.split(" – ")[0]}</span>
-                            </div>
-                          );
-                        })}
+                      {/* KPIs */}
+                      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+                        <KPI label="Renewals Done" value={filtered.length} sub={`Follow-on bookings created`} accent={C.gold}/>
+                        <KPI label="Confirmed" value={confirmed.length} sub="Contract signed" accent={C.sage}/>
+                        <KPI label="Pending" value={pending.length} sub="Awaiting signature" accent={C.blue}/>
+                        <KPI label="Departing" value={departingInPeriod.length} sub="Marked leaving / expired" accent={C.rose}/>
                       </div>
 
-                      {/* Legend */}
-                      <div style={{display:"flex",gap:16,marginBottom:14}}>
-                        <div style={{display:"flex",alignItems:"center",gap:5}}>
-                          <div style={{width:10,height:10,borderRadius:2,background:C.sage}}/>
-                          <span style={{fontSize:10,color:C.muted}}>Confirmed</span>
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:5}}>
-                          <div style={{width:10,height:10,borderRadius:2,background:C.blue}}/>
-                          <span style={{fontSize:10,color:C.muted}}>Pending</span>
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:5}}>
-                          <div style={{width:8,height:8,borderRadius:1,border:`2px solid ${C.gold}`}}/>
-                          <span style={{fontSize:10,color:C.muted}}>This week</span>
-                        </div>
-                      </div>
-
-                      {/* Summary KPIs for current week */}
-                      {(() => {
-                        const thisWeek = weeks.find(w => w.weekMonday === thisMondayStr);
-                        const lastWeek = weeks.length >= 2 ? weeks[weeks.length - 2] : null;
-                        const totalAllWeeks = weeks.reduce((s,w) => s + w.total, 0);
-                        const avgPerWeek = weeks.length > 0 ? Math.round(totalAllWeeks / weeks.length * 10) / 10 : 0;
-                        return (
-                          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-                            <KPI label="This Week" value={thisWeek?.total || 0} sub={thisWeek ? `${thisWeek.confirmed} confirmed · ${thisWeek.pending} pending` : "No data"} accent={C.gold}/>
-                            {lastWeek && <KPI label="Last Week" value={lastWeek.total} sub={`${lastWeek.confirmed} confirmed · ${lastWeek.pending} pending`} accent={C.muted}/>}
-                            <KPI label="Avg / Week" value={avgPerWeek} sub={`Over ${weeks.length} weeks`} accent={C.blue}/>
-                            <KPI label="Total (12wk)" value={totalAllWeeks} sub={`${weeks.reduce((s,w)=>s+w.confirmed,0)} confirmed · ${weeks.reduce((s,w)=>s+w.pending,0)} pending`} accent={C.sage}/>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Expandable detail: list renewals for current week */}
-                      {(() => {
-                        const thisWeek = weeks.find(w => w.weekMonday === thisMondayStr);
-                        if (!thisWeek || thisWeek.events.length === 0) return null;
-                        return (
-                          <div style={{marginTop:14}}>
-                            <p style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>This Week's Renewals</p>
-                            <div style={{overflowX:"auto"}}>
-                              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                                <thead>
-                                  <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
-                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Created</th>
-                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
-                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
-                                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                      {/* Table of renewal events in period */}
+                      {filtered.length > 0 && (
+                        <div style={{marginTop:4}}>
+                          <p style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                            Renewals in Period ({filtered.length})
+                          </p>
+                          <div style={{overflowX:"auto",maxHeight:300,overflowY:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead>
+                                <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Created</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filtered.sort((a,b)=>b.created.localeCompare(a.created)).map((ev,i) => (
+                                  <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.created}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
+                                    <td style={{padding:"7px 10px"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:ev.status==="CONFIRMED"?C.sage:C.blue,background:(ev.status==="CONFIRMED"?C.sage:C.blue)+"22",padding:"2px 8px",borderRadius:8}}>{ev.status}</span>
+                                    </td>
                                   </tr>
-                                </thead>
-                                <tbody>
-                                  {thisWeek.events.map((ev,i) => (
-                                    <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                                      <td style={{padding:"8px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
-                                      <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.created}</td>
-                                      <td style={{padding:"8px 10px",color:C.muted}}>{ev.room}</td>
-                                      <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
-                                      <td style={{padding:"8px 10px"}}>
-                                        <span style={{fontSize:10,fontWeight:700,color:ev.status==="CONFIRMED"?C.sage:C.blue,background:(ev.status==="CONFIRMED"?C.sage:C.blue)+"22",padding:"2px 8px",borderRadius:8}}>{ev.status}</span>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
-                        );
-                      })()}
+                        </div>
+                      )}
+
+                      {/* Departing list */}
+                      {departingInPeriod.length > 0 && (
+                        <div style={{marginTop:14}}>
+                          <p style={{fontSize:11,fontWeight:700,color:C.rose,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                            Departing in Period ({departingInPeriod.length})
+                          </p>
+                          <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead>
+                                <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Expiry</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Reason</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {departingInPeriod.sort((a,b)=>a.endDate.localeCompare(b.endDate)).map((e,i) => (
+                                  <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{e.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{e.endDate}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted}}>{e.room}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontSize:11}}>{leavingReasons[e.roomStayId]||"—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {filtered.length === 0 && departingInPeriod.length === 0 && (
+                        <p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>No renewal activity or departures in this period.</p>
+                      )}
                     </div>
                   );
                 })()}
