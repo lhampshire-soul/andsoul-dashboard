@@ -965,6 +965,48 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     });
   })();
 
+  // ─── All Current Pending Renewals (unfiltered snapshot) ────────────────────
+  // For the Renewal Activity tracker: show ALL pending bookings for in-house
+  // contacts regardless of creation date. This is a "current state" metric.
+  const pendingRenewals = (() => {
+    const ciContactIds = new Set();
+    allBookings.forEach(b => {
+      if ((b.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN") {
+        const cid = b.contactId || b.bookingContact?.id;
+        if (cid) ciContactIds.add(cid);
+      }
+    });
+    const results = [];
+    allBookings.forEach(b => {
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (status !== "PENDING") return;
+      const cid = b.contactId || b.bookingContact?.id;
+      if (!cid || !ciContactIds.has(cid)) return;
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) return;
+      const parseCreated = (ref) => {
+        if (!ref || ref.length < 8) return null;
+        return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+      };
+      const currentStay = allBookings.find(cb =>
+        (cb.contactId || cb.bookingContact?.id) === cid &&
+        (cb.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN" &&
+        (cb.unit?.buildingName || "").toLowerCase().includes("southall")
+      );
+      results.push({
+        created: parseCreated(b.bookingReference) || "—",
+        status: "PENDING",
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        bookingRef: b.bookingReference,
+        expiringRef: currentStay?.bookingReference || "—",
+        room: b.unit?.name || currentStay?.unit?.name || "—",
+        followOnStart: (b.startDate ?? "").slice(0,10),
+        followOnEnd: (b.endDate ?? "").slice(0,10),
+      });
+    });
+    return results;
+  })();
+
   return {
     occupied: inHouseCount,
     inHouseGuests: inHouseGuestCount,
@@ -984,6 +1026,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     awrByStatus,
     renewalMonths,
     weeklyRenewals,
+    pendingRenewals,
   };
 }
 
@@ -4659,7 +4702,8 @@ export default function Dashboard() {
                   const allEvents = pmsData.weeklyRenewals.flatMap(w => w.events);
                   const filtered = allEvents.filter(ev => ev.created >= renewalTrackerFrom && ev.created <= renewalTrackerTo);
                   const confirmed = filtered.filter(e => e.status === "CONFIRMED");
-                  const pending = filtered.filter(e => e.status === "PENDING");
+                  // Pending renewals: ALL current pending for in-house contacts (not date-filtered)
+                  const allPending = pmsData.pendingRenewals || [];
 
                   // Departing: count from the renewals board below — entries marked leaving whose
                   // expiry falls in the selected period, reconciling with the board data
@@ -4679,13 +4723,48 @@ export default function Dashboard() {
                       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
                         <KPI label="Renewals Done" value={filtered.length} sub={`Follow-on bookings created`} accent={C.gold}/>
                         <KPI label="Confirmed" value={confirmed.length} sub="Contract signed" accent={C.sage}/>
-                        <KPI label="Pending" value={pending.length} sub="Awaiting signature" accent={C.blue}/>
+                        <KPI label="Pending" value={allPending.length} sub="Awaiting signature" accent={C.blue}/>
                         <KPI label="Departing" value={departingInPeriod.length} sub="Marked leaving / expired" accent={C.rose}/>
                       </div>
 
-                      {/* Table of renewal events in period */}
-                      {filtered.length > 0 && (
+                      {/* Table of pending renewals (all current, not date-filtered) */}
+                      {allPending.length > 0 && (
                         <div style={{marginTop:4}}>
+                          <p style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                            Pending Renewals — In-House Contacts ({allPending.length})
+                          </p>
+                          <div style={{overflowX:"auto",maxHeight:300,overflowY:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead>
+                                <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Created</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {allPending.sort((a,b)=>b.created.localeCompare(a.created)).map((ev,i) => (
+                                  <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.created}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
+                                    <td style={{padding:"7px 10px"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:C.blue,background:C.blue+"22",padding:"2px 8px",borderRadius:8}}>PENDING</span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Table of confirmed renewal events in period */}
+                      {filtered.length > 0 && (
+                        <div style={{marginTop:14}}>
                           <p style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
                             Renewals in Period ({filtered.length})
                           </p>
@@ -4749,7 +4828,7 @@ export default function Dashboard() {
                         </div>
                       )}
 
-                      {filtered.length === 0 && departingInPeriod.length === 0 && (
+                      {filtered.length === 0 && allPending.length === 0 && departingInPeriod.length === 0 && (
                         <p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>No renewal activity or departures in this period.</p>
                       )}
                     </div>
