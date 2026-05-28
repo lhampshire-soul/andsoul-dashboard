@@ -173,6 +173,21 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       status: (b.roomStayStatus ?? "").toUpperCase()
     });
   });
+  // FIX: guestStays endpoint reports PENDING bookings as CONFIRMED — override
+  // with the authoritative status from the bookings endpoint. Without this,
+  // pending renewals appear as "renewed" and disappear from the pending tracker.
+  const bookingStatusByRsId = {};
+  allBookings.forEach(b => {
+    if (b.roomStayId && b.roomStayStatus) bookingStatusByRsId[b.roomStayId] = (b.roomStayStatus ?? "").toUpperCase();
+  });
+  Object.values(contactStays).forEach(stays => {
+    stays.forEach(s => {
+      const authStatus = bookingStatusByRsId[s.roomStayId];
+      if (authStatus && authStatus === "PENDING" && s.status !== "PENDING") {
+        s.status = "PENDING"; // bookings endpoint is authoritative for PENDING status
+      }
+    });
+  });
 
   // Build a set of roomStayIds that are renewals or room moves (not genuinely new)
   // Check all pairs — adjacent-only comparison misses renewals when long stays
