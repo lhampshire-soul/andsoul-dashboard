@@ -855,25 +855,28 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   }
 
   // ─── Weekly Renewals Activity ──────────────────────────────────────────────
-  // A "renewal done" = a follow-on booking was CREATED for an in-house or expiring tenant.
-  // We detect this by finding follow-on bookings (from renewalFollowOnRoomStayId) and
-  // parsing the creation date from the follow-on booking's bookingReference (YYYYMMDD-NNNNN).
-  // Group by ISO week of creation, showing PENDING vs CONFIRMED breakdown.
+  // Two sources of renewal events:
+  // 1. Follow-on bookings detected via renewalFollowOnRoomStayId (chain matching)
+  // 2. ALL pending bookings for contacts that have a current CHECKED_IN stay
+  //    (catches pending renewals that chain-matching misses)
+  // Creation date is parsed from bookingReference (YYYYMMDD-NNNNN format).
   const weeklyRenewals = (() => {
     const parseCreated = (ref) => {
       if (!ref || ref.length < 8) return null;
       return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
     };
-    // Get Monday of a given date's ISO week
     const getWeekMonday = (dateStr) => {
       const d = new Date(dateStr);
       const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
       const mon = new Date(d);
       mon.setDate(diff);
       return localDateStr(mon);
     };
-    // Collect all follow-on bookings with their creation dates
+    // Track which roomStayIds we've already added to avoid duplicates
+    const seenFollowOnRsIds = new Set();
+
+    // Source 1: follow-on bookings from chain matching
     const renewalEvents = [];
     Object.entries(renewalFollowOnRoomStayId).forEach(([expiringRsId, followOnRsId]) => {
       const followOnBooking = bookingByRoomStayId[followOnRsId];
@@ -882,14 +885,12 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       if (!created) return;
       const followOnStatus = (followOnBooking.roomStayStatus ?? "").toUpperCase();
       if (!["PENDING","CONFIRMED","CHECKED_IN","CHECKED_OUT"].includes(followOnStatus)) return;
-      // Get the expiring booking details
       const expiringBooking = bookingByRoomStayId[Number(expiringRsId)];
       if (!expiringBooking) return;
-      // Only Southall
       const bld = (expiringBooking.unit?.buildingName || followOnBooking.unit?.buildingName || "").toLowerCase();
       if (!bld.includes("southall")) return;
-      // Determine effective status: CHECKED_IN/CHECKED_OUT count as confirmed
       const effectiveStatus = (followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT") ? "CONFIRMED" : followOnStatus;
+      seenFollowOnRsIds.add(followOnRsId);
       renewalEvents.push({
         created,
         weekMonday: getWeekMonday(created),
@@ -902,13 +903,52 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         followOnEnd: (followOnBooking.endDate ?? "").slice(0,10),
       });
     });
+
+    // Source 2: ALL pending bookings for in-house contacts (not already captured above)
+    // This catches pending renewals that chain-matching misses (e.g. gap > 14 days,
+    // or booking created before the prior stay existed in the system)
+    const checkedInContactIds = new Set();
+    allBookings.forEach(b => {
+      if ((b.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN") {
+        const cid = b.contactId || b.bookingContact?.id;
+        if (cid) checkedInContactIds.add(cid);
+      }
+    });
+    allBookings.forEach(b => {
+      if (seenFollowOnRsIds.has(b.roomStayId)) return; // already captured via chain matching
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (status !== "PENDING") return;
+      const cid = b.contactId || b.bookingContact?.id;
+      if (!cid || !checkedInContactIds.has(cid)) return; // only for in-house contacts
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) return;
+      const created = parseCreated(b.bookingReference);
+      if (!created) return;
+      // Find the contact's current checked-in booking as the "expiring" reference
+      const currentStay = allBookings.find(cb =>
+        (cb.contactId || cb.bookingContact?.id) === cid &&
+        (cb.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN" &&
+        (cb.unit?.buildingName || "").toLowerCase().includes("southall")
+      );
+      renewalEvents.push({
+        created,
+        weekMonday: getWeekMonday(created),
+        status: "PENDING",
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        bookingRef: b.bookingReference,
+        expiringRef: currentStay?.bookingReference || "—",
+        room: b.unit?.name || currentStay?.unit?.name || "—",
+        followOnStart: (b.startDate ?? "").slice(0,10),
+        followOnEnd: (b.endDate ?? "").slice(0,10),
+      });
+    });
+
     // Group by week
     const byWeek = {};
     for (const ev of renewalEvents) {
       if (!byWeek[ev.weekMonday]) byWeek[ev.weekMonday] = [];
       byWeek[ev.weekMonday].push(ev);
     }
-    // Build sorted weeks array (last 12 weeks)
     const weekKeys = Object.keys(byWeek).sort().slice(-12);
     return weekKeys.map(wk => {
       const events = byWeek[wk];
