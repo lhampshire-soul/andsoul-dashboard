@@ -4728,7 +4728,7 @@ export default function Dashboard() {
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10,marginBottom:14}}>
                   <div>
                     <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>Renewal Activity</h3>
-                    <p style={{fontSize:11,color:C.muted}}>Renewal activity for in-house contacts · All metrics filtered by selected date range</p>
+                    <p style={{fontSize:11,color:C.muted}}>Live renewal status for in-house contacts · Departing filtered by date range</p>
                   </div>
                   {/* Date range picker */}
                   <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
@@ -4743,12 +4743,11 @@ export default function Dashboard() {
                 </div>
 
                 {(() => {
-                  // All renewals for in-house contacts, filtered by creation date
-                  const allPendingAll = pmsData.pendingRenewals || [];
-                  const allConfirmedAll = pmsData.confirmedRenewals || [];
-                  const filteredPending = allPendingAll.filter(ev => ev.created >= renewalTrackerFrom && ev.created <= renewalTrackerTo);
-                  const filteredConfirmed = allConfirmedAll.filter(ev => ev.created >= renewalTrackerFrom && ev.created <= renewalTrackerTo);
-                  const filteredAll = [...filteredConfirmed, ...filteredPending];
+                  // Confirmed & Pending are LIVE SNAPSHOTS — current state for all in-house contacts
+                  // (RH API has no "confirmed date" so date-filtering these would show 0)
+                  const allPending = pmsData.pendingRenewals || [];
+                  const allConfirmed = pmsData.confirmedRenewals || [];
+                  const allRenewals = [...allConfirmed, ...allPending];
 
                   // Departing: entries marked leaving whose expiry falls in the selected period
                   const allRenewalEntries = (pmsData.renewalMonths || []).flatMap(m => m.entries);
@@ -4763,38 +4762,69 @@ export default function Dashboard() {
                     <div>
                       {/* KPIs */}
                       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
-                        <KPI label="Renewed" value={filteredAll.length} sub="Created in period" accent={C.gold}/>
-                        <KPI label="Confirmed" value={filteredConfirmed.length} sub="Contract signed" accent={C.sage}/>
-                        <KPI label="Pending" value={filteredPending.length} sub="Awaiting signature" accent={C.blue}/>
-                        <KPI label="Departing" value={departingInPeriod.length} sub="Marked leaving / expired" accent={C.rose}/>
+                        <KPI label="Renewed" value={allRenewals.length} sub="In-house with follow-on" accent={C.gold}/>
+                        <KPI label="Confirmed" value={allConfirmed.length} sub="Contract signed" accent={C.sage}/>
+                        <KPI label="Pending" value={allPending.length} sub="Awaiting signature" accent={C.blue}/>
+                        <KPI label="Departing" value={departingInPeriod.length} sub="Leaving in date range" accent={C.rose}/>
                       </div>
 
-                      {/* Combined renewals table (confirmed + pending in period) */}
-                      {filteredAll.length > 0 && (
+                      {/* Confirmed renewals table */}
+                      {allConfirmed.length > 0 && (
                         <div style={{marginTop:4}}>
-                          <p style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                            Renewals in Period ({filteredAll.length})
+                          <p style={{fontSize:11,fontWeight:700,color:C.sage,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                            Confirmed Renewals ({allConfirmed.length})
                           </p>
-                          <div style={{overflowX:"auto",maxHeight:350,overflowY:"auto"}}>
+                          <div style={{overflowX:"auto",maxHeight:280,overflowY:"auto"}}>
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                               <thead>
                                 <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Created</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {filteredAll.sort((a,b)=>b.created.localeCompare(a.created)).map((ev,i) => (
+                                {allConfirmed.sort((a,b)=>(a.followOnStart||"").localeCompare(b.followOnStart||"")).map((ev,i) => (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
-                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.created}</td>
                                     <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
                                     <td style={{padding:"7px 10px"}}>
-                                      <span style={{fontSize:10,fontWeight:700,color:ev.status==="CONFIRMED"?C.sage:C.blue,background:(ev.status==="CONFIRMED"?C.sage:C.blue)+"22",padding:"2px 8px",borderRadius:8}}>{ev.status}</span>
+                                      <span style={{fontSize:10,fontWeight:700,color:C.sage,background:C.sage+"22",padding:"2px 8px",borderRadius:8}}>CONFIRMED</span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Pending renewals table */}
+                      {allPending.length > 0 && (
+                        <div style={{marginTop:14}}>
+                          <p style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                            Pending Renewals ({allPending.length})
+                          </p>
+                          <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead>
+                                <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {allPending.sort((a,b)=>(a.followOnStart||"").localeCompare(b.followOnStart||"")).map((ev,i) => (
+                                  <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
+                                    <td style={{padding:"7px 10px"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:C.blue,background:C.blue+"22",padding:"2px 8px",borderRadius:8}}>PENDING</span>
                                     </td>
                                   </tr>
                                 ))}
@@ -4835,8 +4865,8 @@ export default function Dashboard() {
                         </div>
                       )}
 
-                      {filteredAll.length === 0 && departingInPeriod.length === 0 && (
-                        <p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>No renewal activity or departures in this date range.</p>
+                      {allRenewals.length === 0 && departingInPeriod.length === 0 && (
+                        <p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>No renewals or departures found.</p>
                       )}
                     </div>
                   );
