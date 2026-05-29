@@ -998,20 +998,19 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         status: "PENDING",
         name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
         bookingRef: b.bookingReference,
+        roomStayId: b.roomStayId,
         expiringRef: currentStay?.bookingReference || "—",
         room: b.unit?.name || currentStay?.unit?.name || "—",
         followOnStart: (b.startDate ?? "").slice(0,10),
         followOnEnd: (b.endDate ?? "").slice(0,10),
+        // These will be enriched after individual roomStay fetch:
+        conversionDate: null, confirmedDate: null, contractSignedDate: null,
       });
     });
     return results;
   })();
 
   // ─── All Current Confirmed Renewals (unfiltered snapshot) ──────────────────
-  // Same approach as pendingRenewals: show ALL confirmed follow-on bookings for
-  // in-house contacts regardless of creation date. When a booking moves from
-  // PENDING → CONFIRMED (contract signed), there's no "confirmed date" in the
-  // API, so we show all confirmed renewals as a current-state snapshot.
   const confirmedRenewals = (() => {
     const ciContactIds = new Set();
     allBookings.forEach(b => {
@@ -1042,10 +1041,13 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         status: "CONFIRMED",
         name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
         bookingRef: b.bookingReference,
+        roomStayId: b.roomStayId,
         expiringRef: currentStay?.bookingReference || "—",
         room: b.unit?.name || currentStay?.unit?.name || "—",
         followOnStart: (b.startDate ?? "").slice(0,10),
         followOnEnd: (b.endDate ?? "").slice(0,10),
+        // These will be enriched after individual roomStay fetch:
+        conversionDate: null, confirmedDate: null, contractSignedDate: null,
       });
     });
     return results;
@@ -1316,6 +1318,29 @@ async function rhFetchAll(tok, basePath, maxPages=50) {
     page++;
   }
   return all;
+}
+
+// ─── Enrich renewal objects with status change dates from individual roomStay ─
+// The list endpoint doesn't include conversionDate/confirmedDate/contractSignedDate.
+// We must fetch /api/v3/roomStays/{id} for each renewal to get these timestamps.
+async function enrichRenewalsWithDates(tok, renewals) {
+  const BATCH = 10; // concurrency limit
+  for (let i = 0; i < renewals.length; i += BATCH) {
+    const batch = renewals.slice(i, i + BATCH);
+    await Promise.all(batch.map(async (r) => {
+      if (!r.roomStayId) return;
+      try {
+        const detail = await rhFetch(tok, `/api/v3/roomStays/${r.roomStayId}`);
+        r.conversionDate = detail.conversionDate ? detail.conversionDate.slice(0, 10) : null;
+        r.confirmedDate = detail.confirmedDate ? detail.confirmedDate.slice(0, 10) : null;
+        r.contractSignedDate = detail.contractSignedDate ? detail.contractSignedDate.slice(0, 10) : null;
+        r.lastStatusChangeDate = detail.lastStatusChangeDate ? detail.lastStatusChangeDate.slice(0, 10) : null;
+      } catch (e) {
+        console.log(`Failed to enrich roomStay ${r.roomStayId}:`, e.message);
+      }
+    }));
+  }
+  return renewals;
 }
 
 // ─── UI COMPONENTS ────────────────────────────────────────────────────────────
@@ -2377,6 +2402,11 @@ export default function Dashboard() {
       try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) {}
 
       const metrics = computePmsMetrics(allGuestStays, mergedBookings, allUnits);
+
+      // Enrich renewal objects with status change dates
+      const allRenewals = [...(metrics.pendingRenewals || []), ...(metrics.confirmedRenewals || [])];
+      await enrichRenewalsWithDates(tok, allRenewals);
+
       setPmsData(metrics);
       setRhAllBookings(mergedBookings);
       setRhAllUnits(allUnits);
@@ -2424,6 +2454,13 @@ export default function Dashboard() {
 
       const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
       console.log(`RH: occupied=${metrics.occupied}, checkIns=${metrics.checkInsWeek}, checkOuts=${metrics.checkOutsWeek}, monthRev=${metrics.revenue}, awr=${metrics.globalAwr}`);
+
+      // Enrich renewal objects with status change dates (conversionDate, confirmedDate, contractSignedDate)
+      const allRenewals = [...(metrics.pendingRenewals || []), ...(metrics.confirmedRenewals || [])];
+      console.log(`Enriching ${allRenewals.length} renewals with status dates...`);
+      await enrichRenewalsWithDates(tok, allRenewals);
+      console.log("Renewal date enrichment complete");
+
       setPmsData(metrics);
       setRhAllBookings(allBookings);
       setRhAllUnits(allUnits);
@@ -4728,7 +4765,7 @@ export default function Dashboard() {
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10,marginBottom:14}}>
                   <div>
                     <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>Renewal Activity</h3>
-                    <p style={{fontSize:11,color:C.muted}}>Live renewal status for in-house contacts · Departing filtered by date range</p>
+                    <p style={{fontSize:11,color:C.muted}}>Renewal activity for in-house contacts · All metrics filtered by date range</p>
                   </div>
                   {/* Date range picker */}
                   <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
@@ -4743,11 +4780,28 @@ export default function Dashboard() {
                 </div>
 
                 {(() => {
-                  // Confirmed & Pending are LIVE SNAPSHOTS — current state for all in-house contacts
-                  // (RH API has no "confirmed date" so date-filtering these would show 0)
-                  const allPending = pmsData.pendingRenewals || [];
-                  const allConfirmed = pmsData.confirmedRenewals || [];
-                  const allRenewals = [...allConfirmed, ...allPending];
+                  // Now using REAL status change dates from individual roomStay API:
+                  // - conversionDate = when contract was sent (booking moved to PENDING)
+                  // - confirmedDate = when ops confirmed (booking moved to CONFIRMED)
+                  // - contractSignedDate = when DocuSign/Canopy was signed
+                  const allPendingAll = pmsData.pendingRenewals || [];
+                  const allConfirmedAll = pmsData.confirmedRenewals || [];
+
+                  // Filter CONFIRMED by confirmedDate (when it was actually confirmed)
+                  const filteredConfirmed = allConfirmedAll.filter(ev => {
+                    const d = ev.confirmedDate || ev.contractSignedDate || ev.conversionDate;
+                    if (!d) return false;
+                    return d >= renewalTrackerFrom && d <= renewalTrackerTo;
+                  });
+
+                  // Filter PENDING by conversionDate (when contract was sent out)
+                  const filteredPending = allPendingAll.filter(ev => {
+                    const d = ev.conversionDate;
+                    if (!d) return false;
+                    return d >= renewalTrackerFrom && d <= renewalTrackerTo;
+                  });
+
+                  const filteredAll = [...filteredConfirmed, ...filteredPending];
 
                   // Departing: entries marked leaving whose expiry falls in the selected period
                   const allRenewalEntries = (pmsData.renewalMonths || []).flatMap(m => m.entries);
@@ -4762,32 +4816,41 @@ export default function Dashboard() {
                     <div>
                       {/* KPIs */}
                       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
-                        <KPI label="Renewed" value={allRenewals.length} sub="In-house with follow-on" accent={C.gold}/>
-                        <KPI label="Confirmed" value={allConfirmed.length} sub="Contract signed" accent={C.sage}/>
-                        <KPI label="Pending" value={allPending.length} sub="Awaiting signature" accent={C.blue}/>
-                        <KPI label="Departing" value={departingInPeriod.length} sub="Leaving in date range" accent={C.rose}/>
+                        <KPI label="Renewed" value={filteredAll.length} sub="In selected period" accent={C.gold}/>
+                        <KPI label="Confirmed" value={filteredConfirmed.length} sub="Signed in period" accent={C.sage}/>
+                        <KPI label="Pending" value={filteredPending.length} sub="Contracts sent in period" accent={C.blue}/>
+                        <KPI label="Departing" value={departingInPeriod.length} sub="Leaving in period" accent={C.rose}/>
                       </div>
 
-                      {/* Confirmed renewals table */}
-                      {allConfirmed.length > 0 && (
+                      {/* Totals context bar */}
+                      <div style={{display:"flex",gap:16,marginBottom:14,padding:"6px 12px",background:C.bg,borderRadius:8,fontSize:11,color:C.muted}}>
+                        <span>Total in-house renewals: <strong style={{color:C.text}}>{allConfirmedAll.length + allPendingAll.length}</strong></span>
+                        <span>Confirmed: <strong style={{color:C.sage}}>{allConfirmedAll.length}</strong></span>
+                        <span>Pending: <strong style={{color:C.blue}}>{allPendingAll.length}</strong></span>
+                      </div>
+
+                      {/* Confirmed renewals in period */}
+                      {filteredConfirmed.length > 0 && (
                         <div style={{marginTop:4}}>
                           <p style={{fontSize:11,fontWeight:700,color:C.sage,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                            Confirmed Renewals ({allConfirmed.length})
+                            Confirmed in Period ({filteredConfirmed.length})
                           </p>
                           <div style={{overflowX:"auto",maxHeight:280,overflowY:"auto"}}>
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                               <thead>
                                 <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {allConfirmed.sort((a,b)=>(a.followOnStart||"").localeCompare(b.followOnStart||"")).map((ev,i) => (
+                                {filteredConfirmed.sort((a,b)=>(b.confirmedDate||"").localeCompare(a.confirmedDate||"")).map((ev,i) => (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.sage,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.confirmedDate||ev.contractSignedDate||"—"}</td>
                                     <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
                                     <td style={{padding:"7px 10px"}}>
@@ -4801,26 +4864,28 @@ export default function Dashboard() {
                         </div>
                       )}
 
-                      {/* Pending renewals table */}
-                      {allPending.length > 0 && (
+                      {/* Pending (contracts sent) in period */}
+                      {filteredPending.length > 0 && (
                         <div style={{marginTop:14}}>
                           <p style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                            Pending Renewals ({allPending.length})
+                            Contracts Sent in Period ({filteredPending.length})
                           </p>
                           <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                               <thead>
                                 <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Sent</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {allPending.sort((a,b)=>(a.followOnStart||"").localeCompare(b.followOnStart||"")).map((ev,i) => (
+                                {filteredPending.sort((a,b)=>(b.conversionDate||"").localeCompare(a.conversionDate||"")).map((ev,i) => (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.blue,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.conversionDate||"—"}</td>
                                     <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
                                     <td style={{padding:"7px 10px"}}>
@@ -4866,7 +4931,7 @@ export default function Dashboard() {
                       )}
 
                       {allRenewals.length === 0 && departingInPeriod.length === 0 && (
-                        <p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>No renewals or departures found.</p>
+                        <p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>No renewal activity or departures in this date range.</p>
                       )}
                     </div>
                   );
