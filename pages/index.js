@@ -4930,7 +4930,7 @@ export default function Dashboard() {
                         </div>
                       )}
 
-                      {allRenewals.length === 0 && departingInPeriod.length === 0 && (
+                      {filteredAll.length === 0 && departingInPeriod.length === 0 && (
                         <p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>No renewal activity or departures in this date range.</p>
                       )}
                     </div>
