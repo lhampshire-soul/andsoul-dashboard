@@ -2338,7 +2338,7 @@ export default function Dashboard() {
       // Step 2: Send via GHL conversations API
       const payload = isSms
         ? { type: "SMS", contactId, message: body }
-        : { type: "Email", contactId, subject: emailSubject.trim(), message: body, emailFrom: "hello@andsoul.com" };
+        : { type: "Email", contactId, subject: emailSubject.trim(), message: body, emailFrom: "stay@andsoul.com" };
       const res = await fetch(`/api/ghl?path=${encodeURIComponent("/conversations/messages")}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
