@@ -5565,6 +5565,42 @@ export default function Dashboard() {
                       });
                     });
 
+                    // Cross-reference with all bookings to find next incoming booking per room
+                    const allBk = rhAllBookings || [];
+                    availableRooms.forEach(r => {
+                      // Find bookings for the same room that start on or after this room becomes available
+                      const roomName = r.room;
+                      let nextBooking = null;
+                      allBk.forEach(b => {
+                        if (!b.unit?.name || b.unit.name !== roomName) return;
+                        const bStart = (b.startDate || "").slice(0, 10);
+                        const bStatus = (b.roomStayStatus || "").toUpperCase();
+                        if (bStatus !== "CONFIRMED" && bStatus !== "PENDING" && bStatus !== "CHECKED_IN") return;
+                        // Must start on or after the available date
+                        if (bStart < r.availableFrom) return;
+                        // Skip the departing person's own booking
+                        if (b.roomStayId === r.roomStayId) return;
+                        if (!nextBooking || bStart < nextBooking.start) {
+                          nextBooking = {
+                            start: bStart,
+                            name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+                            status: bStatus,
+                          };
+                        }
+                      });
+                      if (nextBooking) {
+                        const avail = new Date(r.availableFrom);
+                        const nxt = new Date(nextBooking.start);
+                        const gapDays = Math.round((nxt - avail) / 86400000);
+                        r.nextBookingStart = nextBooking.start;
+                        r.nextBookingName = nextBooking.name;
+                        r.nextBookingStatus = nextBooking.status;
+                        r.gapDays = gapDays;
+                      } else {
+                        r.gapDays = null; // No upcoming booking found — fully available
+                      }
+                    });
+
                     if (availableRooms.length === 0) return null;
 
                     // Group by room type
@@ -5612,8 +5648,12 @@ export default function Dashboard() {
                               </div>
                             </div>
                             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:8}}>
-                              {rooms.map((r, i) => (
-                                <div key={r.roomStayId || i} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>
+                              {rooms.map((r, i) => {
+                                const hasNext = r.gapDays !== null;
+                                const shortGap = hasNext && r.gapDays <= 28;
+                                const borderColor = shortGap ? C.sage+"66" : hasNext ? C.gold+"66" : C.border;
+                                return (
+                                <div key={r.roomStayId || i} style={{background:C.bg,border:`1px solid ${borderColor}`,borderRadius:8,padding:"10px 12px",position:"relative"}}>
                                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                                     <span style={{fontSize:13,fontWeight:700,color:C.text}}>{r.room}</span>
                                     <span style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{r.pcm.toLocaleString()}/mo</span>
@@ -5623,12 +5663,29 @@ export default function Dashboard() {
                                       Available {new Date(r.availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
                                     </span>
                                   </div>
-                                  <div style={{marginTop:4,display:"flex",gap:4,alignItems:"center"}}>
+                                  <div style={{marginTop:4,display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
                                     <span style={{fontSize:9,color:C.muted}}>Departing: {r.name}</span>
                                     {r.reason && <span style={{fontSize:8,background:C.rose+"18",color:C.rose,padding:"1px 5px",borderRadius:4}}>{r.reason}</span>}
                                   </div>
+                                  {hasNext && (
+                                    <div style={{marginTop:6,padding:"4px 8px",borderRadius:6,background:shortGap ? C.sage+"12" : C.gold+"12",display:"flex",alignItems:"center",gap:6}}>
+                                      <span style={{fontSize:9,fontWeight:700,color:shortGap ? C.sage : C.gold}}>
+                                        {shortGap ? "⚡" : "📅"} Next booking in {r.gapDays} day{r.gapDays !== 1 ? "s" : ""}
+                                      </span>
+                                      <span style={{fontSize:8,color:C.muted}}>
+                                        {r.nextBookingName} · {new Date(r.nextBookingStart + "T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                                        {r.nextBookingStatus === "PENDING" && <span style={{color:C.gold,marginLeft:3}}>(Pending)</span>}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {!hasNext && (
+                                    <div style={{marginTop:6,padding:"4px 8px",borderRadius:6,background:C.rose+"10",display:"flex",alignItems:"center",gap:4}}>
+                                      <span style={{fontSize:9,fontWeight:600,color:C.rose}}>No upcoming booking — fully available</span>
+                                    </div>
+                                  )}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
