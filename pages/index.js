@@ -5526,38 +5526,30 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* ── Room Availability — rooms becoming available from confirmed departures ── */}
+                  {/* ── Room Availability — only rooms with 60+ days empty (no upcoming booking) ── */}
                   {(() => {
                     const today = new Date();
                     const todayStr = today.toISOString().slice(0, 10);
-                    // 3-month lookahead
+                    const MIN_GAP = 60; // Only show rooms with at least 60 days empty
+                    // 3-month lookahead for departures
                     const cutoff = new Date(today);
                     cutoff.setMonth(cutoff.getMonth() + 3);
                     const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-                    // Collect rooms from leaving/left entries across all months
-                    const availableRooms = [];
+                    // Collect candidate rooms from departures
+                    const candidates = [];
                     monthStats.forEach(m => {
                       m.leaving.forEach(e => {
-                        // Only future: end date >= today
                         if (e.endDate < todayStr) return;
-                        // Within 3-month window
                         if (e.endDate > cutoffStr) return;
-                        // Skip if this person actually renewed (safety check)
                         if (e.isRenewed) return;
-                        // Available date = end date + 1 day (handover day)
+                        if (!e.roomType || e.roomType === "Other") return;
                         const endD = new Date(e.endDate);
                         endD.setDate(endD.getDate() + 1);
                         const availableFrom = endD.toISOString().slice(0, 10);
-                        // Skip non-residential units (parking, bike stores, etc.)
-                        if (!e.roomType || e.roomType === "Other") return;
-                        availableRooms.push({
-                          room: e.room,
-                          roomType: e.roomType,
-                          availableFrom,
-                          endDate: e.endDate,
-                          name: e.name,
-                          pcm: e.pcm,
+                        candidates.push({
+                          room: e.room, roomType: e.roomType, availableFrom,
+                          endDate: e.endDate, name: e.name, pcm: e.pcm,
                           roomStayId: e.roomStayId,
                           isManualLeaving: leavingSet.has(e.roomStayId),
                           reason: leavingReasons[e.roomStayId] || null,
@@ -5565,43 +5557,44 @@ export default function Dashboard() {
                       });
                     });
 
-                    // Cross-reference with all bookings to find next incoming booking per room
+                    // Cross-reference every candidate against all bookings to find next incoming
                     const allBk = rhAllBookings || [];
-                    availableRooms.forEach(r => {
-                      // Find bookings for the same room that start on or after this room becomes available
-                      const roomName = r.room;
-                      let nextBooking = null;
+                    const availableRooms = [];
+                    candidates.forEach(r => {
+                      let nextStart = null;
                       allBk.forEach(b => {
-                        if (!b.unit?.name || b.unit.name !== roomName) return;
+                        if (!b.unit?.name || b.unit.name !== r.room) return;
                         const bStart = (b.startDate || "").slice(0, 10);
                         const bStatus = (b.roomStayStatus || "").toUpperCase();
                         if (bStatus !== "CONFIRMED" && bStatus !== "PENDING" && bStatus !== "CHECKED_IN") return;
-                        // Must start on or after the available date
                         if (bStart < r.availableFrom) return;
-                        // Skip the departing person's own booking
                         if (b.roomStayId === r.roomStayId) return;
-                        if (!nextBooking || bStart < nextBooking.start) {
-                          nextBooking = {
-                            start: bStart,
-                            name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
-                            status: bStatus,
-                          };
-                        }
+                        if (!nextStart || bStart < nextStart) nextStart = bStart;
                       });
-                      if (nextBooking) {
-                        const avail = new Date(r.availableFrom);
-                        const nxt = new Date(nextBooking.start);
-                        const gapDays = Math.round((nxt - avail) / 86400000);
-                        r.nextBookingStart = nextBooking.start;
-                        r.nextBookingName = nextBooking.name;
-                        r.nextBookingStatus = nextBooking.status;
+                      if (nextStart) {
+                        const gapDays = Math.round((new Date(nextStart) - new Date(r.availableFrom)) / 86400000);
+                        if (gapDays < MIN_GAP) return; // Not enough empty time — skip entirely
                         r.gapDays = gapDays;
+                        r.nextBookingStart = nextStart;
                       } else {
-                        r.gapDays = null; // No upcoming booking found — fully available
+                        r.gapDays = null; // No booking at all — fully open
                       }
+                      availableRooms.push(r);
                     });
 
-                    if (availableRooms.length === 0) return null;
+                    if (availableRooms.length === 0) return (
+                      <div style={{marginTop:24}}>
+                        <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
+                        <p style={{fontSize:12,color:C.muted,marginBottom:10}}>
+                          Rooms with 60+ days empty after departure — no short-gap rooms shown.
+                          {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
+                        </p>
+                        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,textAlign:"center"}}>
+                          <p style={{color:C.sage,fontWeight:600,fontSize:14}}>All rooms have bookings within 60 days</p>
+                          <p style={{color:C.muted,fontSize:11,marginTop:4}}>No vacancies to fill right now.</p>
+                        </div>
+                      </div>
+                    );
 
                     // Group by room type
                     const byType = {};
@@ -5609,9 +5602,7 @@ export default function Dashboard() {
                       if (!byType[r.roomType]) byType[r.roomType] = [];
                       byType[r.roomType].push(r);
                     });
-                    // Sort each group by available date
                     Object.values(byType).forEach(arr => arr.sort((a, b) => a.availableFrom.localeCompare(b.availableFrom)));
-                    // Sort room types by count (most rooms first)
                     const sortedTypes = Object.entries(byType).sort((a, b) => b[1].length - a[1].length);
 
                     return (
@@ -5619,15 +5610,15 @@ export default function Dashboard() {
                         <div style={{marginBottom:14}}>
                           <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
                           <p style={{fontSize:12,color:C.muted}}>
-                            Rooms becoming available in the next 3 months from confirmed departures.
-                            {" "}<span style={{color:C.sage,fontSize:10}}>Live data — rooms disappear if the resident renews.</span>
+                            Rooms with 60+ days empty after departure — these need filling.
+                            {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
                           </p>
                         </div>
 
                         <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
                           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
-                            <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total Rooms</p>
-                            <p style={{fontSize:22,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{availableRooms.length}</p>
+                            <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Rooms to Fill</p>
+                            <p style={{fontSize:22,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{availableRooms.length}</p>
                           </div>
                           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
                             <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Room Types</p>
@@ -5644,48 +5635,34 @@ export default function Dashboard() {
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                               <div style={{display:"flex",alignItems:"center",gap:10}}>
                                 <span style={{fontSize:14,fontWeight:700,color:C.text}}>{type}</span>
-                                <span style={{fontSize:10,background:C.gold+"22",color:C.gold,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{rooms.length} room{rooms.length!==1?"s":""}</span>
+                                <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{rooms.length} room{rooms.length!==1?"s":""}</span>
                               </div>
                             </div>
-                            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:8}}>
-                              {rooms.map((r, i) => {
-                                const hasNext = r.gapDays !== null;
-                                const shortGap = hasNext && r.gapDays <= 28;
-                                const borderColor = shortGap ? C.sage+"66" : hasNext ? C.gold+"66" : C.border;
-                                return (
-                                <div key={r.roomStayId || i} style={{background:C.bg,border:`1px solid ${borderColor}`,borderRadius:8,padding:"10px 12px",position:"relative"}}>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:8}}>
+                              {rooms.map((r, i) => (
+                                <div key={r.roomStayId || i} style={{background:C.bg,border:`1px solid ${C.rose}33`,borderRadius:8,padding:"10px 12px"}}>
                                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                                     <span style={{fontSize:13,fontWeight:700,color:C.text}}>{r.room}</span>
                                     <span style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{r.pcm.toLocaleString()}/mo</span>
                                   </div>
-                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                                    <span style={{fontSize:11,color:C.sage,fontWeight:600}}>
-                                      Available {new Date(r.availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
-                                    </span>
+                                  <div style={{fontSize:11,color:C.sage,fontWeight:600,marginBottom:4}}>
+                                    Available {new Date(r.availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
                                   </div>
-                                  <div style={{marginTop:4,display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                                  <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
                                     <span style={{fontSize:9,color:C.muted}}>Departing: {r.name}</span>
                                     {r.reason && <span style={{fontSize:8,background:C.rose+"18",color:C.rose,padding:"1px 5px",borderRadius:4}}>{r.reason}</span>}
                                   </div>
-                                  {hasNext && (
-                                    <div style={{marginTop:6,padding:"4px 8px",borderRadius:6,background:shortGap ? C.sage+"12" : C.gold+"12",display:"flex",alignItems:"center",gap:6}}>
-                                      <span style={{fontSize:9,fontWeight:700,color:shortGap ? C.sage : C.gold}}>
-                                        {shortGap ? "⚡" : "📅"} Next booking in {r.gapDays} day{r.gapDays !== 1 ? "s" : ""}
+                                  <div style={{padding:"4px 8px",borderRadius:6,background:C.rose+"10"}}>
+                                    {r.gapDays !== null ? (
+                                      <span style={{fontSize:9,fontWeight:700,color:C.gold}}>
+                                        Empty for {r.gapDays} days · next booking {new Date(r.nextBookingStart + "T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
                                       </span>
-                                      <span style={{fontSize:8,color:C.muted}}>
-                                        {r.nextBookingName} · {new Date(r.nextBookingStart + "T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
-                                        {r.nextBookingStatus === "PENDING" && <span style={{color:C.gold,marginLeft:3}}>(Pending)</span>}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {!hasNext && (
-                                    <div style={{marginTop:6,padding:"4px 8px",borderRadius:6,background:C.rose+"10",display:"flex",alignItems:"center",gap:4}}>
-                                      <span style={{fontSize:9,fontWeight:600,color:C.rose}}>No upcoming booking — fully available</span>
-                                    </div>
-                                  )}
+                                    ) : (
+                                      <span style={{fontSize:9,fontWeight:700,color:C.rose}}>No upcoming booking — fully open</span>
+                                    )}
+                                  </div>
                                 </div>
-                                );
-                              })}
+                              ))}
                             </div>
                           </div>
                         ))}
