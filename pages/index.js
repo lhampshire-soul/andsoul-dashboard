@@ -1374,6 +1374,111 @@ const OccRing = ({pct,color=C.gold,label="target"}) => {
 const PRESETS=[{l:"7d",d:7},{l:"14d",d:14},{l:"30d",d:30}];
 const dinp={background:C.card,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"5px 10px",fontSize:12,fontFamily:"DM Mono,monospace"};
 
+// ─── CALENDAR DATE PICKER ───
+const CalendarPicker = ({ value, onChange, style }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const parsed = value ? new Date(value + "T00:00:00") : new Date();
+  const [viewYear, setViewYear] = useState(parsed.getFullYear());
+  const [viewMonth, setViewMonth] = useState(parsed.getMonth());
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Sync view when value changes externally
+  useEffect(() => {
+    if (value) {
+      const d = new Date(value + "T00:00:00");
+      setViewYear(d.getFullYear());
+      setViewMonth(d.getMonth());
+    }
+  }, [value]);
+
+  const DAYS = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  // Monday = 0
+  let startDay = new Date(viewYear, viewMonth, 1).getDay() - 1;
+  if (startDay < 0) startDay = 6;
+
+  const cells = [];
+  for (let i = 0; i < startDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const today = new Date().toISOString().slice(0,10);
+  const fmt = (d) => `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+
+  const displayDate = value
+    ? new Date(value + "T00:00:00").toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" })
+    : "Pick date";
+
+  const prevMonth = () => { if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y-1); } else setViewMonth(m => m-1); };
+  const nextMonth = () => { if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y+1); } else setViewMonth(m => m+1); };
+
+  return (
+    <div ref={ref} style={{ position:"relative", display:"inline-block", ...style }}>
+      <button onClick={() => setOpen(!open)} style={{
+        padding:"4px 10px", borderRadius:8, border:`1px solid ${C.border}`, background:C.card,
+        color:C.text, fontSize:11, fontFamily:"'DM Mono',monospace", cursor:"pointer",
+        display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap"
+      }}>
+        <span style={{fontSize:13}}>📅</span> {displayDate}
+      </button>
+      {open && (
+        <div style={{
+          position:"absolute", top:"100%", left:0, marginTop:4, zIndex:9999,
+          background:C.card, border:`1px solid ${C.border}`, borderRadius:12,
+          padding:12, boxShadow:"0 8px 24px rgba(0,0,0,0.4)", width:240
+        }}>
+          {/* Header: month nav */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <button onClick={prevMonth} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:14, padding:"2px 6px" }}>◀</button>
+            <span style={{ fontSize:12, fontWeight:700, color:C.text }}>{MONTHS[viewMonth]} {viewYear}</span>
+            <button onClick={nextMonth} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:14, padding:"2px 6px" }}>▶</button>
+          </div>
+          {/* Day headers */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:1, marginBottom:4 }}>
+            {DAYS.map(d => <div key={d} style={{ textAlign:"center", fontSize:9, color:C.muted, fontWeight:700, padding:"2px 0" }}>{d}</div>)}
+          </div>
+          {/* Day grid */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:1 }}>
+            {cells.map((day, i) => {
+              if (!day) return <div key={`e${i}`} />;
+              const iso = fmt(day);
+              const isSelected = iso === value;
+              const isToday = iso === today;
+              return (
+                <button key={i} onClick={() => { onChange(iso); setOpen(false); }} style={{
+                  width:30, height:28, borderRadius:6, border:"none", cursor:"pointer",
+                  fontSize:11, fontWeight: isSelected ? 700 : 400,
+                  background: isSelected ? C.gold+"33" : "transparent",
+                  color: isSelected ? C.gold : isToday ? C.sage : C.text,
+                  outline: isToday && !isSelected ? `1px solid ${C.sage}44` : "none",
+                  margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center",
+                }}>
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+          {/* Quick: Today */}
+          <div style={{ marginTop:8, textAlign:"center" }}>
+            <button onClick={() => { onChange(today); setOpen(false); }} style={{
+              fontSize:10, color:C.gold, background:"none", border:"none", cursor:"pointer", textDecoration:"underline"
+            }}>Today</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── PERFORMANCE INSIGHTS: period-over-period, source mix, device mix, expert playbook ───
 const PerformanceInsights = ({ analytics, propertyLabel }) => {
   if (!analytics?.data) return null;
@@ -2726,9 +2831,9 @@ export default function Dashboard() {
           {PRESETS.map(o=>(
             <button key={o.d} onClick={()=>setPreset(o.d)} style={{padding:"4px 13px",borderRadius:20,border:`1px solid ${preset===o.d?C.gold:C.border}`,background:preset===o.d?C.gold+"22":"transparent",color:preset===o.d?C.gold:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>Last {o.l}</button>
           ))}
-          <input type="date" value={from} onChange={e=>{setFrom(e.target.value);setPreset(null);}} style={dinp}/>
+          <CalendarPicker value={from} onChange={v=>{setFrom(v);setPreset(null);}} />
           <span style={{fontSize:11,color:C.muted}}>→</span>
-          <input type="date" value={to} onChange={e=>{setTo(e.target.value);setPreset(null);}} style={dinp}/>
+          <CalendarPicker value={to} onChange={v=>{setTo(v);setPreset(null);}} />
           <span style={{marginLeft:"auto",fontSize:11,color:C.gold,fontFamily:"DM Mono,monospace"}}>{from} → {to}</span>
         </div>
 
@@ -3397,9 +3502,9 @@ export default function Dashboard() {
                   ].map(o=>(
                     <button key={o.k} onClick={o.fn} style={{padding:"4px 13px",borderRadius:20,border:`1px solid ${activityPreset===o.k?C.gold:C.border}`,background:activityPreset===o.k?C.gold+"22":"transparent",color:activityPreset===o.k?C.gold:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>{o.l}</button>
                   ))}
-                  <input type="date" value={activityFrom} onChange={e=>{setActivityFrom(e.target.value);setActivityPreset(null);}} style={dinp}/>
+                  <CalendarPicker value={activityFrom} onChange={v=>{setActivityFrom(v);setActivityPreset(null);}} />
                   <span style={{fontSize:11,color:C.muted}}>→</span>
-                  <input type="date" value={activityTo} onChange={e=>{setActivityTo(e.target.value);setActivityPreset(null);}} style={dinp}/>
+                  <CalendarPicker value={activityTo} onChange={v=>{setActivityTo(v);setActivityPreset(null);}} />
                 </div>
               </div>
 
@@ -4773,9 +4878,9 @@ export default function Dashboard() {
                       <button key={p.k} onClick={() => { const d=new Date(); d.setDate(d.getDate()-(p.k==="7d"?6:p.k==="14d"?13:29)); setRenewalTrackerFrom(d.toISOString().slice(0,10)); setRenewalTrackerTo(new Date().toISOString().slice(0,10)); setRenewalTrackerPreset(p.k); }}
                         style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${renewalTrackerPreset===p.k?C.gold:C.border}`,background:renewalTrackerPreset===p.k?C.gold+"22":"transparent",color:renewalTrackerPreset===p.k?C.gold:C.muted,fontWeight:renewalTrackerPreset===p.k?700:500,fontSize:11,cursor:"pointer"}}>{p.l}</button>
                     ))}
-                    <input type="date" value={renewalTrackerFrom} onChange={e=>{setRenewalTrackerFrom(e.target.value);setRenewalTrackerPreset(null);}} style={{padding:"4px 8px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:11,fontFamily:"DM Mono,monospace"}}/>
+                    <CalendarPicker value={renewalTrackerFrom} onChange={v=>{setRenewalTrackerFrom(v);setRenewalTrackerPreset(null);}} />
                     <span style={{color:C.muted,fontSize:11}}>→</span>
-                    <input type="date" value={renewalTrackerTo} onChange={e=>{setRenewalTrackerTo(e.target.value);setRenewalTrackerPreset(null);}} style={{padding:"4px 8px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:11,fontFamily:"DM Mono,monospace"}}/>
+                    <CalendarPicker value={renewalTrackerTo} onChange={v=>{setRenewalTrackerTo(v);setRenewalTrackerPreset(null);}} />
                   </div>
                 </div>
 
