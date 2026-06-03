@@ -5117,87 +5117,12 @@ export default function Dashboard() {
                     <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub="Left or marked leaving" accent={C.rose}/>
                     <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, no action" accent={C.rose}/>
                   </div>
-                  <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+                  <div style={{display:"flex",gap:10,marginBottom:16}}>
                     <button onClick={() => exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs)}
                       style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.sage}`,background:C.sage+"22",color:C.sage,fontWeight:700,fontSize:11,cursor:"pointer",letterSpacing:"0.04em",display:"flex",alignItems:"center",gap:6}}>
                       ↓ Export Renewed + Pending (.xlsx)
                     </button>
-                    <div style={{marginLeft:"auto",position:"relative"}}>
-                      <input
-                        value={renewalSearch}
-                        onChange={e => setRenewalSearch(e.target.value)}
-                        placeholder="Search by name, room, ref…"
-                        style={{padding:"7px 14px 7px 32px",borderRadius:8,border:`1px solid ${renewalSearch?C.gold:C.border}`,background:C.bg,color:C.text,fontSize:12,width:240,fontFamily:"inherit",outline:"none"}}
-                      />
-                      <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.muted,pointerEvents:"none"}}>🔍</span>
-                      {renewalSearch && <button onClick={() => setRenewalSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button>}
-                    </div>
                   </div>
-
-                  {/* Search results — flat list across all months */}
-                  {renewalSearch.trim().length >= 2 && (() => {
-                    const q = renewalSearch.trim().toLowerCase();
-                    const allEntries = monthStats.flatMap(m => m.entries.map(e => ({...e, monthLabel: m.label})));
-                    const matches = allEntries.filter(e =>
-                      (e.name || "").toLowerCase().includes(q) ||
-                      (e.room || "").toLowerCase().includes(q) ||
-                      (e.bookingReference || "").toLowerCase().includes(q) ||
-                      (e.customerReference || "").toLowerCase().includes(q)
-                    );
-                    const statusLabel = (e) => {
-                      if (leavingSet.has(e.roomStayId)) return {text:"LEAVING",color:C.rose};
-                      if (e.isRenewed) return {text:"RENEWED",color:C.sage};
-                      if (e.isPendingRenewal || pendingSet.has(e.roomStayId)) return {text:"PENDING",color:C.blue};
-                      if (e.expired) return {text:"LEFT",color:C.rose};
-                      return {text:"NOT STARTED",color:C.gold};
-                    };
-                    return (
-                      <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:12,padding:"14px 18px",marginBottom:16}}>
-                        <p style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                          Search Results — {matches.length} match{matches.length!==1?"es":""} for "{renewalSearch.trim()}"
-                        </p>
-                        {matches.length === 0 ? (
-                          <p style={{color:C.muted,fontSize:12}}>No matching entries found.</p>
-                        ) : (
-                          <div style={{overflowX:"auto",maxHeight:400,overflowY:"auto"}}>
-                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                              <thead>
-                                <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Expiry</th>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>LoS</th>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>PCM</th>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
-                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Reason</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {matches.sort((a,b) => (a.endDate||"").localeCompare(b.endDate||"")).map((e, i) => {
-                                  const st = statusLabel(e);
-                                  return (
-                                    <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                                      <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{e.name||"—"}</td>
-                                      <td style={{padding:"7px 10px",color:C.muted}}>{e.room||"—"}</td>
-                                      <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{e.endDate||"—"}</td>
-                                      <td style={{padding:"7px 10px",color:C.gold,fontSize:11}}>{e.monthLabel}</td>
-                                      <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{e.losDays ? `${e.losDays}d` : "—"}</td>
-                                      <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>£{(e.pcm||0).toLocaleString()}</td>
-                                      <td style={{padding:"7px 10px"}}>
-                                        <span style={{fontSize:10,fontWeight:700,color:st.color,background:st.color+"22",padding:"2px 8px",borderRadius:8}}>{st.text}</span>
-                                      </td>
-                                      <td style={{padding:"7px 10px",fontSize:10,color:C.muted}}>{leavingReasons[e.roomStayId] || "—"}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
 
                   {/* ── Leaving Reasons Pie Charts ── */}
                   {(() => {
@@ -5281,7 +5206,7 @@ export default function Dashboard() {
                       const isSel = renewalSelectedMonth === m.key;
                       const hasCritical = m.critical.length > 0;
                       return (
-                        <button key={m.key} onClick={() => setRenewalSelectedMonth(isSel ? null : m.key)}
+                        <button key={m.key} onClick={() => { setRenewalSelectedMonth(isSel ? null : m.key); setRenewalSearch(""); }}
                           style={{background:isSel?C.gold+"22":C.card,border:`1px solid ${isSel?C.gold:hasCritical?C.rose+"88":C.border}`,borderRadius:12,padding:"14px 12px",cursor:"pointer",textAlign:"left",transition:"all 0.2s"}}>
                           <p style={{fontSize:12,fontWeight:700,color:isSel?C.gold:C.text,marginBottom:6}}>{m.label}</p>
                           <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.total} contracts up for renewal</p>
@@ -5362,6 +5287,28 @@ export default function Dashboard() {
                         );
                       })()}
 
+                      {/* Search within this month */}
+                      <div style={{marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{position:"relative",flex:"0 0 300px"}}>
+                          <input
+                            value={renewalSearch}
+                            onChange={e => setRenewalSearch(e.target.value)}
+                            placeholder="Search this month by name, room, ref…"
+                            style={{padding:"8px 14px 8px 32px",borderRadius:8,border:`1px solid ${renewalSearch?C.gold:C.border}`,background:C.bg,color:C.text,fontSize:12,width:"100%",fontFamily:"inherit",outline:"none"}}
+                          />
+                          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.muted,pointerEvents:"none"}}>🔍</span>
+                          {renewalSearch && <button onClick={() => setRenewalSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button>}
+                        </div>
+                        {renewalSearch.trim().length >= 2 && (
+                          <span style={{fontSize:11,color:C.gold}}>
+                            {selected.entries.filter(e => {
+                              const q = renewalSearch.trim().toLowerCase();
+                              return (e.name||"").toLowerCase().includes(q) || (e.room||"").toLowerCase().includes(q) || (e.bookingReference||"").toLowerCase().includes(q) || (e.customerReference||"").toLowerCase().includes(q);
+                            }).length} of {selected.entries.length} shown
+                          </span>
+                        )}
+                      </div>
+
                       {selected.entries.length === 0 ? (
                         <p style={{color:C.muted,fontSize:13}}>No contracts expiring this month.</p>
                       ) : (
@@ -5393,6 +5340,12 @@ export default function Dashboard() {
                               }
                               return renewalSort.dir === "desc" ? -cmp : cmp;
                             });
+                            // Apply search filter
+                            const q = renewalSearch.trim().toLowerCase();
+                            const filtered = q.length >= 2 ? sorted.filter(e =>
+                              (e.name||"").toLowerCase().includes(q) || (e.room||"").toLowerCase().includes(q) ||
+                              (e.bookingReference||"").toLowerCase().includes(q) || (e.customerReference||"").toLowerCase().includes(q)
+                            ) : sorted;
                             const sortCols = [
                               {key:"name",label:"Name"},{key:null,label:"Booking Ref"},{key:null,label:"Cust Ref"},{key:"expiry",label:"Expiry"},
                               {key:"los",label:"LoS"},{key:"room",label:"Room"},{key:"pcm",label:"PCM"},
@@ -5417,7 +5370,7 @@ export default function Dashboard() {
                               </tr>
                             </thead>
                             <tbody>
-                              {sorted.map((e, i) => {
+                              {filtered.map((e, i) => {
                                 const isManualPending = pendingSet.has(e.roomStayId);
                                 const isLeaving = leavingSet.has(e.roomStayId) || (e.expired && !e.isRenewed && !e.isPendingRenewal && !isManualPending);
                                 const isPending = (e.isPendingRenewal || isManualPending) && !e.isRenewed && !leavingSet.has(e.roomStayId);
