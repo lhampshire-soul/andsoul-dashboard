@@ -4935,6 +4935,65 @@ export default function Dashboard() {
                         <span>Pending: <strong style={{color:C.blue}}>{allPendingAll.length}</strong></span>
                       </div>
 
+                      {/* LoS Breakdown + AWR for renewals in period */}
+                      {filteredAll.length > 0 && (() => {
+                        const losData = filteredAll.map(ev => {
+                          if (!ev.followOnStart || !ev.followOnEnd) return null;
+                          const days = Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000);
+                          return days > 0 ? days : null;
+                        }).filter(Boolean);
+                        const buckets = {"< 31d":0,"31–91d":0,"92–181d":0,"182–364d":0,"365d+":0};
+                        losData.forEach(d => {
+                          if (d < 31) buckets["< 31d"]++;
+                          else if (d <= 91) buckets["31–91d"]++;
+                          else if (d <= 181) buckets["92–181d"]++;
+                          else if (d <= 364) buckets["182–364d"]++;
+                          else buckets["365d+"]++;
+                        });
+                        // AWR: compute from all bookings that match these renewal roomStayIds
+                        const renewalRsIds = new Set(filteredAll.map(ev => ev.roomStayId).filter(Boolean));
+                        const allBk = rhAllBookings || [];
+                        let totalWeeklyRate = 0, rateCount = 0;
+                        allBk.forEach(b => {
+                          if (!renewalRsIds.has(b.roomStayId)) return;
+                          const start = (b.startDate||"").slice(0,10);
+                          const end = (b.endDate||"").slice(0,10);
+                          if (!start || !end) return;
+                          const days = Math.round((new Date(end) - new Date(start)) / 86400000);
+                          const net = b.netTotal ?? b.grossTotal ?? 0;
+                          if (days > 0 && net > 0) {
+                            totalWeeklyRate += Math.round((net / days) * 7);
+                            rateCount++;
+                          }
+                        });
+                        const avgAwr = rateCount > 0 ? Math.round(totalWeeklyRate / rateCount) : null;
+                        const bucketColors = [C.blue, C.sage, C.gold, "#e09f3e", C.rose];
+                        return (
+                          <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                            <div style={{flex:"1 1 260px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
+                              <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>LoS Breakdown — Renewals in Period</p>
+                              {Object.entries(buckets).map(([label, count], i) => (
+                                <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}}>
+                                  <span style={{fontSize:11,color:C.muted}}>{label}</span>
+                                  <span style={{fontSize:12,fontWeight:700,color:count > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace"}}>{count}</span>
+                                </div>
+                              ))}
+                              <div style={{borderTop:`1px solid ${C.border}`,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:C.gold}}>Total</span>
+                                <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{losData.length}</span>
+                              </div>
+                            </div>
+                            <div style={{flex:"0 0 160px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
+                              <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>AWR — Renewals</p>
+                              <p style={{fontSize:24,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>
+                                {avgAwr !== null ? `£${avgAwr.toLocaleString()}` : "—"}
+                              </p>
+                              <p style={{fontSize:9,color:C.muted,marginTop:2}}>Avg weekly rent · {rateCount} booking{rateCount!==1?"s":""}</p>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Confirmed renewals in period */}
                       {filteredConfirmed.length > 0 && (
                         <div style={{marginTop:4}}>
