@@ -4935,9 +4935,9 @@ export default function Dashboard() {
                         <span>Pending: <strong style={{color:C.blue}}>{allPendingAll.length}</strong></span>
                       </div>
 
-                      {/* LoS Breakdown + AWR for renewals in period */}
-                      {filteredAll.length > 0 && (() => {
-                        const losData = filteredAll.map(ev => {
+                      {/* LoS Breakdown + AWR for confirmed renewals in period */}
+                      {filteredConfirmed.length > 0 && (() => {
+                        const losData = filteredConfirmed.map(ev => {
                           if (!ev.followOnStart || !ev.followOnEnd) return null;
                           const days = Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000);
                           return days > 0 ? days : null;
@@ -4951,7 +4951,7 @@ export default function Dashboard() {
                           else buckets["365d+"]++;
                         });
                         // AWR: compute from all bookings that match these renewal roomStayIds
-                        const renewalRsIds = new Set(filteredAll.map(ev => ev.roomStayId).filter(Boolean));
+                        const renewalRsIds = new Set(filteredConfirmed.map(ev => ev.roomStayId).filter(Boolean));
                         const allBk = rhAllBookings || [];
                         let totalWeeklyRate = 0, rateCount = 0;
                         allBk.forEach(b => {
@@ -4971,7 +4971,7 @@ export default function Dashboard() {
                         return (
                           <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
                             <div style={{flex:"1 1 260px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
-                              <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>LoS Breakdown — Renewals in Period</p>
+                              <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>LoS Breakdown — Confirmed Renewals</p>
                               {Object.entries(buckets).map(([label, count], i) => (
                                 <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}}>
                                   <span style={{fontSize:11,color:C.muted}}>{label}</span>
@@ -4984,7 +4984,7 @@ export default function Dashboard() {
                               </div>
                             </div>
                             <div style={{flex:"0 0 160px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
-                              <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>AWR — Renewals</p>
+                              <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>AWR — Confirmed</p>
                               <p style={{fontSize:24,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>
                                 {avgAwr !== null ? `£${avgAwr.toLocaleString()}` : "—"}
                               </p>
