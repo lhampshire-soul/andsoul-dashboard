@@ -4942,14 +4942,14 @@ export default function Dashboard() {
                           const days = Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000);
                           return days > 0 ? days : null;
                         }).filter(Boolean);
-                        const buckets = {"< 31d":0,"31–91d":0,"92–181d":0,"182–364d":0,"365d+":0};
+                        const bucketKeys = ["< 31d","31–91d","92–181d","182–364d","365d+"];
+                        const buckets = {}; const bucketDays = {};
+                        bucketKeys.forEach(k => { buckets[k] = 0; bucketDays[k] = 0; });
                         losData.forEach(d => {
-                          if (d < 31) buckets["< 31d"]++;
-                          else if (d <= 91) buckets["31–91d"]++;
-                          else if (d <= 181) buckets["92–181d"]++;
-                          else if (d <= 364) buckets["182–364d"]++;
-                          else buckets["365d+"]++;
+                          const k = d < 31 ? "< 31d" : d <= 91 ? "31–91d" : d <= 181 ? "92–181d" : d <= 364 ? "182–364d" : "365d+";
+                          buckets[k]++; bucketDays[k] += d;
                         });
+                        const totalDays = losData.reduce((s, d) => s + d, 0);
                         // AWR: compute from all bookings that match these renewal roomStayIds
                         const renewalRsIds = new Set(filteredConfirmed.map(ev => ev.roomStayId).filter(Boolean));
                         const allBk = rhAllBookings || [];
@@ -4972,15 +4972,25 @@ export default function Dashboard() {
                           <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
                             <div style={{flex:"1 1 260px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
                               <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>LoS Breakdown — Confirmed Renewals</p>
-                              {Object.entries(buckets).map(([label, count], i) => (
+                              <div style={{display:"flex",justifyContent:"flex-end",gap:0,marginBottom:4}}>
+                                <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:60,textAlign:"right"}}>Rooms</span>
+                                <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:70,textAlign:"right"}}>Days</span>
+                              </div>
+                              {bucketKeys.map((label, i) => (
                                 <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}}>
                                   <span style={{fontSize:11,color:C.muted}}>{label}</span>
-                                  <span style={{fontSize:12,fontWeight:700,color:count > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace"}}>{count}</span>
+                                  <div style={{display:"flex",gap:0}}>
+                                    <span style={{fontSize:12,fontWeight:700,color:buckets[label] > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace",width:60,textAlign:"right"}}>{buckets[label]}</span>
+                                    <span style={{fontSize:12,fontWeight:700,color:bucketDays[label] > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace",width:70,textAlign:"right"}}>{bucketDays[label].toLocaleString()}</span>
+                                  </div>
                                 </div>
                               ))}
                               <div style={{borderTop:`1px solid ${C.border}`,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between"}}>
                                 <span style={{fontSize:11,fontWeight:700,color:C.gold}}>Total</span>
-                                <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{losData.length}</span>
+                                <div style={{display:"flex",gap:0}}>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",width:60,textAlign:"right"}}>{losData.length}</span>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",width:70,textAlign:"right"}}>{totalDays.toLocaleString()}</span>
+                                </div>
                               </div>
                             </div>
                             <div style={{flex:"0 0 160px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
