@@ -2706,6 +2706,38 @@ export default function Dashboard() {
   const [sdGhlError, setSdGhlErr] = useState("");
   const [sdGhlData, setSdGhlData] = useState(null);
   const [sdGhlConn, setSdGhlConn] = useState(false);
+  // Merge saved flat data with SD_FLATS defaults so new fields (floor, wing, notes, size, etc.) are always present
+  const mergeSdFlats = (saved) => {
+    if (!Array.isArray(saved) || saved.length === 0) return SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
+    return SD_FLATS.map((def, fi) => {
+      const sv = saved[fi] || {};
+      // Merge flat-level: default fields as base, saved fields override (but only if they exist and aren't undefined)
+      const merged = { ...def, ...sv, rooms: def.rooms.map((dr, ri) => {
+        const sr = (sv.rooms && sv.rooms[ri]) || {};
+        // Merge room-level: default as base, saved overrides
+        return { ...dr, ...sr };
+      })};
+      // Ensure key metadata always comes from defaults (floor, wing, beds, notes, viewDays, pref, room sizes/labels)
+      merged.floor = def.floor;
+      merged.wing = def.wing;
+      merged.beds = def.beds;
+      // Only use default notes/viewDays/pref if saved doesn't have them (user may have edited these)
+      if (!sv.notes && sv.notes !== "") merged.notes = def.notes;
+      if (!sv.viewDays) merged.viewDays = def.viewDays;
+      if (!sv.pref) merged.pref = def.pref;
+      merged.rooms.forEach((r, ri) => {
+        // Always use default label and size (structural, not editable)
+        r.label = def.rooms[ri]?.label || r.label;
+        r.size = def.rooms[ri]?.size || r.size;
+        // If saved room has no weekly/monthly rate, use default
+        if (r.w === undefined) r.w = def.rooms[ri]?.w || 0;
+        if (r.m === undefined) r.m = def.rooms[ri]?.m || 0;
+        // Map old "VACANT" status to new "AVAILABLE"
+        if (r.s === "VACANT") r.s = "AVAILABLE";
+      });
+      return merged;
+    });
+  };
   const [sdFlats, setSdFlats] = useState(()=>{
     // Lazy init: localStorage first for instant paint, API will overwrite once it loads
     if (typeof window !== "undefined") {
@@ -2713,7 +2745,7 @@ export default function Dashboard() {
         const saved = localStorage.getItem("sd_flats_v1");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].rooms) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].rooms) return mergeSdFlats(parsed);
         }
       } catch(e) { console.log("sdFlats load error:", e.message); }
     }
@@ -2741,9 +2773,10 @@ export default function Dashboard() {
           return;
         }
         if (j.flats && Array.isArray(j.flats) && j.flats.length > 0) {
-          setSdFlats(j.flats);
+          const merged = mergeSdFlats(j.flats);
+          setSdFlats(merged);
           setSdFlatsUpdatedAt(j.updatedAt || null);
-          try { localStorage.setItem("sd_flats_v1", JSON.stringify(j.flats)); } catch(e) {}
+          try { localStorage.setItem("sd_flats_v1", JSON.stringify(merged)); } catch(e) {}
         }
         setSdFlatsSync("cloud");
       } catch(e) {
