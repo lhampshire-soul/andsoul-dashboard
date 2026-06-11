@@ -78,25 +78,114 @@ const SD_GOOGLE_DAILY = [
 ];
 const SD_META = {campaign:"Shoreditch &Soul | Villas | Website Lead Gen",spend:1175.34,leads:48,totalLeads:260,landingPageViews:597,linkClicks:1217};
 const SD_VILLAS = 16;
-const SD_BEDROOMS = 72;
+const SD_BEDROOMS = 73;
 const SD_GHL_PIPELINE = "Shoreditch";
 const SD_FLATS = [
-  {name:"Flat 1",rooms:[{id:"1.1",s:"OCCUPIED"},{id:"1.2",s:"VACANT"},{id:"1.3",s:"VACANT"},{id:"1.4",s:"OCCUPIED"},{id:"1.5",s:"VACANT"}]},
-  {name:"Flat 2",rooms:[{id:"2.1",s:"OCCUPIED"},{id:"2.2",s:"VACANT"},{id:"2.3",s:"VACANT"},{id:"2.4",s:"INCOMING"},{id:"2.5",s:"OCCUPIED"}]},
-  {name:"Flat 3",rooms:[{id:"3.1",s:"VACANT"},{id:"3.2",s:"VACANT"},{id:"3.3",s:"OCCUPIED"},{id:"3.4",s:"OCCUPIED"}]},
-  {name:"Flat 4",rooms:[{id:"4.1",s:"OCCUPIED"},{id:"4.2",s:"VACANT"},{id:"4.3",s:"VACANT"},{id:"4.4",s:"INCOMING"},{id:"4.5",s:"OCCUPIED"},{id:"4.6",s:"VACANT"}]},
-  {name:"Flat 5",rooms:[{id:"5.1",s:"OCCUPIED"},{id:"5.2",s:"OCCUPIED"},{id:"5.3",s:"OCCUPIED"},{id:"5.4",s:"OCCUPIED"}]},
-  {name:"Flat 6",rooms:[{id:"6.1",s:"OCCUPIED"},{id:"6.2",s:"OCCUPIED"},{id:"6.3",s:"OCCUPIED"},{id:"6.4",s:"VACANT"}]},
-  {name:"Flat 7",rooms:[{id:"7.1",s:"OCCUPIED"},{id:"7.2",s:"VACANT"},{id:"7.3",s:"VACANT"},{id:"7.4",s:"OCCUPIED"}]},
-  {name:"Flat 8",rooms:[{id:"8.1",s:"OCCUPIED"},{id:"8.2",s:"VACANT"},{id:"8.3",s:"VACANT"},{id:"8.4",s:"OCCUPIED"}]},
-  {name:"Flat 9",rooms:[{id:"9.1",s:"OCCUPIED"},{id:"9.2",s:"VACANT"},{id:"9.3",s:"OCCUPIED"},{id:"9.4",s:"OCCUPIED"}]},
-  {name:"Flat 10",rooms:[{id:"10.1",s:"OCCUPIED"},{id:"10.2",s:"VACANT"},{id:"10.3",s:"OCCUPIED"},{id:"10.4",s:"INCOMING"},{id:"10.5",s:"INCOMING"}]},
-  {name:"Flat 11",rooms:[{id:"11.1",s:"VACANT"},{id:"11.2",s:"VACANT"},{id:"11.3",s:"OCCUPIED"},{id:"11.4",s:"INCOMING"},{id:"11.5",s:"OCCUPIED"},{id:"11.6",s:"OCCUPIED"}]},
-  {name:"Flat 12",rooms:[{id:"12.1",s:"OCCUPIED"},{id:"12.2",s:"VACANT"},{id:"12.3",s:"VACANT"},{id:"12.4",s:"OCCUPIED"},{id:"12.5",s:"OCCUPIED"},{id:"12.6",s:"OCCUPIED"}]},
-  {name:"Flat 13",rooms:[{id:"13.1",s:"VACANT"},{id:"13.2",s:"OCCUPIED"},{id:"13.3",s:"VACANT"},{id:"13.4",s:"VACANT"}]},
-  {name:"Flat 14",rooms:[{id:"14.1",s:"VACANT"},{id:"14.2",s:"VACANT"},{id:"14.3",s:"OCCUPIED"},{id:"14.4",s:"OCCUPIED"}]},
-  {name:"Flat 15",rooms:[{id:"15.1",s:"VACANT"},{id:"15.2",s:"VACANT"},{id:"15.3",s:"VACANT"},{id:"15.4",s:"OCCUPIED"}]},
-  {name:"Flat 16",rooms:[{id:"16.1",s:"VACANT"},{id:"16.2",s:"OCCUPIED"},{id:"16.3",s:"OCCUPIED"},{id:"16.4",s:"VACANT"}]},
+  {name:"Flat 1",floor:1,wing:"North",beds:5,notes:"Priority flat to sell. Bedroom 5 needs wardrobe + double bed. Bedroom 1 is a big room.",viewDays:"Flexible",pref:"No preference",rooms:[
+    {id:"1.1",label:"Bedroom 1",s:"OCCUPIED",w:450,m:1900,member:"",leave:"",size:"14m²"},
+    {id:"1.2",label:"Bedroom 2",s:"OCCUPIED",w:440,m:1875,member:"",leave:"",size:"13m²"},
+    {id:"1.3",label:"Bedroom 3",s:"AVAILABLE",w:440,m:1875,member:"",leave:"",size:"12m²"},
+    {id:"1.4",label:"Bedroom 4",s:"OCCUPIED",w:440,m:1875,member:"Anita Zara Paul",leave:"2026-07-09",size:"12m²"},
+    {id:"1.5",label:"Bedroom 5",s:"AVAILABLE",w:400,m:1875,member:"",leave:"",size:"11m²"},
+  ]},
+  {name:"Flat 2",floor:1,wing:"North",beds:5,notes:"Fully occupied for now.",viewDays:"N/A",pref:"No preference",rooms:[
+    {id:"2.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Anna Shillingday",leave:"",size:"14m²"},
+    {id:"2.2",label:"Bedroom 2",s:"OCCUPIED",w:430,m:1863,member:"Mark Milsted",leave:"",size:"12m²"},
+    {id:"2.3",label:"Bedroom 3",s:"AVAILABLE",w:460,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"2.4",label:"Bedroom 4",s:"OCCUPIED",w:400,m:1800,member:"Louise Doherty",leave:"",size:"11m²"},
+    {id:"2.5",label:"Bedroom 5",s:"OCCUPIED",w:440,m:1907,member:"Carly Festa",leave:"",size:"12m²"},
+  ]},
+  {name:"Flat 3",floor:1,wing:"North",beds:4,notes:"Current residents are both female in early 30s. One works in tech, one is studying fashion. Open to all genders. Roof issues caused leak in Bedroom 2 — check with Oona.",viewDays:"Tue, Wed, Thu",pref:"All genders",rooms:[
+    {id:"3.1",label:"Bedroom 1",s:"OCCUPIED",w:450,m:1950,member:"Nefeli Kouroushi",leave:"",size:"13m²"},
+    {id:"3.2",label:"Bedroom 2",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"3.3",label:"Bedroom 3",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"3.4",label:"Bedroom 4",s:"OCCUPIED",w:450,m:1950,member:"Emma Singh",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 4",floor:1,wing:"North",beds:6,notes:"Currently all male, mostly working in FinTech. Need 1 more male when Adham leaves.",viewDays:"Flexible",pref:"Male only",rooms:[
+    {id:"4.1",label:"Bedroom 1",s:"LEAVING",w:450,m:1950,member:"Adham Gouda",leave:"2026-06-28",size:"13m²"},
+    {id:"4.2",label:"Bedroom 2",s:"AVAILABLE",w:450,m:1950,member:"Ollie Turnbull",leave:"",size:"13m²"},
+    {id:"4.3",label:"Bedroom 3",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"4.4",label:"Bedroom 4",s:"OCCUPIED",w:450,m:1950,member:"Prakhar Vashney",leave:"",size:"13m²"},
+    {id:"4.5",label:"Bedroom 5",s:"OCCUPIED",w:450,m:1950,member:"Nicholas Sawyer",leave:"",size:"13m²"},
+    {id:"4.6",label:"Bedroom 6",s:"OCCUPIED",w:450,m:1950,member:"Sai",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 5",floor:1,wing:"South",beds:4,notes:"Three guys at the moment, looking for 1 more male.",viewDays:"Tue, Thu",pref:"Male only",rooms:[
+    {id:"5.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Guy Hayward",leave:"",size:"14m²"},
+    {id:"5.2",label:"Bedroom 2",s:"OCCUPIED",w:460,m:1993,member:"Matthieu Fernandes",leave:"",size:"14m²"},
+    {id:"5.3",label:"Bedroom 3",s:"OCCUPIED",w:460,m:1993,member:"Tayyeb Rafique",leave:"",size:"14m²"},
+    {id:"5.4",label:"Bedroom 4",s:"OCCUPIED",w:460,m:1900,member:"Pablo Exposito",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 6",floor:1,wing:"South",beds:4,notes:"Only want another female to balance the energy.",viewDays:"Tue, Thu",pref:"Female only",rooms:[
+    {id:"6.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Ben Furner",leave:"",size:"14m²"},
+    {id:"6.2",label:"Bedroom 2",s:"OCCUPIED",w:460,m:1993,member:"Blanche Oguti",leave:"",size:"14m²"},
+    {id:"6.3",label:"Bedroom 3",s:"OCCUPIED",w:460,m:1993,member:"Tremaine Richard-Noel",leave:"",size:"14m²"},
+    {id:"6.4",label:"Bedroom 4",s:"AVAILABLE",w:460,m:1993,member:"",leave:"",size:"14m²"},
+  ]},
+  {name:"Flat 7",floor:1,wing:"South",beds:4,notes:"Only want another female to balance the energy.",viewDays:"Tuesday",pref:"Female only",rooms:[
+    {id:"7.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Manuela Hunter",leave:"",size:"14m²"},
+    {id:"7.2",label:"Bedroom 2",s:"OCCUPIED",w:460,m:1993,member:"Aimee Daly",leave:"",size:"14m²"},
+    {id:"7.3",label:"Bedroom 3",s:"OCCUPIED",w:460,m:1993,member:"Gigi Dunn",leave:"",size:"14m²"},
+    {id:"7.4",label:"Bedroom 4",s:"OCCUPIED",w:460,m:1993,member:"Alexandra",leave:"",size:"14m²"},
+  ]},
+  {name:"Flat 8",floor:1,wing:"South",beds:4,notes:"Only want another female. Under 35 only.",viewDays:"Mon, Tue, Wed, Fri",pref:"Female only, under 35",rooms:[
+    {id:"8.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Isabella Simpson",leave:"",size:"14m²"},
+    {id:"8.2",label:"Bedroom 2",s:"OCCUPIED",w:460,m:1993,member:"Leyla Manthorpe Rizatepe",leave:"",size:"14m²"},
+    {id:"8.3",label:"Bedroom 3",s:"AVAILABLE",w:460,m:1993,member:"",leave:"",size:"14m²"},
+    {id:"8.4",label:"Bedroom 4",s:"OCCUPIED",w:460,m:1993,member:"Diya Gohil",leave:"2026-06-17",size:"14m²"},
+  ]},
+  {name:"Flat 9",floor:2,wing:"North",beds:4,notes:"Needs 1 person to replace Benjamin.",viewDays:"Mon, Thu",pref:"No preference",rooms:[
+    {id:"9.1",label:"Bedroom 1",s:"LEAVING",w:460,m:1993,member:"Benjamin Franta",leave:"2026-06-01",size:"13m²"},
+    {id:"9.2",label:"Bedroom 2",s:"AVAILABLE",w:460,m:1993,member:"",leave:"",size:"13m²"},
+    {id:"9.3",label:"Bedroom 3",s:"OCCUPIED",w:460,m:1993,member:"Tamara Harris",leave:"",size:"13m²"},
+    {id:"9.4",label:"Bedroom 4",s:"OCCUPIED",w:460,m:1993,member:"William Murphy",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 10",floor:2,wing:"North",beds:5,notes:"Chris Geilser moving out. Good option for a flat.",viewDays:"Tue, Wed, Fri",pref:"No preference",rooms:[
+    {id:"10.1",label:"Bedroom 1",s:"OCCUPIED",w:400,m:1733,member:"Daniel White",leave:"",size:"12m²"},
+    {id:"10.2",label:"Bedroom 2",s:"AVAILABLE",w:400,m:1733,member:"",leave:"",size:"12m²"},
+    {id:"10.3",label:"Bedroom 3",s:"OCCUPIED",w:400,m:1733,member:"Anji",leave:"",size:"12m²"},
+    {id:"10.4",label:"Bedroom 4",s:"OCCUPIED",w:400,m:1733,member:"Chris Merpaw",leave:"",size:"12m²"},
+    {id:"10.5",label:"Bedroom 5",s:"OCCUPIED",w:400,m:1733,member:"Nikoline Ekelund",leave:"2026-07-04",size:"12m²"},
+  ]},
+  {name:"Flat 11",floor:2,wing:"North",beds:6,notes:"Female only. One resident is a journalist, the other works in commercial law. Age mid-20s to mid-30s. Bedroom 1 has works ongoing (leaks) — check with Oona. Room 4 booked from 1 Sep for 12 months.",viewDays:"Check with Oona",pref:"Female only, mid 20s–30s",rooms:[
+    {id:"11.1",label:"Bedroom 1",s:"AVAILABLE",w:420,m:1820,member:"",leave:"",size:"12m²"},
+    {id:"11.2",label:"Bedroom 2",s:"OCCUPIED",w:420,m:1820,member:"Sanam Mahoozi",leave:"",size:"12m²"},
+    {id:"11.3",label:"Bedroom 3",s:"AVAILABLE",w:420,m:1820,member:"",leave:"",size:"12m²"},
+    {id:"11.4",label:"Bedroom 4",s:"INCOMING",w:420,m:1820,member:"Raima Saha",leave:"",size:"12m²"},
+    {id:"11.5",label:"Bedroom 5",s:"AVAILABLE",w:420,m:1820,member:"",leave:"",size:"12m²"},
+    {id:"11.6",label:"Bedroom 6",s:"OCCUPIED",w:420,m:1820,member:"Lily O'Brien",leave:"",size:"12m²"},
+  ]},
+  {name:"Flat 12",floor:2,wing:"North",beds:6,notes:"Male only.",viewDays:"Wednesday",pref:"Male only",rooms:[
+    {id:"12.1",label:"Bedroom 1",s:"OCCUPIED",w:450,m:1950,member:"Myles Recny",leave:"",size:"13m²"},
+    {id:"12.2",label:"Bedroom 2",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"12.3",label:"Bedroom 3",s:"OCCUPIED",w:450,m:1950,member:"Patrick Stott",leave:"2026-05-30",size:"13m²"},
+    {id:"12.4",label:"Bedroom 4",s:"OCCUPIED",w:450,m:1950,member:"Eric Kachappilly",leave:"",size:"13m²"},
+    {id:"12.5",label:"Bedroom 5",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"12.6",label:"Bedroom 6",s:"OCCUPIED",w:450,m:1950,member:"Samu Kurki",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 13",floor:2,wing:"South",beds:4,notes:"Show flat.",viewDays:"Mon, Tue, Wed",pref:"No preference",rooms:[
+    {id:"13.1",label:"Bedroom 1",s:"OCCUPIED",w:0,m:0,member:"Jaron Cohen",leave:"",size:"13m²"},
+    {id:"13.2",label:"Bedroom 2",s:"OCCUPIED",w:0,m:0,member:"Stuart Sanderman",leave:"",size:"13m²"},
+    {id:"13.3",label:"Bedroom 3",s:"OCCUPIED",w:0,m:0,member:"Evan Paul",leave:"",size:"13m²"},
+    {id:"13.4",label:"Bedroom 4",s:"OCCUPIED",w:0,m:0,member:"James Henderson",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 14",floor:2,wing:"South",beds:4,notes:"Either male or female. Current residents are an artist & work in fintech, late 20s to late 30s.",viewDays:"Tuesday",pref:"No preference",rooms:[
+    {id:"14.1",label:"Bedroom 1",s:"OCCUPIED",w:430,m:1863,member:"",leave:"",size:"13m²"},
+    {id:"14.2",label:"Bedroom 2",s:"AVAILABLE",w:430,m:1863,member:"",leave:"",size:"13m²"},
+    {id:"14.3",label:"Bedroom 3",s:"OCCUPIED",w:430,m:1863,member:"Barbara Majek-Oduyoye",leave:"",size:"13m²"},
+    {id:"14.4",label:"Bedroom 4",s:"OCCUPIED",w:430,m:1863,member:"Anan Yousef",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 15",floor:2,wing:"South",beds:4,notes:"Either male or female. Current resident is mid-20s and works for Amazon.",viewDays:"Flexible",pref:"No preference",rooms:[
+    {id:"15.1",label:"Bedroom 1",s:"OCCUPIED",w:430,m:1863,member:"Olly Forsyth",leave:"",size:"13m²"},
+    {id:"15.2",label:"Bedroom 2",s:"AVAILABLE",w:430,m:1863,member:"",leave:"",size:"13m²"},
+    {id:"15.3",label:"Bedroom 3",s:"OCCUPIED",w:430,m:1863,member:"Mike",leave:"",size:"13m²"},
+    {id:"15.4",label:"Bedroom 4",s:"OCCUPIED",w:430,m:1863,member:"Penn Ryan",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 16",floor:2,wing:"South",beds:4,notes:"Female only. Mid-20s. Balcony flat — for a woman!",viewDays:"Flexible",pref:"Female only",rooms:[
+    {id:"16.1",label:"Bedroom 1",s:"OCCUPIED",w:430,m:1863,member:"Bettina Sosa",leave:"",size:"14m²"},
+    {id:"16.2",label:"Bedroom 2",s:"OCCUPIED",w:430,m:1863,member:"Isabella Costanzo",leave:"",size:"14m²"},
+    {id:"16.3",label:"Bedroom 3",s:"AVAILABLE",w:430,m:1863,member:"",leave:"",size:"14m²"},
+    {id:"16.4",label:"Bedroom 4",s:"AVAILABLE",w:430,m:1863,member:"",leave:"",size:"14m²"},
+  ]},
 ];
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -2635,6 +2724,8 @@ export default function Dashboard() {
   const [sdFlatsUpdatedAt, setSdFlatsUpdatedAt] = useState(null);
   const sdFlatsInitialLoad = useRef(true);
   const sdFlatsSaveTimer = useRef(null);
+  const [sdExpanded, setSdExpanded] = useState({});
+  const [sdEditing, setSdEditing] = useState(null);
 
   // On mount: fetch the canonical state from the API (Vercel KV)
   useEffect(()=>{
@@ -2736,8 +2827,8 @@ export default function Dashboard() {
   const sdTotalSpend = sdMetaSpend + sdGSpend;
   const sdBlendedCpl = sdTotalLeads>0 ? sdTotalSpend/sdTotalLeads : 0;
   const sdOcc = useMemo(()=>{
-    let o=0,i=0,v=0,t=0;
-    sdFlats.forEach(f=>f.rooms.forEach(r=>{t++;if(r.s==="OCCUPIED")o++;else if(r.s==="INCOMING")i++;else v++;}));
+    let o=0,i=0,v=0,l=0,t=0;
+    sdFlats.forEach(f=>f.rooms.forEach(r=>{t++;if(r.s==="OCCUPIED")o++;else if(r.s==="LEAVING"){o++;l++;}else if(r.s==="INCOMING")i++;else v++;}));
     const pct=t>0?Math.round(o/t*100):0;
     const fut=t>0?Math.round((o+i)/t*100):0;
     // Target: 90% occupancy by 1st July 2026
@@ -2749,9 +2840,9 @@ export default function Dashboard() {
     const msPerWeek=7*24*60*60*1000;
     const weeksLeft=Math.max(1,Math.ceil((deadline-today)/msPerWeek));
     const roomsPerWeek=Math.ceil(roomsNeeded/weeksLeft);
-    return{o,i,v,t,pct,fut,targetRooms,roomsNeeded,weeksLeft,roomsPerWeek,targetPct:Math.round(SD_TARGET_OCC*100)};
+    return{o,i,v,l,t,pct,fut,targetRooms,roomsNeeded,weeksLeft,roomsPerWeek,targetPct:Math.round(SD_TARGET_OCC*100)};
   },[sdFlats]);
-  const sdToggleRoom=(fi,ri)=>{setSdFlats(p=>{const n=p.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));const ss=["OCCUPIED","VACANT","INCOMING"];const c=n[fi].rooms[ri].s;n[fi].rooms[ri].s=ss[(ss.indexOf(c)+1)%3];return n;});};
+  const sdToggleRoom=(fi,ri)=>{setSdFlats(p=>{const n=p.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));const ss=["OCCUPIED","AVAILABLE","LEAVING","INCOMING"];const c=n[fi].rooms[ri].s;n[fi].rooms[ri].s=ss[(ss.indexOf(c)+1)%ss.length];return n;});};
   const runSDGHL = useCallback(async(f,t)=>{
     setSdGhlLoad(true);setSdGhlErr("");
     try{
@@ -6164,7 +6255,157 @@ export default function Dashboard() {
       )}
 
       {/* SHOREDITCH OCCUPANCY */}
-      {property==="shoreditch"&&sdTab==="occupancy"&&(
+      {property==="shoreditch"&&sdTab==="occupancy"&&(()=>{
+        const STATUS_COLORS={
+          OCCUPIED:{bg:C.sage+"33",color:C.sage,border:C.sage+"55"},
+          AVAILABLE:{bg:C.rose+"33",color:C.rose,border:C.rose+"55"},
+          LEAVING:{bg:C.gold+"33",color:C.gold,border:C.gold+"55"},
+          INCOMING:{bg:C.blue+"33",color:C.blue,border:C.blue+"55"},
+        };
+        const sdUpdateField=(fi,ri,field,val)=>{
+          setSdFlats(p=>{
+            const n=p.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
+            if(ri===null){n[fi]={...n[fi],[field]:val};}
+            else{n[fi].rooms[ri]={...n[fi].rooms[ri],[field]:val};}
+            return n;
+          });
+        };
+        const FlatPlan=({flat})=>{
+          const beds=flat.rooms.length;
+          const W=280,rowH=44,gap=4,pad=6;
+          let topRow,botRow,midRow=[];
+          if(beds<=4){topRow=flat.rooms.slice(0,2);botRow=flat.rooms.slice(2,4);}
+          else if(beds===5){topRow=flat.rooms.slice(0,2);midRow=flat.rooms.slice(2,3);botRow=flat.rooms.slice(3,5);}
+          else{topRow=flat.rooms.slice(0,3);botRow=flat.rooms.slice(3,6);}
+          const totalH=pad*2+rowH*2+rowH+gap*2;
+          const renderRow=(rooms,y)=>{
+            const rw=(W-pad*2-(rooms.length-1)*gap)/rooms.length;
+            return rooms.map((r,i)=>{
+              const sc=STATUS_COLORS[r.s]||STATUS_COLORS.AVAILABLE;
+              const x=pad+i*(rw+gap);
+              return <g key={r.id}><rect x={x} y={y} width={rw} height={rowH} rx={4} fill={sc.bg} stroke={sc.color} strokeWidth={1}/><text x={x+rw/2} y={y+18} textAnchor="middle" fill={sc.color} fontSize={10} fontWeight={700} fontFamily="DM Mono,monospace">{"B"+(i+1)}</text><text x={x+rw/2} y={y+32} textAnchor="middle" fill={C.muted} fontSize={8} fontFamily="DM Mono,monospace">{r.size||""}</text></g>;
+            });
+          };
+          const livingY=pad+rowH+gap;
+          const midRooms=midRow.length>0;
+          const livingW=midRooms?(W-pad*2)*0.6:(W-pad*2);
+          const midW=midRooms?(W-pad*2)*0.4-gap:0;
+          return <svg width={W} height={totalH} viewBox={`0 0 ${W} ${totalH}`} style={{display:"block",marginTop:8}}>
+            <rect x={0} y={0} width={W} height={totalH} rx={8} fill={C.card} stroke={C.border} strokeWidth={1}/>
+            {renderRow(topRow,pad)}
+            <rect x={pad} y={livingY} width={livingW} height={rowH} rx={4} fill={C.border+"66"} stroke={C.border} strokeWidth={1}/>
+            <text x={pad+livingW/2} y={livingY+rowH/2+4} textAnchor="middle" fill={C.muted} fontSize={9} fontFamily="DM Mono,monospace">Living / Kitchen</text>
+            {midRooms&&(()=>{const r=midRow[0];const sc=STATUS_COLORS[r.s]||STATUS_COLORS.AVAILABLE;const mx=pad+livingW+gap;return <g><rect x={mx} y={livingY} width={midW} height={rowH} rx={4} fill={sc.bg} stroke={sc.color} strokeWidth={1}/><text x={mx+midW/2} y={livingY+18} textAnchor="middle" fill={sc.color} fontSize={10} fontWeight={700} fontFamily="DM Mono,monospace">B3</text><text x={mx+midW/2} y={livingY+32} textAnchor="middle" fill={C.muted} fontSize={8} fontFamily="DM Mono,monospace">{r.size||""}</text></g>;})()}
+            {renderRow(botRow,pad+rowH*2+gap*2)}
+          </svg>;
+        };
+        const floor1=sdFlats.filter((_,i)=>i<8);
+        const floor2=sdFlats.filter((_,i)=>i>=8);
+        const renderFlats=(flats,baseIdx,floorLabel)=>(
+          <div key={floorLabel} style={{marginBottom:20}}>
+            <p style={{fontSize:12,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${C.border}`}}>{floorLabel}</p>
+            {flats.map((flat,localIdx)=>{
+              const fi=baseIdx+localIdx;
+              const expanded=!!sdExpanded[fi];
+              const occCount=flat.rooms.filter(r=>r.s==="OCCUPIED"||r.s==="LEAVING").length;
+              const availCount=flat.rooms.filter(r=>r.s==="AVAILABLE").length;
+              const incomingCount=flat.rooms.filter(r=>r.s==="INCOMING").length;
+              const leavingCount=flat.rooms.filter(r=>r.s==="LEAVING").length;
+              const weeklyTotal=flat.rooms.reduce((s,r)=>(r.s==="OCCUPIED"||r.s==="LEAVING")?s+(r.w||0):s,0);
+              return <div key={fi} style={{background:C.card,border:`1px solid ${expanded?C.gold+"55":C.border}`,borderRadius:12,marginBottom:8,overflow:"hidden",transition:"border-color 0.2s"}}>
+                {/* COLLAPSED HEADER */}
+                <div onClick={()=>setSdExpanded(p=>({...p,[fi]:!p[fi]}))} style={{padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <div style={{flex:"1 1 140px",minWidth:140}}>
+                    <span style={{fontSize:14,fontWeight:700,color:C.text}}>{flat.name}</span>
+                    <span style={{fontSize:11,color:C.muted,marginLeft:8}}>Floor {flat.floor||"?"} · {flat.wing||"?"} · {flat.beds||flat.rooms.length} beds</span>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.sage+"22",color:C.sage,fontWeight:600}}>{occCount} occ</span>
+                    {availCount>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.rose+"22",color:C.rose,fontWeight:600}}>{availCount} avail</span>}
+                    {leavingCount>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.gold+"22",color:C.gold,fontWeight:600}}>{leavingCount} leaving</span>}
+                    {incomingCount>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.blue+"22",color:C.blue,fontWeight:600}}>{incomingCount} inc</span>}
+                  </div>
+                  <div style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",minWidth:70,textAlign:"right"}}>
+                    {weeklyTotal>0?`£${weeklyTotal}/w`:"—"}
+                  </div>
+                  <span style={{fontSize:14,color:C.muted,transition:"transform 0.2s",transform:expanded?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                </div>
+                {/* EXPANDED DETAILS */}
+                {expanded&&(
+                  <div style={{padding:"0 16px 16px",borderTop:`1px solid ${C.border}`}}>
+                    {/* Badges row */}
+                    <div style={{display:"flex",gap:8,marginTop:12,marginBottom:12,flexWrap:"wrap"}}>
+                      {flat.viewDays&&<span style={{fontSize:10,color:C.muted,background:C.border,padding:"2px 8px",borderRadius:10}}>Views: {flat.viewDays}</span>}
+                      {flat.pref&&<span style={{fontSize:10,color:C.purple,background:C.purple+"22",padding:"2px 8px",borderRadius:10}}>{flat.pref}</span>}
+                    </div>
+                    {/* Room table */}
+                    <div style={{overflowX:"auto",marginBottom:12}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"DM Mono,monospace"}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Room</th>
+                            <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Weekly</th>
+                            <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Monthly</th>
+                            <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Member</th>
+                            <th style={{textAlign:"center",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flat.rooms.map((room,ri)=>{
+                            const sc=STATUS_COLORS[room.s]||STATUS_COLORS.AVAILABLE;
+                            const isEditingW=sdEditing&&sdEditing.fi===fi&&sdEditing.ri===ri&&sdEditing.field==="w";
+                            const isEditingM=sdEditing&&sdEditing.fi===fi&&sdEditing.ri===ri&&sdEditing.field==="m";
+                            const isEditingMember=sdEditing&&sdEditing.fi===fi&&sdEditing.ri===ri&&sdEditing.field==="member";
+                            return <tr key={ri} style={{borderBottom:`1px solid ${C.border}22`}}>
+                              <td style={{padding:"6px 8px",color:C.text,whiteSpace:"nowrap"}}>
+                                {room.label||room.id} <span style={{color:C.muted,fontSize:9}}>{room.size||""}</span>
+                              </td>
+                              <td style={{padding:"6px 8px",textAlign:"right"}}>
+                                {isEditingW
+                                  ?<input autoFocus type="number" defaultValue={room.w||0} onBlur={(e)=>{sdUpdateField(fi,ri,"w",Number(e.target.value)||0);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:60,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,textAlign:"right",fontFamily:"DM Mono,monospace"}}/>
+                                  :<span onClick={()=>setSdEditing({fi,ri,field:"w"})} style={{cursor:"pointer",color:C.text}}>£{room.w||0}</span>
+                                }
+                              </td>
+                              <td style={{padding:"6px 8px",textAlign:"right"}}>
+                                {isEditingM
+                                  ?<input autoFocus type="number" defaultValue={room.m||0} onBlur={(e)=>{sdUpdateField(fi,ri,"m",Number(e.target.value)||0);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:60,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,textAlign:"right",fontFamily:"DM Mono,monospace"}}/>
+                                  :<span onClick={()=>setSdEditing({fi,ri,field:"m"})} style={{cursor:"pointer",color:C.text}}>£{room.m||0}</span>
+                                }
+                              </td>
+                              <td style={{padding:"6px 8px"}}>
+                                {isEditingMember
+                                  ?<input autoFocus type="text" defaultValue={room.member||""} onBlur={(e)=>{sdUpdateField(fi,ri,"member",e.target.value);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:140,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,fontFamily:"DM Mono,monospace"}}/>
+                                  :<span onClick={()=>setSdEditing({fi,ri,field:"member"})} style={{cursor:"pointer",color:room.member?C.text:C.muted}}>
+                                    {room.member||"—"}
+                                    {room.leave&&<span style={{color:C.gold,fontSize:9,marginLeft:6}}>leaves {room.leave}</span>}
+                                  </span>
+                                }
+                              </td>
+                              <td style={{padding:"6px 8px",textAlign:"center"}}>
+                                <button onClick={()=>sdToggleRoom(fi,ri)} style={{padding:"2px 10px",background:sc.bg,color:sc.color,border:`1px solid ${sc.border}`,borderRadius:10,cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{room.s}</button>
+                              </td>
+                            </tr>;
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Notes */}
+                    <div style={{marginBottom:12}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>Notes</p>
+                      <textarea value={flat.notes||""} onChange={(e)=>sdUpdateField(fi,null,"notes",e.target.value)} rows={2} style={{width:"100%",background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",fontSize:11,fontFamily:"DM Mono,monospace",resize:"vertical",lineHeight:1.5}}/>
+                    </div>
+                    {/* Floor plan */}
+                    <div>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>Floor Plan</p>
+                      <FlatPlan flat={flat}/>
+                    </div>
+                  </div>
+                )}
+              </div>;
+            })}
+          </div>
+        );
+        return (
         <div style={{padding:"22px 26px"}}>
           <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {SD_VILLAS} villas · {SD_BEDROOMS} bedrooms</p>
           <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Room Occupancy</h2>
@@ -6172,7 +6413,8 @@ export default function Dashboard() {
           <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
             <KPI label="Total Rooms" value={sdOcc.t} accent={C.gold}/>
             <KPI label="Occupied" value={sdOcc.o} accent={C.sage}/>
-            <KPI label="Vacant" value={sdOcc.v} accent={C.rose}/>
+            <KPI label="Available" value={sdOcc.v} accent={C.rose}/>
+            <KPI label="Leaving" value={sdOcc.l} accent={C.gold}/>
             <KPI label="Incoming" value={sdOcc.i} accent={C.blue}/>
             <KPI label="Current Occupancy" value={`${sdOcc.pct}%`} accent={C.gold}/>
             <KPI label="Future Occupancy" value={`${sdOcc.fut}%`} sub="incl. incoming" accent={C.sage}/>
@@ -6204,23 +6446,14 @@ export default function Dashboard() {
             <OccRing pct={sdOcc.fut} color={C.sage} label="Future Occupancy"/>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
-            {sdFlats.map((flat,fi)=>(
-              <div key={fi} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px"}}>
-                <p style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>{flat.name}</p>
-                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                  {flat.rooms.map((room,ri)=>{
-                    const colors={OCCUPIED:C.sage,VACANT:C.rose,INCOMING:C.blue};
-                    return <button key={ri} onClick={()=>sdToggleRoom(fi,ri)} style={{padding:"4px 8px",background:colors[room.s]+"33",color:colors[room.s],border:`1px solid ${colors[room.s]}55`,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{room.id}</button>;
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+          {/* FLAT CARDS BY FLOOR */}
+          {renderFlats(floor1,0,"1st Floor · Flats 1–8")}
+          {renderFlats(floor2,8,"2nd Floor · Flats 9–16")}
 
           <div style={{display:"flex",gap:12,marginTop:16,justifyContent:"center",alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:10,color:C.sage,background:C.sage+"22",padding:"3px 10px",borderRadius:12}}>● Occupied</span>
-            <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"3px 10px",borderRadius:12}}>● Vacant</span>
+            <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"3px 10px",borderRadius:12}}>● Available</span>
+            <span style={{fontSize:10,color:C.gold,background:C.gold+"22",padding:"3px 10px",borderRadius:12}}>● Leaving</span>
             <span style={{fontSize:10,color:C.blue,background:C.blue+"22",padding:"3px 10px",borderRadius:12}}>● Incoming</span>
             <span style={{fontSize:10,color:sdFlatsSync==="cloud"?C.sage:sdFlatsSync==="saving"?C.gold:sdFlatsSync==="error"?C.rose:C.muted,marginLeft:12}}>
               {sdFlatsSync==="loading"&&"◌ Loading…"}
@@ -6229,10 +6462,11 @@ export default function Dashboard() {
               {sdFlatsSync==="error"&&"⚠ Sync failed (using local)"}
               {sdFlatsSync==="local"&&"◌ Local only (KV not configured)"}
             </span>
-            <button onClick={()=>{if(confirm("Reset Shoreditch occupancy to defaults? This will clear saved changes across all devices.")){localStorage.removeItem("sd_flats_v1");setSdFlats(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));}}} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,padding:"3px 10px",borderRadius:12,cursor:"pointer"}}>Reset to defaults</button>
+            <button onClick={()=>{if(confirm("Reset Shoreditch occupancy to defaults? This will clear saved changes across all devices.")){localStorage.removeItem("sd_flats_v1");setSdFlats(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));setSdExpanded({});}}} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,padding:"3px 10px",borderRadius:12,cursor:"pointer"}}>Reset to defaults</button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       <div style={{padding:"10px 26px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
           <p style={{fontSize:10,color:C.muted}}>Meta 296625156418426 · Google Ads 635-731-8686 · GHL {GHL_LOCATION} · Res Harmonics</p>
