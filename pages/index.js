@@ -6521,9 +6521,9 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {results.map(r=>(
-                    <tr key={r.pct} style={{borderBottom:`1px solid ${C.border}22`,background:r.pct===90?C.gold+"11":"transparent"}}>
-                      <td style={{padding:"6px 8px",color:r.hit?C.sage:C.text,fontWeight:r.pct===90?700:400}}>{r.pct}%{r.pct===90?" ★":""}</td>
-                      <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{r.count} / {r.needed}</td>
+                    <tr key={r.pct} style={{borderBottom:`1px solid ${C.border}22`,background:r.pct===95?C.gold+"11":"transparent"}}>
+                      <td style={{padding:"6px 8px",color:r.hit?C.sage:C.text,fontWeight:r.pct===95?700:400}}>{r.pct}%{r.pct===95?" ★":""}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{r.count} / {total}</td>
                       <td style={{padding:"6px 8px",textAlign:"right",color:r.weeks===0?C.sage:C.text}}>{r.weeks===0?"Now":r.weeks+"w"}</td>
                       <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{r.weeks===0?"—":r.date}</td>
                       <td style={{padding:"6px 8px",textAlign:"right",color:C.gold,fontWeight:700}}>£{r.awr}</td>
