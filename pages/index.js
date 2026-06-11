@@ -2758,6 +2758,7 @@ export default function Dashboard() {
   const sdFlatsSaveTimer = useRef(null);
   const [sdExpanded, setSdExpanded] = useState({});
   const [sdEditing, setSdEditing] = useState(null);
+  const [sdBookingsPerWeek, setSdBookingsPerWeek] = useState(2);
 
   // On mount: fetch the canonical state from the API (Vercel KV)
   useEffect(()=>{
@@ -2859,11 +2860,24 @@ export default function Dashboard() {
   const sdTotalLeads = sdMetaLeads + sdGConvs;
   const sdTotalSpend = sdMetaSpend + sdGSpend;
   const sdBlendedCpl = sdTotalLeads>0 ? sdTotalSpend/sdTotalLeads : 0;
+  // Helper: derive weekly from monthly
+  const pcmToAwr = (m) => Math.round((m||0) * 12 / 52);
   const sdOcc = useMemo(()=>{
     let o=0,i=0,v=0,l=0,t=0;
-    sdFlats.forEach(f=>f.rooms.forEach(r=>{t++;if(r.s==="OCCUPIED")o++;else if(r.s==="LEAVING"){o++;l++;}else if(r.s==="INCOMING")i++;else v++;}));
+    let occWeeklySum=0, occIncWeeklySum=0;
+    const availRooms=[]; // for prediction
+    sdFlats.forEach(f=>f.rooms.forEach(r=>{
+      t++;
+      const wk=pcmToAwr(r.m);
+      if(r.s==="OCCUPIED"){o++;occWeeklySum+=wk;occIncWeeklySum+=wk;}
+      else if(r.s==="LEAVING"){o++;l++;occWeeklySum+=wk;occIncWeeklySum+=wk;}
+      else if(r.s==="INCOMING"){i++;occIncWeeklySum+=wk;}
+      else{v++;availRooms.push(wk);}
+    }));
     const pct=t>0?Math.round(o/t*100):0;
     const fut=t>0?Math.round((o+i)/t*100):0;
+    const awrOcc=o>0?Math.round(occWeeklySum/o):0;
+    const awrOccInc=(o+i)>0?Math.round(occIncWeeklySum/(o+i)):0;
     // Target: 90% occupancy by 1st July 2026
     const SD_TARGET_OCC=0.9;
     const targetRooms=Math.round(t*SD_TARGET_OCC);
@@ -2873,7 +2887,7 @@ export default function Dashboard() {
     const msPerWeek=7*24*60*60*1000;
     const weeksLeft=Math.max(1,Math.ceil((deadline-today)/msPerWeek));
     const roomsPerWeek=Math.ceil(roomsNeeded/weeksLeft);
-    return{o,i,v,l,t,pct,fut,targetRooms,roomsNeeded,weeksLeft,roomsPerWeek,targetPct:Math.round(SD_TARGET_OCC*100)};
+    return{o,i,v,l,t,pct,fut,awrOcc,awrOccInc,occWeeklySum,occIncWeeklySum,availRooms,targetRooms,roomsNeeded,weeksLeft,roomsPerWeek,targetPct:Math.round(SD_TARGET_OCC*100)};
   },[sdFlats]);
   const sdToggleRoom=(fi,ri)=>{setSdFlats(p=>{const n=p.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));const ss=["OCCUPIED","AVAILABLE","LEAVING","INCOMING"];const c=n[fi].rooms[ri].s;n[fi].rooms[ri].s=ss[(ss.indexOf(c)+1)%ss.length];return n;});};
   const runSDGHL = useCallback(async(f,t)=>{
@@ -6299,7 +6313,11 @@ export default function Dashboard() {
           setSdFlats(p=>{
             const n=p.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
             if(ri===null){n[fi]={...n[fi],[field]:val};}
-            else{n[fi].rooms[ri]={...n[fi].rooms[ri],[field]:val};}
+            else{
+              n[fi].rooms[ri]={...n[fi].rooms[ri],[field]:val};
+              // Auto-derive weekly from monthly
+              if(field==="m"){n[fi].rooms[ri].w=pcmToAwr(val);}
+            }
             return n;
           });
         };
@@ -6344,7 +6362,7 @@ export default function Dashboard() {
               const availCount=flat.rooms.filter(r=>r.s==="AVAILABLE").length;
               const incomingCount=flat.rooms.filter(r=>r.s==="INCOMING").length;
               const leavingCount=flat.rooms.filter(r=>r.s==="LEAVING").length;
-              const weeklyTotal=flat.rooms.reduce((s,r)=>(r.s==="OCCUPIED"||r.s==="LEAVING")?s+(r.w||0):s,0);
+              const weeklyTotal=flat.rooms.reduce((s,r)=>(r.s==="OCCUPIED"||r.s==="LEAVING")?s+pcmToAwr(r.m):s,0);
               return <div key={fi} style={{background:C.card,border:`1px solid ${expanded?C.gold+"55":C.border}`,borderRadius:12,marginBottom:8,overflow:"hidden",transition:"border-color 0.2s"}}>
                 {/* COLLAPSED HEADER */}
                 <div onClick={()=>setSdExpanded(p=>({...p,[fi]:!p[fi]}))} style={{padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
@@ -6359,7 +6377,7 @@ export default function Dashboard() {
                     {incomingCount>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.blue+"22",color:C.blue,fontWeight:600}}>{incomingCount} inc</span>}
                   </div>
                   <div style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",minWidth:70,textAlign:"right"}}>
-                    {weeklyTotal>0?`£${weeklyTotal}/w`:"—"}
+                    {occCount>0?`£${Math.round(weeklyTotal/occCount)} AWR`:"—"}
                   </div>
                   <span style={{fontSize:14,color:C.muted,transition:"transform 0.2s",transform:expanded?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
                 </div>
@@ -6377,8 +6395,8 @@ export default function Dashboard() {
                         <thead>
                           <tr style={{borderBottom:`1px solid ${C.border}`}}>
                             <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Room</th>
-                            <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Weekly</th>
-                            <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Monthly</th>
+                            <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>AWR</th>
+                            <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>PCM</th>
                             <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Member</th>
                             <th style={{textAlign:"center",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Status</th>
                           </tr>
@@ -6386,22 +6404,19 @@ export default function Dashboard() {
                         <tbody>
                           {flat.rooms.map((room,ri)=>{
                             const sc=STATUS_COLORS[room.s]||STATUS_COLORS.AVAILABLE;
-                            const isEditingW=sdEditing&&sdEditing.fi===fi&&sdEditing.ri===ri&&sdEditing.field==="w";
                             const isEditingM=sdEditing&&sdEditing.fi===fi&&sdEditing.ri===ri&&sdEditing.field==="m";
                             const isEditingMember=sdEditing&&sdEditing.fi===fi&&sdEditing.ri===ri&&sdEditing.field==="member";
+                            const derivedW=pcmToAwr(room.m);
                             return <tr key={ri} style={{borderBottom:`1px solid ${C.border}22`}}>
                               <td style={{padding:"6px 8px",color:C.text,whiteSpace:"nowrap"}}>
                                 {room.label||room.id} <span style={{color:C.muted,fontSize:9}}>{room.size||""}</span>
                               </td>
-                              <td style={{padding:"6px 8px",textAlign:"right"}}>
-                                {isEditingW
-                                  ?<input autoFocus type="number" defaultValue={room.w||0} onBlur={(e)=>{sdUpdateField(fi,ri,"w",Number(e.target.value)||0);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:60,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,textAlign:"right",fontFamily:"DM Mono,monospace"}}/>
-                                  :<span onClick={()=>setSdEditing({fi,ri,field:"w"})} style={{cursor:"pointer",color:C.text}}>£{room.w||0}</span>
-                                }
+                              <td style={{padding:"6px 8px",textAlign:"right",color:C.muted}}>
+                                £{derivedW}
                               </td>
                               <td style={{padding:"6px 8px",textAlign:"right"}}>
                                 {isEditingM
-                                  ?<input autoFocus type="number" defaultValue={room.m||0} onBlur={(e)=>{sdUpdateField(fi,ri,"m",Number(e.target.value)||0);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:60,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,textAlign:"right",fontFamily:"DM Mono,monospace"}}/>
+                                  ?<input autoFocus type="number" defaultValue={room.m||0} onBlur={(e)=>{sdUpdateField(fi,ri,"m",Number(e.target.value)||0);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:70,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,textAlign:"right",fontFamily:"DM Mono,monospace"}}/>
                                   :<span onClick={()=>setSdEditing({fi,ri,field:"m"})} style={{cursor:"pointer",color:C.text}}>£{room.m||0}</span>
                                 }
                               </td>
@@ -6410,7 +6425,6 @@ export default function Dashboard() {
                                   ?<input autoFocus type="text" defaultValue={room.member||""} onBlur={(e)=>{sdUpdateField(fi,ri,"member",e.target.value);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:140,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,fontFamily:"DM Mono,monospace"}}/>
                                   :<span onClick={()=>setSdEditing({fi,ri,field:"member"})} style={{cursor:"pointer",color:room.member?C.text:C.muted}}>
                                     {room.member||"—"}
-                                    {room.leave&&<span style={{color:C.gold,fontSize:9,marginLeft:6}}>leaves {room.leave}</span>}
                                   </span>
                                 }
                               </td>
@@ -6447,32 +6461,79 @@ export default function Dashboard() {
             <KPI label="Total Rooms" value={sdOcc.t} accent={C.gold}/>
             <KPI label="Occupied" value={sdOcc.o} accent={C.sage}/>
             <KPI label="Available" value={sdOcc.v} accent={C.rose}/>
-            <KPI label="Leaving" value={sdOcc.l} accent={C.gold}/>
             <KPI label="Incoming" value={sdOcc.i} accent={C.blue}/>
             <KPI label="Current Occupancy" value={`${sdOcc.pct}%`} accent={C.gold}/>
             <KPI label="Future Occupancy" value={`${sdOcc.fut}%`} sub="incl. incoming" accent={C.sage}/>
+            <KPI label="AWR (Occupied)" value={`£${sdOcc.awrOcc}`} sub={`${sdOcc.o} rooms · £${sdOcc.occWeeklySum}/w total`} accent={C.gold}/>
+            <KPI label="AWR (Occ + Inc)" value={`£${sdOcc.awrOccInc}`} sub={`${sdOcc.o+sdOcc.i} rooms · £${sdOcc.occIncWeeklySum}/w total`} accent={C.sage}/>
           </div>
 
-          {/* TARGET TRACKER — 90% by 1st July */}
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",marginBottom:18}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
-              <div>
-                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Occupancy Target</p>
-                <p style={{fontSize:18,fontWeight:700,color:C.text}}>{sdOcc.targetPct}% by 1st July 2026</p>
+          {/* OCCUPANCY PREDICTION */}
+          {(()=>{
+            const avail=sdOcc.v;
+            const bpw=sdBookingsPerWeek||1;
+            const weeksToFill=avail>0?Math.ceil(avail/bpw):0;
+            const today=new Date();
+            const fillDate=new Date(today.getTime()+weeksToFill*7*24*60*60*1000);
+            const fillDateStr=fillDate.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+            // Calculate AWR at each milestone
+            const sortedAvail=sdOcc.availRooms.slice().sort((a,b)=>b-a); // fill highest AWR rooms first
+            let runningWeekly=sdOcc.occIncWeeklySum;
+            let runningCount=sdOcc.o+sdOcc.i;
+            const total=sdOcc.t;
+            const milestones=[70,80,90,95,100].map(pct=>{
+              const needed=Math.ceil(total*pct/100);
+              return{pct,needed};
+            });
+            let filledSoFar=0;
+            const results=milestones.map(ms=>{
+              while(runningCount<ms.needed&&filledSoFar<sortedAvail.length){
+                runningWeekly+=sortedAvail[filledSoFar];
+                runningCount++;
+                filledSoFar++;
+              }
+              const weeksToThis=runningCount<=sdOcc.o+sdOcc.i?0:Math.ceil((runningCount-(sdOcc.o+sdOcc.i))/bpw);
+              const dateAt=new Date(today.getTime()+weeksToThis*7*24*60*60*1000);
+              const awr=runningCount>0?Math.round(runningWeekly/runningCount):0;
+              const hit=runningCount>=ms.needed;
+              return{...ms,awr,weeks:weeksToThis,date:dateAt.toLocaleDateString("en-GB",{day:"numeric",month:"short"}),hit,count:Math.min(runningCount,ms.needed)};
+            });
+            return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",marginBottom:18}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Occupancy Prediction</p>
+                  <p style={{fontSize:16,fontWeight:700,color:C.text}}>When will we hit targets?</p>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:11,color:C.muted}}>Bookings/week:</span>
+                  <input type="number" min={1} max={20} value={sdBookingsPerWeek} onChange={(e)=>setSdBookingsPerWeek(Math.max(1,Number(e.target.value)||1))} style={{width:50,background:C.bg,color:C.gold,border:`1px solid ${C.gold}`,borderRadius:6,padding:"4px 8px",fontSize:14,fontWeight:700,textAlign:"center",fontFamily:"DM Mono,monospace"}}/>
+                </div>
               </div>
-              <div style={{textAlign:"right"}}>
-                <p style={{fontSize:24,fontWeight:700,color:sdOcc.roomsNeeded===0?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{sdOcc.roomsPerWeek}</p>
-                <p style={{fontSize:11,color:C.muted}}>rooms/week needed</p>
-              </div>
-            </div>
-            <div style={{height:8,background:C.border,borderRadius:4,overflow:"hidden",marginBottom:10}}>
-              <div style={{height:"100%",background:`linear-gradient(90deg, ${C.sage}, ${C.gold})`,borderRadius:4,width:`${Math.min(100,Math.round((sdOcc.o+sdOcc.i)/sdOcc.targetRooms*100))}%`,transition:"width 0.5s ease"}}/>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted}}>
-              <span>{sdOcc.o+sdOcc.i} / {sdOcc.targetRooms} rooms filled (incl. incoming)</span>
-              <span>{sdOcc.weeksLeft} weeks remaining · {sdOcc.roomsNeeded} rooms to go</span>
-            </div>
-          </div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"DM Mono,monospace"}}>
+                <thead>
+                  <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Target</th>
+                    <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Rooms</th>
+                    <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Weeks</th>
+                    <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Date</th>
+                    <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>AWR at Target</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map(r=>(
+                    <tr key={r.pct} style={{borderBottom:`1px solid ${C.border}22`,background:r.pct===90?C.gold+"11":"transparent"}}>
+                      <td style={{padding:"6px 8px",color:r.hit?C.sage:C.text,fontWeight:r.pct===90?700:400}}>{r.pct}%{r.pct===90?" ★":""}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{r.count} / {r.needed}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:r.weeks===0?C.sage:C.text}}>{r.weeks===0?"Now":r.weeks+"w"}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{r.weeks===0?"—":r.date}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.gold,fontWeight:700}}>£{r.awr}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{fontSize:10,color:C.muted,marginTop:8}}>Based on {avail} available rooms filling at {bpw}/week. AWR assumes rooms fill in order of highest rate first. Adjust bookings/week to model different scenarios.</p>
+            </div>;
+          })()}
 
           <div style={{display:"flex",gap:24,justifyContent:"center",marginBottom:24}}>
             <OccRing pct={sdOcc.pct} color={C.gold} label="Current Occupancy"/>
