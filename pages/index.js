@@ -6311,12 +6311,12 @@ export default function Dashboard() {
           else if(beds===5){topRow=flat.rooms.slice(0,2);midRow=flat.rooms.slice(2,3);botRow=flat.rooms.slice(3,5);}
           else{topRow=flat.rooms.slice(0,3);botRow=flat.rooms.slice(3,6);}
           const totalH=pad*2+rowH*2+rowH+gap*2;
-          const renderRow=(rooms,y)=>{
+          const renderRow=(rooms,y,startIdx)=>{
             const rw=(W-pad*2-(rooms.length-1)*gap)/rooms.length;
             return rooms.map((r,i)=>{
               const sc=STATUS_COLORS[r.s]||STATUS_COLORS.AVAILABLE;
               const x=pad+i*(rw+gap);
-              return <g key={r.id}><rect x={x} y={y} width={rw} height={rowH} rx={4} fill={sc.bg} stroke={sc.color} strokeWidth={1}/><text x={x+rw/2} y={y+18} textAnchor="middle" fill={sc.color} fontSize={10} fontWeight={700} fontFamily="DM Mono,monospace">{"B"+(i+1)}</text><text x={x+rw/2} y={y+32} textAnchor="middle" fill={C.muted} fontSize={8} fontFamily="DM Mono,monospace">{r.size||""}</text></g>;
+              return <g key={r.id}><rect x={x} y={y} width={rw} height={rowH} rx={4} fill={sc.bg} stroke={sc.color} strokeWidth={1}/><text x={x+rw/2} y={y+18} textAnchor="middle" fill={sc.color} fontSize={10} fontWeight={700} fontFamily="DM Mono,monospace">{"B"+(startIdx+i+1)}</text><text x={x+rw/2} y={y+32} textAnchor="middle" fill={C.muted} fontSize={8} fontFamily="DM Mono,monospace">{r.size||""}</text></g>;
             });
           };
           const livingY=pad+rowH+gap;
@@ -6325,11 +6325,11 @@ export default function Dashboard() {
           const midW=midRooms?(W-pad*2)*0.4-gap:0;
           return <svg width={W} height={totalH} viewBox={`0 0 ${W} ${totalH}`} style={{display:"block",marginTop:8}}>
             <rect x={0} y={0} width={W} height={totalH} rx={8} fill={C.card} stroke={C.border} strokeWidth={1}/>
-            {renderRow(topRow,pad)}
+            {renderRow(topRow,pad,0)}
             <rect x={pad} y={livingY} width={livingW} height={rowH} rx={4} fill={C.border+"66"} stroke={C.border} strokeWidth={1}/>
             <text x={pad+livingW/2} y={livingY+rowH/2+4} textAnchor="middle" fill={C.muted} fontSize={9} fontFamily="DM Mono,monospace">Living / Kitchen</text>
-            {midRooms&&(()=>{const r=midRow[0];const sc=STATUS_COLORS[r.s]||STATUS_COLORS.AVAILABLE;const mx=pad+livingW+gap;return <g><rect x={mx} y={livingY} width={midW} height={rowH} rx={4} fill={sc.bg} stroke={sc.color} strokeWidth={1}/><text x={mx+midW/2} y={livingY+18} textAnchor="middle" fill={sc.color} fontSize={10} fontWeight={700} fontFamily="DM Mono,monospace">B3</text><text x={mx+midW/2} y={livingY+32} textAnchor="middle" fill={C.muted} fontSize={8} fontFamily="DM Mono,monospace">{r.size||""}</text></g>;})()}
-            {renderRow(botRow,pad+rowH*2+gap*2)}
+            {midRooms&&(()=>{const r=midRow[0];const sc=STATUS_COLORS[r.s]||STATUS_COLORS.AVAILABLE;const mx=pad+livingW+gap;const midLabel="B"+(topRow.length+1);return <g><rect x={mx} y={livingY} width={midW} height={rowH} rx={4} fill={sc.bg} stroke={sc.color} strokeWidth={1}/><text x={mx+midW/2} y={livingY+18} textAnchor="middle" fill={sc.color} fontSize={10} fontWeight={700} fontFamily="DM Mono,monospace">{midLabel}</text><text x={mx+midW/2} y={livingY+32} textAnchor="middle" fill={C.muted} fontSize={8} fontFamily="DM Mono,monospace">{r.size||""}</text></g>;})()}
+            {renderRow(botRow,pad+rowH*2+gap*2,topRow.length+(midRow.length||0))}
           </svg>;
         };
         const floor1=sdFlats.filter((_,i)=>i<8);
