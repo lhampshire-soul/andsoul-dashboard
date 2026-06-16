@@ -1092,6 +1092,8 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         room: b.unit?.name || currentStay?.unit?.name || "—",
         followOnStart: (b.startDate ?? "").slice(0,10),
         followOnEnd: (b.endDate ?? "").slice(0,10),
+        netAmount: b.netAmount ?? 0,
+        vatAmount: b.vatAmount ?? 0,
         // These will be enriched after individual roomStay fetch:
         conversionDate: null, confirmedDate: null, contractSignedDate: null,
       });
@@ -1135,6 +1137,8 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         room: b.unit?.name || currentStay?.unit?.name || "—",
         followOnStart: (b.startDate ?? "").slice(0,10),
         followOnEnd: (b.endDate ?? "").slice(0,10),
+        netAmount: b.netAmount ?? 0,
+        vatAmount: b.vatAmount ?? 0,
         // These will be enriched after individual roomStay fetch:
         conversionDate: null, confirmedDate: null, contractSignedDate: null,
       });
@@ -5088,17 +5092,14 @@ export default function Dashboard() {
                           buckets[k]++; bucketDays[k] += d;
                         });
                         const totalDays = losData.reduce((s, d) => s + d, 0);
-                        // AWR: compute from all bookings that match these renewal roomStayIds
-                        const renewalRsIds = new Set(filteredConfirmed.map(ev => ev.roomStayId).filter(Boolean));
-                        const allBk = rhAllBookings || [];
+                        // AWR: compute directly from the renewal objects (netAmount stored on each)
                         let totalWeeklyRate = 0, rateCount = 0;
-                        allBk.forEach(b => {
-                          if (!renewalRsIds.has(b.roomStayId)) return;
-                          const start = (b.startDate||"").slice(0,10);
-                          const end = (b.endDate||"").slice(0,10);
+                        filteredConfirmed.forEach(ev => {
+                          const start = ev.followOnStart;
+                          const end = ev.followOnEnd;
                           if (!start || !end) return;
                           const days = Math.round((new Date(end) - new Date(start)) / 86400000);
-                          const net = b.netTotal ?? b.grossTotal ?? 0;
+                          const net = parseFloat(ev.netAmount ?? 0);
                           if (days > 0 && net > 0) {
                             totalWeeklyRate += Math.round((net / days) * 7);
                             rateCount++;
