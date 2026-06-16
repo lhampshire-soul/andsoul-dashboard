@@ -1086,6 +1086,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         created: parseCreated(b.bookingReference) || "—",
         status: "PENDING",
         name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
         bookingRef: b.bookingReference,
         roomStayId: b.roomStayId,
         expiringRef: currentStay?.bookingReference || "—",
@@ -1131,6 +1132,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         created: parseCreated(b.bookingReference) || "—",
         status: "CONFIRMED",
         name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
         bookingRef: b.bookingReference,
         roomStayId: b.roomStayId,
         expiringRef: currentStay?.bookingReference || "—",
@@ -2139,6 +2141,15 @@ export default function Dashboard() {
     "Canopy Not Passed",
   ];
 
+  // Clipboard feedback: briefly show "Copied!" after clicking a name to copy email
+  const [copiedEmail, setCopiedEmail] = useState(null);
+  const copyEmail = useCallback((email, id) => {
+    if (!email) return;
+    navigator.clipboard.writeText(email).catch(() => {});
+    setCopiedEmail(id);
+    setTimeout(() => setCopiedEmail(null), 1500);
+  }, []);
+
   // Manual "leaving" markers — persisted in Redis (with localStorage fallback)
   const [leavingSet, setLeavingSet] = useState(() => {
     if (typeof window === "undefined") return new Set();
@@ -2323,6 +2334,43 @@ export default function Dashboard() {
       return next;
     });
   }, [persistRenewalState]);
+
+  // ─── Two-way sync: auto-clear "leaving" markers when RH shows a follow-on ───
+  // If someone was manually marked as leaving, but Res Harmonics later gets a
+  // PENDING or CONFIRMED follow-on booking, automatically remove the leaving flag.
+  useEffect(() => {
+    if (!pmsData?.renewalMonths?.length) return;
+    const renewedOrPendingRsIds = new Set();
+    pmsData.renewalMonths.forEach(m => {
+      m.entries.forEach(e => {
+        if (e.isRenewed || e.isPendingRenewal) renewedOrPendingRsIds.add(e.roomStayId);
+      });
+    });
+    setLeavingSet(prev => {
+      let changed = false;
+      const next = new Set(prev);
+      const clearedIds = [];
+      next.forEach(rsId => {
+        if (renewedOrPendingRsIds.has(rsId)) {
+          next.delete(rsId);
+          clearedIds.push(rsId);
+          changed = true;
+        }
+      });
+      if (changed) {
+        console.log(`Auto-cleared leaving markers for ${clearedIds.length} entries — RH shows follow-on bookings:`, clearedIds);
+        setLeavingReasons(prevR => {
+          const nextR = { ...prevR };
+          clearedIds.forEach(id => delete nextR[id]);
+          try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(nextR)); } catch {}
+          return nextR;
+        });
+        try { localStorage.setItem("renewal_leaving_v1", JSON.stringify([...next])); } catch {}
+        persistRenewalState(next, pendingSet);
+      }
+      return changed ? next : prev;
+    });
+  }, [pmsData?.renewalMonths]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Messaging state — supports SMS and Email via GHL
   const [msgChannel, setMsgChannel] = useState("sms"); // "sms" | "email"
@@ -5163,7 +5211,16 @@ export default function Dashboard() {
                               <tbody>
                                 {filteredConfirmed.sort((a,b)=>(b.confirmedDate||"").localeCompare(a.confirmedDate||"")).map((ev,i) => (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
+                                        title={ev.email ? `Click to copy: ${ev.email}` : "No email on file"}
+                                        onClick={() => copyEmail(ev.email, `confirmed-${i}`)}>
+                                      {ev.name||"—"}
+                                      {ev.email && (
+                                        <span style={{fontSize:9,marginLeft:5,color:copiedEmail===`confirmed-${i}`?C.sage:C.muted,transition:"color 0.2s"}}>
+                                          {copiedEmail===`confirmed-${i}` ? "✓ copied" : "✉"}
+                                        </span>
+                                      )}
+                                    </td>
                                     <td style={{padding:"7px 10px",color:C.sage,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.confirmedDate||ev.contractSignedDate||"—"}</td>
                                     <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
@@ -5198,7 +5255,16 @@ export default function Dashboard() {
                               <tbody>
                                 {filteredPending.sort((a,b)=>(b.conversionDate||"").localeCompare(a.conversionDate||"")).map((ev,i) => (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{ev.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
+                                        title={ev.email ? `Click to copy: ${ev.email}` : "No email on file"}
+                                        onClick={() => copyEmail(ev.email, `pending-${i}`)}>
+                                      {ev.name||"—"}
+                                      {ev.email && (
+                                        <span style={{fontSize:9,marginLeft:5,color:copiedEmail===`pending-${i}`?C.sage:C.muted,transition:"color 0.2s"}}>
+                                          {copiedEmail===`pending-${i}` ? "✓ copied" : "✉"}
+                                        </span>
+                                      )}
+                                    </td>
                                     <td style={{padding:"7px 10px",color:C.blue,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.conversionDate||"—"}</td>
                                     <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
@@ -5232,7 +5298,16 @@ export default function Dashboard() {
                               <tbody>
                                 {departingInPeriod.sort((a,b)=>a.endDate.localeCompare(b.endDate)).map((e,i) => (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600}}>{e.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:e.email?"pointer":"default"}}
+                                        title={e.email ? `Click to copy: ${e.email}` : "No email on file"}
+                                        onClick={() => copyEmail(e.email, `departing-${i}`)}>
+                                      {e.name||"—"}
+                                      {e.email && (
+                                        <span style={{fontSize:9,marginLeft:5,color:copiedEmail===`departing-${i}`?C.sage:C.muted,transition:"color 0.2s"}}>
+                                          {copiedEmail===`departing-${i}` ? "✓ copied" : "✉"}
+                                        </span>
+                                      )}
+                                    </td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{e.endDate}</td>
                                     <td style={{padding:"7px 10px",color:C.muted}}>{e.room}</td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontSize:11}}>{leavingReasons[e.roomStayId]||"—"}</td>
@@ -5592,7 +5667,16 @@ export default function Dashboard() {
                                   : "not_started";
                                 return (
                                   <tr key={e.roomStayId || i} style={{borderBottom:`1px solid ${C.border}22`,background:rowBg}}>
-                                    <td style={{padding:"10px 10px",color:isLeaving?C.muted:C.text,fontWeight:600,whiteSpace:"nowrap",textDecoration:isLeaving?"line-through":"none"}}>{e.name || "—"}</td>
+                                    <td style={{padding:"10px 10px",color:isLeaving?C.muted:C.text,fontWeight:600,whiteSpace:"nowrap",textDecoration:isLeaving?"line-through":"none",cursor:e.email?"pointer":"default"}}
+                                        title={e.email ? `Click to copy: ${e.email}` : "No email on file"}
+                                        onClick={() => copyEmail(e.email, e.roomStayId)}>
+                                      {e.name || "—"}
+                                      {e.email && (
+                                        <span style={{fontSize:9,marginLeft:5,color:copiedEmail===e.roomStayId?C.sage:C.muted,transition:"color 0.2s"}}>
+                                          {copiedEmail===e.roomStayId ? "✓ copied" : "✉"}
+                                        </span>
+                                      )}
+                                    </td>
                                     <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",fontSize:11}}>
                                       {e.bookingId ? (
                                         <a href={`https://app.resharmonics.com/bookings/${e.bookingId}`} target="_blank" rel="noopener noreferrer"
