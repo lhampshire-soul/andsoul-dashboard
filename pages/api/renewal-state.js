@@ -43,6 +43,7 @@ export default async function handler(req, res) {
         pending: data.pending || [],
         leavingReasons: data.leavingReasons || {},
         customerRefs: data.customerRefs || {},
+        earlyTerm: data.earlyTerm || [],
         updatedAt: data.updatedAt || null,
       });
     }
@@ -57,6 +58,7 @@ export default async function handler(req, res) {
         pending: Array.isArray(body.pending) ? body.pending : (prev.pending || []),
         leavingReasons: (body.leavingReasons && typeof body.leavingReasons === "object") ? body.leavingReasons : (prev.leavingReasons || {}),
         customerRefs: (body.customerRefs && typeof body.customerRefs === "object") ? body.customerRefs : (prev.customerRefs || {}),
+        earlyTerm: Array.isArray(body.earlyTerm) ? body.earlyTerm : (prev.earlyTerm || []),
         updatedAt: new Date().toISOString(),
       };
       await client.set(REDIS_KEY, JSON.stringify(record));

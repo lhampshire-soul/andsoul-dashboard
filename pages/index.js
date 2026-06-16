@@ -1304,7 +1304,7 @@ async function loadGHL(dateFrom, dateTo) {
 // ─── RES HARMONICS — routes through /api/rh (server-side, no CORS issues) ───
 // ─── EXCEL EXPORT HELPER ─────────────────────────────────────────────────────
 // Dynamically loads SheetJS from CDN and generates .xlsx file
-async function exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs) {
+async function exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs, earlyTermSet) {
   // Load SheetJS if not already loaded
   if (!window.XLSX) {
     await new Promise((resolve, reject) => {
@@ -1339,6 +1339,7 @@ async function exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leaving
         "Status": status,
         "Renewal Month": m.label,
         "Departure Reason": leavingReasons[e.roomStayId] || "—",
+        "Early Termination": (earlyTermSet && earlyTermSet.has(e.roomStayId)) ? "Yes" : "—",
       });
     });
   });
@@ -2169,6 +2170,12 @@ export default function Dashboard() {
     try { return new Set(JSON.parse(localStorage.getItem("renewal_pending_v1") || "[]")); } catch { return new Set(); }
   });
 
+  // Early termination markers: roomStayId → true (subset of leavingSet)
+  const [earlyTermSet, setEarlyTermSet] = useState(() => {
+    if (typeof window === "undefined") return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem("renewal_early_term_v1") || "[]")); } catch { return new Set(); }
+  });
+
   // Customer reference map: roomStayId → free-text reference
   const [customerRefs, setCustomerRefs] = useState(() => {
     if (typeof window === "undefined") return {};
@@ -2230,19 +2237,21 @@ export default function Dashboard() {
   }, [cid, csec]);
 
   // Helper: save both sets + leaving reasons to Redis + localStorage
-  const persistRenewalState = useCallback((newLeaving, newPending, newReasons) => {
+  const persistRenewalState = useCallback((newLeaving, newPending, newReasons, newEarlyTerm) => {
     const lArr = [...newLeaving];
     const pArr = [...newPending];
     const reasons = newReasons || leavingReasons;
+    const etArr = newEarlyTerm ? [...newEarlyTerm] : [...earlyTermSet];
     try { localStorage.setItem("renewal_leaving_v1", JSON.stringify(lArr)); } catch {}
     try { localStorage.setItem("renewal_pending_v1", JSON.stringify(pArr)); } catch {}
     try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(reasons)); } catch {}
+    try { localStorage.setItem("renewal_early_term_v1", JSON.stringify(etArr)); } catch {}
     fetch("/api/renewal-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leaving: lArr, pending: pArr, leavingReasons: reasons }),
+      body: JSON.stringify({ leaving: lArr, pending: pArr, leavingReasons: reasons, earlyTerm: etArr }),
     }).catch(() => {});
-  }, [leavingReasons]);
+  }, [leavingReasons, earlyTermSet]);
 
   // Load from Redis on mount — overrides localStorage with server state
   useEffect(() => {
@@ -2266,6 +2275,10 @@ export default function Dashboard() {
         if (data.customerRefs && Object.keys(data.customerRefs).length > 0) {
           setCustomerRefs(data.customerRefs);
           try { localStorage.setItem("renewal_customer_refs_v1", JSON.stringify(data.customerRefs)); } catch {}
+        }
+        if (data.earlyTerm && data.earlyTerm.length > 0) {
+          setEarlyTermSet(new Set(data.earlyTerm));
+          try { localStorage.setItem("renewal_early_term_v1", JSON.stringify(data.earlyTerm)); } catch {}
         }
       })
       .catch(() => {}); // fall back to localStorage values already in state
@@ -2293,16 +2306,22 @@ export default function Dashboard() {
       const next = new Set(prev);
       if (next.has(roomStayId)) {
         next.delete(roomStayId);
-        // Clear reason when undoing
+        // Clear reason + early term when undoing
         setLeavingReasons(prevR => {
           const nextR = { ...prevR };
           delete nextR[roomStayId];
           try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(nextR)); } catch {}
-          setPendingSet(prevP => {
-            const nextP = new Set(prevP);
-            nextP.delete(roomStayId);
-            persistRenewalState(next, nextP, nextR);
-            return nextP;
+          setEarlyTermSet(prevET => {
+            const nextET = new Set(prevET);
+            nextET.delete(roomStayId);
+            try { localStorage.setItem("renewal_early_term_v1", JSON.stringify([...nextET])); } catch {}
+            setPendingSet(prevP => {
+              const nextP = new Set(prevP);
+              nextP.delete(roomStayId);
+              persistRenewalState(next, nextP, nextR, nextET);
+              return nextP;
+            });
+            return nextET;
           });
           return nextR;
         });
@@ -2319,6 +2338,16 @@ export default function Dashboard() {
       return next;
     });
   }, [persistRenewalState]);
+
+  const toggleEarlyTerm = useCallback((roomStayId) => {
+    setEarlyTermSet(prev => {
+      const next = new Set(prev);
+      if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
+      try { localStorage.setItem("renewal_early_term_v1", JSON.stringify([...next])); } catch {}
+      persistRenewalState(leavingSet, pendingSet, leavingReasons, next);
+      return next;
+    });
+  }, [leavingSet, pendingSet, leavingReasons, persistRenewalState]);
 
   const togglePending = useCallback((roomStayId) => {
     setPendingSet(prev => {
@@ -5385,6 +5414,7 @@ export default function Dashboard() {
               const totalPending = monthStats.reduce((s, m) => s + m.pendingRenewal.length, 0);
               const totalNotStarted = monthStats.reduce((s, m) => s + m.notStarted.length, 0);
               const totalCritical = monthStats.reduce((s, m) => s + m.critical.length, 0);
+              const totalEarlyTerm = monthStats.reduce((s, m) => s + m.leaving.filter(e => earlyTermSet.has(e.roomStayId)).length, 0);
               const overallRenewedPct = totalAll > 0 ? Math.round((totalRenewed / totalAll) * 100) : 0;
               const overallLeavingPct = totalAll > 0 ? Math.round((totalLeaving / totalAll) * 100) : 0;
               const selected = renewalSelectedMonth !== null ? monthStats.find(m => m.key === renewalSelectedMonth) : null;
@@ -5397,87 +5427,120 @@ export default function Dashboard() {
                     <KPI label="Renewed" value={`${totalRenewed} (${overallRenewedPct}%)`} sub="Contract signed" accent={C.sage}/>
                     <KPI label="Pending" value={totalPending} sub="Contract sent, awaiting signature" accent={C.blue}/>
                     <KPI label="Not Yet Started" value={totalNotStarted} sub="No renewal action yet" accent={C.gold}/>
-                    <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub="Left or marked leaving" accent={C.rose}/>
+                    <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub={`Left or marked leaving${totalEarlyTerm > 0 ? ` · ${totalEarlyTerm} early term` : ""}`} accent={C.rose}/>
                     <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, no action" accent={C.rose}/>
                   </div>
                   <div style={{display:"flex",gap:10,marginBottom:16}}>
-                    <button onClick={() => exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs)}
+                    <button onClick={() => exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs, earlyTermSet)}
                       style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.sage}`,background:C.sage+"22",color:C.sage,fontWeight:700,fontSize:11,cursor:"pointer",letterSpacing:"0.04em",display:"flex",alignItems:"center",gap:6}}>
                       ↓ Export Renewed + Pending (.xlsx)
                     </button>
                   </div>
 
-                  {/* ── Leaving Reasons Pie Charts ── */}
+                  {/* ── Leaving Reasons Breakdown: Overall + Per-Month ── */}
                   {(() => {
-                    // Gather all leaving entries across all months
                     const allLeavingEntries = monthStats.flatMap(m => m.leaving);
                     if (allLeavingEntries.length === 0) return null;
-                    // Count reasons
-                    const reasonCounts = {};
-                    let noReasonCount = 0;
-                    allLeavingEntries.forEach(e => {
-                      const reason = leavingReasons[e.roomStayId];
-                      if (reason) { reasonCounts[reason] = (reasonCounts[reason] || 0) + 1; }
-                      else { noReasonCount++; }
-                    });
-                    const reasonEntries = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]);
-                    if (noReasonCount > 0) reasonEntries.push(["No Reason Set", noReasonCount]);
-                    const total = allLeavingEntries.length;
                     const pieColors = ["#e55", "#e09f3e", "#4ea8de", "#c8a455", "#9b59b6", "#e07c5a", "#888"];
-                    // SVG pie chart
-                    const pieData = reasonEntries.map(([label, count], i) => ({
-                      label, count, pct: Math.round((count / total) * 100),
-                      color: pieColors[i % pieColors.length]
-                    }));
-                    let cumAngle = 0;
-                    const slices = pieData.map(d => {
-                      const angle = (d.count / total) * 360;
-                      const startAngle = cumAngle;
-                      cumAngle += angle;
-                      const endAngle = cumAngle;
-                      const startRad = (startAngle - 90) * Math.PI / 180;
-                      const endRad = (endAngle - 90) * Math.PI / 180;
-                      const largeArc = angle > 180 ? 1 : 0;
-                      const x1 = 80 + 70 * Math.cos(startRad);
-                      const y1 = 80 + 70 * Math.sin(startRad);
-                      const x2 = 80 + 70 * Math.cos(endRad);
-                      const y2 = 80 + 70 * Math.sin(endRad);
-                      // For single-item pie, draw a full circle
-                      if (pieData.length === 1) {
-                        return { ...d, path: null, fullCircle: true };
-                      }
-                      return { ...d, path: `M80,80 L${x1},${y1} A70,70 0 ${largeArc},1 ${x2},${y2} Z`, fullCircle: false };
-                    });
-                    return (
-                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 22px",marginBottom:18}}>
-                        <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:14}}>Departure Reasons Breakdown</h3>
-                        <div style={{display:"flex",gap:30,alignItems:"center",flexWrap:"wrap"}}>
-                          <svg width="160" height="160" viewBox="0 0 160 160">
+
+                    // Helper: build reason data from an array of leaving entries
+                    const buildReasonData = (entries) => {
+                      const reasonCounts = {};
+                      let noReasonCount = 0;
+                      let earlyTermCount = 0;
+                      entries.forEach(e => {
+                        const reason = leavingReasons[e.roomStayId];
+                        if (reason) { reasonCounts[reason] = (reasonCounts[reason] || 0) + 1; }
+                        else { noReasonCount++; }
+                        if (earlyTermSet.has(e.roomStayId)) earlyTermCount++;
+                      });
+                      const reasonEntries = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]);
+                      if (noReasonCount > 0) reasonEntries.push(["No Reason Set", noReasonCount]);
+                      const total = entries.length;
+                      const pieData = reasonEntries.map(([label, count], i) => ({
+                        label, count, pct: total > 0 ? Math.round((count / total) * 100) : 0,
+                        color: pieColors[i % pieColors.length]
+                      }));
+                      return { pieData, total, earlyTermCount };
+                    };
+
+                    // Helper: build SVG pie slices
+                    const buildSlices = (pieData, total) => {
+                      let cumAngle = 0;
+                      return pieData.map(d => {
+                        const angle = (d.count / total) * 360;
+                        const startAngle = cumAngle;
+                        cumAngle += angle;
+                        const endAngle = cumAngle;
+                        const startRad = (startAngle - 90) * Math.PI / 180;
+                        const endRad = (endAngle - 90) * Math.PI / 180;
+                        const largeArc = angle > 180 ? 1 : 0;
+                        const x1 = 80 + 70 * Math.cos(startRad);
+                        const y1 = 80 + 70 * Math.sin(startRad);
+                        const x2 = 80 + 70 * Math.cos(endRad);
+                        const y2 = 80 + 70 * Math.sin(endRad);
+                        if (pieData.length === 1) return { ...d, path: null, fullCircle: true };
+                        return { ...d, path: `M80,80 L${x1},${y1} A70,70 0 ${largeArc},1 ${x2},${y2} Z`, fullCircle: false };
+                      });
+                    };
+
+                    // Helper: render a single pie + legend column
+                    const renderPieColumn = (title, data, slices) => (
+                      <div style={{flex:"1 1 300px",minWidth:280}}>
+                        <h4 style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>{title}</h4>
+                        <div style={{display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
+                          <svg width="140" height="140" viewBox="0 0 160 160">
                             {slices.map((s, i) => s.fullCircle ? (
                               <circle key={i} cx="80" cy="80" r="70" fill={s.color}/>
                             ) : (
                               <path key={i} d={s.path} fill={s.color} stroke={C.card} strokeWidth="1.5"/>
                             ))}
                             <circle cx="80" cy="80" r="35" fill={C.card}/>
-                            <text x="80" y="76" textAnchor="middle" fill={C.text} fontSize="18" fontWeight="700">{total}</text>
+                            <text x="80" y="76" textAnchor="middle" fill={C.text} fontSize="18" fontWeight="700">{data.total}</text>
                             <text x="80" y="92" textAnchor="middle" fill={C.muted} fontSize="9">departing</text>
                           </svg>
-                          <div style={{display:"flex",flexDirection:"column",gap:8,flex:1}}>
-                            {pieData.map((d, i) => (
-                              <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
-                                <div style={{width:12,height:12,borderRadius:3,background:d.color,flexShrink:0}}/>
+                          <div style={{display:"flex",flexDirection:"column",gap:6,flex:1}}>
+                            {data.pieData.map((d, i) => (
+                              <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
+                                <div style={{width:10,height:10,borderRadius:2,background:d.color,flexShrink:0}}/>
                                 <div style={{flex:1}}>
                                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-                                    <span style={{fontSize:12,color:C.text,fontWeight:600}}>{d.label}</span>
-                                    <span style={{fontSize:11,color:C.muted,fontFamily:"DM Mono,monospace"}}>{d.count} ({d.pct}%)</span>
+                                    <span style={{fontSize:11,color:C.text,fontWeight:600}}>{d.label}</span>
+                                    <span style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace"}}>{d.count} ({d.pct}%)</span>
                                   </div>
-                                  <div style={{height:4,borderRadius:2,background:C.border,marginTop:3}}>
+                                  <div style={{height:3,borderRadius:2,background:C.border,marginTop:2}}>
                                     <div style={{height:"100%",borderRadius:2,background:d.color,width:`${d.pct}%`,transition:"width 0.3s"}}/>
                                   </div>
                                 </div>
                               </div>
                             ))}
+                            {data.earlyTermCount > 0 && (
+                              <div style={{marginTop:4,fontSize:10,color:C.rose,fontWeight:600}}>
+                                ⚡ {data.earlyTermCount} early termination{data.earlyTermCount!==1?"s":""}
+                              </div>
+                            )}
                           </div>
+                        </div>
+                      </div>
+                    );
+
+                    // Overall data
+                    const overallData = buildReasonData(allLeavingEntries);
+                    const overallSlices = buildSlices(overallData.pieData, overallData.total);
+
+                    // Per-month data (for selected month)
+                    const selMonth = selected;
+                    const monthData = selMonth ? buildReasonData(selMonth.leaving) : null;
+                    const monthSlices = monthData && monthData.total > 0 ? buildSlices(monthData.pieData, monthData.total) : null;
+
+                    return (
+                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 22px",marginBottom:18}}>
+                        <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:14}}>Departure Reasons Breakdown</h3>
+                        <div style={{display:"flex",gap:30,flexWrap:"wrap"}}>
+                          {renderPieColumn("Overall (all months)", overallData, overallSlices)}
+                          {monthSlices && renderPieColumn(`${selMonth.label}`, monthData, monthSlices)}
+                          {!selMonth && <p style={{fontSize:11,color:C.muted,alignSelf:"center"}}>Click a month below to see its breakdown</p>}
+                          {selMonth && monthData.total === 0 && <p style={{fontSize:11,color:C.muted,alignSelf:"center"}}>No departures in {selMonth.label}</p>}
                         </div>
                       </div>
                     );
@@ -5727,7 +5790,9 @@ export default function Dashboard() {
                                       ) : displayStatus === "left" ? (
                                         <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Left</span>
                                       ) : displayStatus === "leaving" ? (
-                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Leaving</span>
+                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>
+                                          {earlyTermSet.has(e.roomStayId) ? "Early Term" : "Leaving"}
+                                        </span>
                                       ) : (
                                         <span style={{fontSize:10,background:C.gold+"22",color:C.gold,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Not Yet Started</span>
                                       )}
@@ -5757,13 +5822,20 @@ export default function Dashboard() {
                                     </td>
                                     <td style={{padding:"10px 6px",minWidth:140}}>
                                       {(leavingSet.has(e.roomStayId) || (e.expired && !e.isRenewed && !e.isPendingRenewal && !isManualPending)) ? (
-                                        <select
-                                          value={leavingReasons[e.roomStayId] || ""}
-                                          onChange={(ev) => setLeavingReason(e.roomStayId, ev.target.value)}
-                                          style={{background:C.bg,color:leavingReasons[e.roomStayId]?C.text:C.muted,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 6px",fontSize:10,cursor:"pointer",maxWidth:160,width:"100%",appearance:"auto"}}>
-                                          <option value="">Select reason...</option>
-                                          {LEAVING_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                                        </select>
+                                        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                                          <select
+                                            value={leavingReasons[e.roomStayId] || ""}
+                                            onChange={(ev) => setLeavingReason(e.roomStayId, ev.target.value)}
+                                            style={{background:C.bg,color:leavingReasons[e.roomStayId]?C.text:C.muted,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 6px",fontSize:10,cursor:"pointer",maxWidth:160,width:"100%",appearance:"auto"}}>
+                                            <option value="">Select reason...</option>
+                                            {LEAVING_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                          </select>
+                                          <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:9,color:earlyTermSet.has(e.roomStayId)?C.rose:C.muted}}>
+                                            <input type="checkbox" checked={earlyTermSet.has(e.roomStayId)} onChange={() => toggleEarlyTerm(e.roomStayId)}
+                                              style={{width:12,height:12,accentColor:C.rose,cursor:"pointer"}}/>
+                                            Early termination
+                                          </label>
+                                        </div>
                                       ) : (
                                         <span style={{fontSize:10,color:C.muted}}>—</span>
                                       )}
