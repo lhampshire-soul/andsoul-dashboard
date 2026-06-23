@@ -865,8 +865,9 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const isEarlyCheckout = status === "CHECKED_OUT" && !isPast;
     const expired = (isPast || isEarlyCheckout) && !isRenewed && !isPendingRenewal;
 
-    // Calculate follow-on stay's PCM rate when available (shows renewal rate, not expiring rate)
+    // Calculate follow-on stay's PCM rate and dates when available
     let renewalPcm = null;
+    let followOnStart = null, followOnEnd = null, followOnLosDays = 0;
     const followOnRsId = renewalFollowOnRoomStayId[b.roomStayId];
     if (followOnRsId && bookingByRoomStayId[followOnRsId]) {
       const fb = bookingByRoomStayId[followOnRsId];
@@ -876,6 +877,9 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       const fStart = (fb.startDate ?? "").slice(0, 10);
       const fEnd = (fb.endDate ?? "").slice(0, 10);
       const fDays = Math.round((new Date(fEnd) - new Date(fStart)) / 864e5);
+      followOnStart = fStart;
+      followOnEnd = fEnd;
+      followOnLosDays = fDays > 0 ? fDays : 0;
       // Calendar month diff for accurate PCM
       const fsD = new Date(fStart), feD = new Date(fEnd);
       const fCalMonths = (feD.getFullYear() - fsD.getFullYear()) * 12 + (feD.getMonth() - fsD.getMonth()) + (feD.getDate() - fsD.getDate()) / 30;
@@ -902,6 +906,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       isPendingRenewal,
       isExtension, // true = this stay is a follow-on/extension in a consecutive chain
       followOnStatus,
+      followOnStart, followOnEnd, followOnLosDays, // follow-on stay dates & length
       daysUntilExpiry,
       critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14 && !isRenewed && !isPendingRenewal,
       expired, // true = contract ended without any follow-on → auto-leaving
@@ -5651,6 +5656,59 @@ export default function Dashboard() {
                                   No Reason Set: {monthNoReason}
                                 </span>
                               )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* LoS Breakdown for renewed contracts in this month */}
+                      {selected.renewed.length > 0 && (() => {
+                        const renewedWithLos = selected.renewed.filter(e => e.followOnLosDays > 0);
+                        if (renewedWithLos.length === 0) return null;
+                        const losBucketKeys = ["< 31d","31–91d","92–181d","182–364d","365d+"];
+                        const losCounts = {}; const losDaysSum = {};
+                        losBucketKeys.forEach(k => { losCounts[k] = 0; losDaysSum[k] = 0; });
+                        renewedWithLos.forEach(e => {
+                          const d = e.followOnLosDays;
+                          const k = d < 31 ? "< 31d" : d <= 91 ? "31–91d" : d <= 181 ? "92–181d" : d <= 364 ? "182–364d" : "365d+";
+                          losCounts[k]++; losDaysSum[k] += d;
+                        });
+                        const totalRenewalDays = renewedWithLos.reduce((s, e) => s + e.followOnLosDays, 0);
+                        const avgLos = renewedWithLos.length > 0 ? Math.round(totalRenewalDays / renewedWithLos.length) : 0;
+                        const bucketColors = [C.blue, C.sage, C.gold, "#e09f3e", C.rose];
+                        return (
+                          <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                            <div style={{flex:"1 1 300px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
+                              <p style={{fontSize:10,color:C.sage,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>
+                                Renewal Stay Length — {selected.label} ({renewedWithLos.length} renewed)
+                              </p>
+                              <div style={{display:"flex",justifyContent:"flex-end",gap:0,marginBottom:4}}>
+                                <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:60,textAlign:"right"}}>Rooms</span>
+                                <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:70,textAlign:"right"}}>Days</span>
+                              </div>
+                              {losBucketKeys.map((label, i) => (
+                                <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}}>
+                                  <span style={{fontSize:11,color:C.muted}}>{label}</span>
+                                  <div style={{display:"flex",gap:0}}>
+                                    <span style={{fontSize:12,fontWeight:700,color:losCounts[label] > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace",width:60,textAlign:"right"}}>{losCounts[label]}</span>
+                                    <span style={{fontSize:12,fontWeight:700,color:losDaysSum[label] > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace",width:70,textAlign:"right"}}>{losDaysSum[label].toLocaleString()}</span>
+                                  </div>
+                                </div>
+                              ))}
+                              <div style={{borderTop:`1px solid ${C.border}`,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:C.gold}}>Total</span>
+                                <div style={{display:"flex",gap:0}}>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",width:60,textAlign:"right"}}>{renewedWithLos.length}</span>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",width:70,textAlign:"right"}}>{totalRenewalDays.toLocaleString()}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{flex:"0 0 160px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
+                              <p style={{fontSize:10,color:C.sage,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>Avg Stay Length</p>
+                              <p style={{fontSize:24,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>
+                                {avgLos}d
+                              </p>
+                              <p style={{fontSize:9,color:C.muted,marginTop:2}}>Avg renewal LoS · {renewedWithLos.length} booking{renewedWithLos.length!==1?"s":""}</p>
                             </div>
                           </div>
                         );
