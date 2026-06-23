@@ -2485,18 +2485,22 @@ export default function Dashboard() {
 
     // LoS breakdown buckets (all candidates are already 27+ days)
     const losBuckets = { "<32d":0, "32-91d":0, "92-181d":0, "182-364d":0, "365d+":0 };
+    const losDaysBuckets = { "<32d":0, "32-91d":0, "92-181d":0, "182-364d":0, "365d+":0 };
     for (const c of candidates) {
-      if (c.losDays < 32) losBuckets["<32d"]++;
-      else if (c.losDays <= 91) losBuckets["32-91d"]++;
-      else if (c.losDays <= 181) losBuckets["92-181d"]++;
-      else if (c.losDays <= 364) losBuckets["182-364d"]++;
-      else losBuckets["365d+"]++;
+      if (c.losDays < 32) { losBuckets["<32d"]++; losDaysBuckets["<32d"] += c.losDays; }
+      else if (c.losDays <= 91) { losBuckets["32-91d"]++; losDaysBuckets["32-91d"] += c.losDays; }
+      else if (c.losDays <= 181) { losBuckets["92-181d"]++; losDaysBuckets["92-181d"] += c.losDays; }
+      else if (c.losDays <= 364) { losBuckets["182-364d"]++; losDaysBuckets["182-364d"] += c.losDays; }
+      else { losBuckets["365d+"]++; losDaysBuckets["365d+"] += c.losDays; }
     }
+    const totalDaysBooked = candidates.reduce((s, c) => s + c.losDays, 0);
 
     // Room type breakdown
     const roomBuckets = {};
+    const roomDaysBuckets = {};
     for (const c of candidates) {
       roomBuckets[c.roomType] = (roomBuckets[c.roomType] || 0) + 1;
+      roomDaysBuckets[c.roomType] = (roomDaysBuckets[c.roomType] || 0) + c.losDays;
     }
 
     // Move-in by month breakdown (next 6 months: May–Oct or whatever the current window is)
@@ -2566,7 +2570,7 @@ export default function Dashboard() {
     return {
       newBookings, renewals: renewalBookings, pending: pendingBookings,
       all: candidates,
-      losBuckets, roomBuckets, moveInOrdered,
+      losBuckets, losDaysBuckets, totalDaysBooked, roomBuckets, roomDaysBuckets, moveInOrdered,
       awrSummary: { avg: avgAwr, min: minAwr, max: maxAwr, totalContractValue, count: awrCandidates.length },
       stats: {
         newCount: newBookings.length,
@@ -3743,6 +3747,13 @@ export default function Dashboard() {
                   <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
                     <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>LoS Breakdown</p>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`1px solid ${C.border}44`}}>
+                          <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Bookings</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {[
                           {l:"< 32 days",k:"<32d"},
@@ -3754,11 +3765,13 @@ export default function Dashboard() {
                           <tr key={row.k} style={{borderBottom:`1px solid ${C.border}22`}}>
                             <td style={{padding:"5px 8px",color:C.muted}}>{row.l}</td>
                             <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:(recentActivity.losBuckets?.[row.k]||0)>0?C.text:C.muted}}>{recentActivity.losBuckets?.[row.k]||0}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:(recentActivity.losDaysBuckets?.[row.k]||0)>0?C.muted:C.muted+"66"}}>{(recentActivity.losDaysBuckets?.[row.k]||0).toLocaleString()}</td>
                           </tr>
                         ))}
                         <tr style={{borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total New Bookings (Full)</td>
                           <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -3767,22 +3780,32 @@ export default function Dashboard() {
                   <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
                     <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Room Type Breakdown</p>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`1px solid ${C.border}44`}}>
+                          <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Bookings</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].map(rt=>(
                           <tr key={rt} style={{borderBottom:`1px solid ${C.border}22`}}>
                             <td style={{padding:"5px 8px",color:C.muted}}>{rt}</td>
                             <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:(recentActivity.roomBuckets?.[rt]||0)>0?C.text:C.muted}}>{recentActivity.roomBuckets?.[rt]||0}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:(recentActivity.roomDaysBuckets?.[rt]||0)>0?C.muted:C.muted+"66"}}>{(recentActivity.roomDaysBuckets?.[rt]||0).toLocaleString()}</td>
                           </tr>
                         ))}
                         {(recentActivity.roomBuckets?.Other||0) > 0 && (
                           <tr style={{borderBottom:`1px solid ${C.border}22`}}>
                             <td style={{padding:"5px 8px",color:C.muted}}>Other</td>
                             <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>{recentActivity.roomBuckets.Other}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:C.muted}}>{(recentActivity.roomDaysBuckets?.Other||0).toLocaleString()}</td>
                           </tr>
                         )}
                         <tr style={{borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
                           <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
                         </tr>
                       </tbody>
                     </table>
