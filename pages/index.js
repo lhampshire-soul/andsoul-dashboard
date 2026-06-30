@@ -5197,20 +5197,25 @@ export default function Dashboard() {
                           buckets[k]++; bucketDays[k] += d;
                         });
                         const totalDays = losData.reduce((s, d) => s + d, 0);
-                        // AWR: compute directly from the renewal objects (netAmount stored on each)
-                        let totalWeeklyRate = 0, rateCount = 0;
+                        // AWR: compute directly from the renewal objects (netAmount + vatAmount stored on each)
+                        let totalWeeklyGross = 0, totalWeeklyNet = 0, rateCount = 0;
                         filteredConfirmed.forEach(ev => {
                           const start = ev.followOnStart;
                           const end = ev.followOnEnd;
                           if (!start || !end) return;
                           const days = Math.round((new Date(end) - new Date(start)) / 86400000);
                           const net = parseFloat(ev.netAmount ?? 0);
-                          if (days > 0 && net > 0) {
-                            totalWeeklyRate += Math.round((net / days) * 7);
+                          const vat = parseFloat(ev.vatAmount ?? 0);
+                          const gross = net + (isNaN(vat) ? 0 : vat);
+                          if (days > 0 && gross > 0) {
+                            totalWeeklyGross += (gross / days) * 7;
+                            totalWeeklyNet += (net / days) * 7;
                             rateCount++;
                           }
                         });
-                        const avgAwr = rateCount > 0 ? Math.round(totalWeeklyRate / rateCount) : null;
+                        const avgAwrGross = rateCount > 0 ? Math.round(totalWeeklyGross / rateCount) : null;
+                        const avgAwrNet = rateCount > 0 ? Math.round(totalWeeklyNet / rateCount) : null;
+                        const avgPcmGross = avgAwrGross !== null ? Math.round(avgAwrGross * (52/12)) : null;
                         const bucketColors = [C.blue, C.sage, C.gold, "#e09f3e", C.rose];
                         return (
                           <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
@@ -5237,12 +5242,14 @@ export default function Dashboard() {
                                 </div>
                               </div>
                             </div>
-                            <div style={{flex:"0 0 160px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
+                            <div style={{flex:"0 0 180px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
                               <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>AWR — Confirmed</p>
                               <p style={{fontSize:24,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>
-                                {avgAwr !== null ? `£${avgAwr.toLocaleString()}` : "—"}
+                                {avgAwrGross !== null ? `£${avgAwrGross.toLocaleString()}` : "—"}
                               </p>
-                              <p style={{fontSize:9,color:C.muted,marginTop:2}}>Avg weekly rent · {rateCount} booking{rateCount!==1?"s":""}</p>
+                              <p style={{fontSize:9,color:C.muted,marginTop:2}}>Avg weekly rent (gross) · {rateCount} booking{rateCount!==1?"s":""}</p>
+                              {avgPcmGross !== null && <p style={{fontSize:11,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginTop:4}}>≈ £{avgPcmGross.toLocaleString()} PCM</p>}
+                              {avgAwrNet !== null && <p style={{fontSize:9,color:C.muted,marginTop:2}}>£{avgAwrNet} net (ex-VAT)</p>}
                             </div>
                           </div>
                         );
@@ -5262,11 +5269,20 @@ export default function Dashboard() {
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
+                                  <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>PCM</th>
+                                  <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>AWR</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {filteredConfirmed.sort((a,b)=>(b.confirmedDate||"").localeCompare(a.confirmedDate||"")).map((ev,i) => (
+                                {filteredConfirmed.sort((a,b)=>(b.confirmedDate||"").localeCompare(a.confirmedDate||"")).map((ev,i) => {
+                                  const evDays = (ev.followOnStart && ev.followOnEnd) ? Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000) : 0;
+                                  const evNet = parseFloat(ev.netAmount ?? 0);
+                                  const evVat = parseFloat(ev.vatAmount ?? 0);
+                                  const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
+                                  const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
+                                  const evPcmGross = evAwrGross !== null ? Math.round(evAwrGross * (52/12)) : null;
+                                  return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
                                         title={ev.email ? `Click to copy: ${ev.email}` : "No email on file"}
@@ -5281,11 +5297,14 @@ export default function Dashboard() {
                                     <td style={{padding:"7px 10px",color:C.sage,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.confirmedDate||ev.contractSignedDate||"—"}</td>
                                     <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
+                                    <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontSize:11,fontWeight:700,color:C.gold}}>{evPcmGross !== null ? `£${evPcmGross.toLocaleString()}` : "—"}</td>
+                                    <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontSize:11,color:C.muted}}>{evAwrGross !== null ? `£${evAwrGross}` : "—"}</td>
                                     <td style={{padding:"7px 10px"}}>
                                       <span style={{fontSize:10,fontWeight:700,color:C.sage,background:C.sage+"22",padding:"2px 8px",borderRadius:8}}>CONFIRMED</span>
                                     </td>
                                   </tr>
-                                ))}
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
@@ -5306,11 +5325,20 @@ export default function Dashboard() {
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Sent</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
+                                  <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>PCM</th>
+                                  <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>AWR</th>
                                   <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {filteredPending.sort((a,b)=>(b.conversionDate||"").localeCompare(a.conversionDate||"")).map((ev,i) => (
+                                {filteredPending.sort((a,b)=>(b.conversionDate||"").localeCompare(a.conversionDate||"")).map((ev,i) => {
+                                  const evDays = (ev.followOnStart && ev.followOnEnd) ? Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000) : 0;
+                                  const evNet = parseFloat(ev.netAmount ?? 0);
+                                  const evVat = parseFloat(ev.vatAmount ?? 0);
+                                  const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
+                                  const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
+                                  const evPcmGross = evAwrGross !== null ? Math.round(evAwrGross * (52/12)) : null;
+                                  return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
                                         title={ev.email ? `Click to copy: ${ev.email}` : "No email on file"}
@@ -5325,11 +5353,14 @@ export default function Dashboard() {
                                     <td style={{padding:"7px 10px",color:C.blue,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.conversionDate||"—"}</td>
                                     <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
                                     <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
+                                    <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontSize:11,fontWeight:700,color:C.gold}}>{evPcmGross !== null ? `£${evPcmGross.toLocaleString()}` : "—"}</td>
+                                    <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontSize:11,color:C.muted}}>{evAwrGross !== null ? `£${evAwrGross}` : "—"}</td>
                                     <td style={{padding:"7px 10px"}}>
                                       <span style={{fontSize:10,fontWeight:700,color:C.blue,background:C.blue+"22",padding:"2px 8px",borderRadius:8}}>PENDING</span>
                                     </td>
                                   </tr>
-                                ))}
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
