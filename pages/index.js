@@ -5197,8 +5197,8 @@ export default function Dashboard() {
                           buckets[k]++; bucketDays[k] += d;
                         });
                         const totalDays = losData.reduce((s, d) => s + d, 0);
-                        // AWR: compute directly from the renewal objects (netAmount + vatAmount stored on each)
-                        let totalWeeklyGross = 0, totalWeeklyNet = 0, rateCount = 0;
+                        // AWR + PCM: compute from renewal objects using calendar months for accurate PCM
+                        let totalWeeklyGross = 0, totalWeeklyNet = 0, totalPcmGross = 0, rateCount = 0;
                         filteredConfirmed.forEach(ev => {
                           const start = ev.followOnStart;
                           const end = ev.followOnEnd;
@@ -5210,12 +5210,17 @@ export default function Dashboard() {
                           if (days > 0 && gross > 0) {
                             totalWeeklyGross += (gross / days) * 7;
                             totalWeeklyNet += (net / days) * 7;
+                            // Calendar-month PCM (matches renewalPcm logic)
+                            const sD = new Date(start), eD = new Date(end);
+                            const calMonths = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
+                            const months = calMonths > 0 ? calMonths : (days / 30.44);
+                            totalPcmGross += Math.round(gross / months);
                             rateCount++;
                           }
                         });
                         const avgAwrGross = rateCount > 0 ? Math.round(totalWeeklyGross / rateCount) : null;
                         const avgAwrNet = rateCount > 0 ? Math.round(totalWeeklyNet / rateCount) : null;
-                        const avgPcmGross = avgAwrGross !== null ? Math.round(avgAwrGross * (52/12)) : null;
+                        const avgPcmGross = rateCount > 0 ? Math.round(totalPcmGross / rateCount) : null;
                         const bucketColors = [C.blue, C.sage, C.gold, "#e09f3e", C.rose];
                         return (
                           <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
@@ -5281,7 +5286,14 @@ export default function Dashboard() {
                                   const evVat = parseFloat(ev.vatAmount ?? 0);
                                   const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
                                   const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
-                                  const evPcmGross = evAwrGross !== null ? Math.round(evAwrGross * (52/12)) : null;
+                                  // Calendar-month PCM (accurate, matches contract rate)
+                                  let evPcmGross = null;
+                                  if (ev.followOnStart && ev.followOnEnd && evGross > 0) {
+                                    const sD = new Date(ev.followOnStart), eD = new Date(ev.followOnEnd);
+                                    const calM = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
+                                    const m = calM > 0 ? calM : (evDays / 30.44);
+                                    evPcmGross = Math.round(evGross / m);
+                                  }
                                   return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
@@ -5337,7 +5349,14 @@ export default function Dashboard() {
                                   const evVat = parseFloat(ev.vatAmount ?? 0);
                                   const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
                                   const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
-                                  const evPcmGross = evAwrGross !== null ? Math.round(evAwrGross * (52/12)) : null;
+                                  // Calendar-month PCM (accurate, matches contract rate)
+                                  let evPcmGross = null;
+                                  if (ev.followOnStart && ev.followOnEnd && evGross > 0) {
+                                    const sD = new Date(ev.followOnStart), eD = new Date(ev.followOnEnd);
+                                    const calM = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
+                                    const m = calM > 0 ? calM : (evDays / 30.44);
+                                    evPcmGross = Math.round(evGross / m);
+                                  }
                                   return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
