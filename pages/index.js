@@ -1428,20 +1428,22 @@ const SOURCE_LABELS = {
   referral:"Referral", not_found:"—", error:"?",
 };
 function classifyLeadSource(contact) {
+  const str = v => String(v ?? "").toLowerCase();
   const attrs = contact.attributions || [];
-  const tags = (contact.tags || []).map(t => (typeof t === "string" ? t : t?.name || "").toLowerCase());
-  const src = (contact.source || "").toLowerCase();
-  const med = (contact.medium || "").toLowerCase();
+  const tags = (contact.tags || []).map(t => str(typeof t === "string" ? t : t?.name));
+  const src = str(contact.source);
+  const med = str(contact.medium);
   const cf = contact.customFields || [];
-  const selfRep = (cf.find(f => f.id === "8DXmJzpunaxq43o0aQpx")?.value || "").toLowerCase();
-  const selfSpec = (cf.find(f => f.id === "VEg3lD5L3n53ZPNXinbV")?.value || "").toLowerCase();
+  const cfVal = id => { const f = cf.find(x => x.id === id); return str(f?.value ?? f?.fieldValue); };
+  const selfRep = cfVal("8DXmJzpunaxq43o0aQpx");
+  const selfSpec = cfVal("VEg3lD5L3n53ZPNXinbV");
   let gclid=false,fbclid=false,gbraid=false,adwords=false,fbAd=false;
   let paidSearch=false,paidSocial=false,orgSearch=false,social=false,refSession=false;
   let allDirect=attrs.length>0, igPaid=false, fbSrc=false, gRef=false, hasCamp=false;
   for(const a of attrs){
-    const s=(a.utmSource||"").toLowerCase(), m=(a.utmMedium||"").toLowerCase();
-    const ss=(a.utmSessionSource||"").toLowerCase(), ref=(a.referrer||"").toLowerCase();
-    const ad=(a.adSource||"").toLowerCase();
+    const s=str(a.utmSource), m=str(a.utmMedium);
+    const ss=str(a.utmSessionSource), ref=str(a.referrer);
+    const ad=str(a.adSource);
     if(a.utmGclid||a.gclid) gclid=true;
     if(a.utmFbclid||a.fbclid) fbclid=true;
     if(a.gbraid) gbraid=true;
