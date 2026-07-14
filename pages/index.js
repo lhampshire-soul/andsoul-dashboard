@@ -1429,7 +1429,24 @@ const SOURCE_LABELS = {
 };
 function classifyLeadSource(contact) {
   const str = v => String(v ?? "").toLowerCase();
-  const attrs = contact.attributions || [];
+  // Handle both GHL API response formats:
+  // - Search/list endpoint returns attributions[] array with utmGclid, utmSessionSource, etc.
+  // - Detail endpoint returns attributionSource + lastAttributionSource objects with gclid, sessionSource, etc.
+  let attrs = contact.attributions || [];
+  if (!attrs.length && (contact.attributionSource || contact.lastAttributionSource)) {
+    const convert = (a, touch) => ({
+      utmSessionSource: a.sessionSource, utmSource: a.utmSource, utmMedium: a.utmMedium,
+      utmGclid: a.gclid, gclid: a.gclid, gbraid: a.gbraid, wbraid: a.wbraid,
+      utmFbclid: a.fbclid, fbclid: a.fbclid, adSource: a.adSource || a.adName,
+      referrer: a.referrer, utmCampaignId: a.campaignId, utmCampaign: a.campaign,
+      utmKeyword: a.utmKeyword, utmContent: a.utmContent, utmMatchtype: a.utmMatchtype,
+      medium: a.medium, pageUrl: a.url, ip: a.ip, userAgent: a.userAgent,
+      utmAdGroupId: a.adGroupId, utmAdId: a.adId,
+      isFirst: touch === "first", isLast: touch === "last",
+    });
+    if (contact.attributionSource) attrs.push(convert(contact.attributionSource, "first"));
+    if (contact.lastAttributionSource) attrs.push(convert(contact.lastAttributionSource, "last"));
+  }
   const tags = (contact.tags || []).map(t => str(typeof t === "string" ? t : t?.name));
   const src = str(contact.source);
   const med = str(contact.medium);
