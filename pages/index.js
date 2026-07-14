@@ -3822,9 +3822,8 @@ export default function Dashboard() {
                       <button onClick={()=>{
                         const rtRows = [["Room Type","Bookings","Days"]];
                         ["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].forEach(rt=>{
-                          if ((recentActivity.roomBuckets?.[rt]||0) > 0) rtRows.push([rt, recentActivity.roomBuckets[rt], recentActivity.roomDaysBuckets?.[rt]||0]);
+                          rtRows.push([rt, recentActivity.roomBuckets?.[rt]||0, recentActivity.roomDaysBuckets?.[rt]||0]);
                         });
-                        if ((recentActivity.roomBuckets?.Other||0)>0) rtRows.push(["Other", recentActivity.roomBuckets.Other, recentActivity.roomDaysBuckets?.Other||0]);
                         rtRows.push(["Total", recentActivity.all?.length||0, recentActivity.totalDaysBooked||0]);
                         copyTable(rtRows,"roomtype");
                       }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="roomtype"?C.sage:C.border}`,background:copiedTable==="roomtype"?C.sage+"22":"transparent",color:copiedTable==="roomtype"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
