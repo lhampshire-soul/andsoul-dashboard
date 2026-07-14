@@ -1502,7 +1502,7 @@ function classifyLeadSource(contact) {
   if(tags.some(t=>t.includes("facebook")||t.includes("instagram"))) return "meta_organic";
   if(selfRep.includes("online search")||selfRep.includes("google")) return "direct";
   if(selfRep==="other"&&selfSpec) return "referral";
-  return "not_found";
+  return "direct";
 }
 
 async function rhFetchAll(tok, basePath, maxPages=50) {
@@ -2715,7 +2715,7 @@ export default function Dashboard() {
     if (!uncached.length) {
       // All cached — just set from cache
       const mapped = {};
-      recentActivity.all.forEach(b => { if (b.name) mapped[b.name] = lsCache.current[b.name] || "not_found"; });
+      recentActivity.all.forEach(b => { if (b.name) mapped[b.name] = lsCache.current[b.name] || "direct"; });
       setLeadSources(mapped);
       return;
     }
@@ -2771,7 +2771,7 @@ export default function Dashboard() {
                 results[b.name] = classifyLeadSource(c);
               } catch(e) {
                 console.log("LS contact detail failed:", ghlContact.id, e.message);
-                results[b.name] = "not_found";
+                results[b.name] = "direct";
               }
             } else {
               results[b.name] = "not_found";
@@ -2785,7 +2785,7 @@ export default function Dashboard() {
       if (!cancelled) {
         Object.assign(lsCache.current, results);
         const mapped = {};
-        recentActivity.all.forEach(b => { if (b.name) mapped[b.name] = lsCache.current[b.name] || "not_found"; });
+        recentActivity.all.forEach(b => { if (b.name) mapped[b.name] = lsCache.current[b.name] || "direct"; });
         setLeadSources(mapped);
         setLsLoading(false);
       }
