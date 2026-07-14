@@ -846,10 +846,8 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const monthKey = endDate.slice(0, 7);
     if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
     const gross = grossAmt; // reuse from filter calculation above
-    // Use calendar month diff for more accurate PCM (avoids 30-day stays showing inflated rates)
-    const sD = new Date(startDate), eD = new Date(endDate);
-    const calMonths = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
-    const months = calMonths > 0 ? calMonths : (days > 0 ? days / 30.44 : 1);
+    // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
+    // RH stores totalAmount = dailyRate × days, where dailyRate = monthlyRate × 12/365
     const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
     const followOnStatus = renewalFollowOnStatus[b.roomStayId] || null;
     // Renewed = follow-on is CONFIRMED, CHECKED_IN, or CHECKED_OUT
@@ -880,11 +878,8 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       followOnStart = fStart;
       followOnEnd = fEnd;
       followOnLosDays = fDays > 0 ? fDays : 0;
-      // Calendar month diff for accurate PCM
-      const fsD = new Date(fStart), feD = new Date(fEnd);
-      const fCalMonths = (feD.getFullYear() - fsD.getFullYear()) * 12 + (feD.getMonth() - fsD.getMonth()) + (feD.getDate() - fsD.getDate()) / 30;
-      const fMonths = fCalMonths > 0 ? fCalMonths : (fDays > 0 ? fDays / 30.44 : 1);
-      renewalPcm = fMonths > 0 ? Math.round(fGross / fMonths) : 0;
+      // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
+      renewalPcm = fDays > 0 ? Math.round((fGross / fDays) * 365 / 12) : 0;
     }
 
     renewalsMap[monthKey].push({
@@ -899,7 +894,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       startDate, endDate, losDays: days, cumulDays: cumulDays,
       room: b.unit?.name || "—",
       roomType: unitRoomType, // already validated non-null above
-      status, pcm: months > 0 ? Math.round(gross / months) : 0,
+      status, pcm: days > 0 ? Math.round((gross / days) * 365 / 12) : 0,
       renewalPcm, // PCM of the follow-on stay (null if no follow-on)
       grossTotal: Math.round(gross),
       isRenewed,
@@ -2479,14 +2474,9 @@ export default function Dashboard() {
       const gross = net + (isNaN(vat) ? 0 : vat);
       const weeklyRate = (losDays > 0 && net > 0) ? Math.round((net / losDays) * 7) : 0;
       const weeklyRateGross = (losDays > 0 && gross > 0) ? Math.round((gross / losDays) * 7) : 0;
-      // Calendar-month PCM (accurate contract rate)
-      let pcmGross = 0;
-      if (gross > 0 && start && end) {
-        const sD = new Date(start), eD = new Date(end);
-        const calM = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
-        const m = calM > 0 ? calM : (losDays / 30.44);
-        pcmGross = Math.round(gross / m);
-      }
+      // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
+      // RH calculates totalAmount = dailyRate × days, where dailyRate = monthlyRate × 12/365
+      const pcmGross = (losDays > 0 && gross > 0) ? Math.round((gross / losDays) * 365 / 12) : 0;
       candidates.push({
         bookingReference: b.bookingReference,
         created,
@@ -5268,11 +5258,8 @@ export default function Dashboard() {
                           if (days > 0 && gross > 0) {
                             totalWeeklyGross += (gross / days) * 7;
                             totalWeeklyNet += (net / days) * 7;
-                            // Calendar-month PCM (matches renewalPcm logic)
-                            const sD = new Date(start), eD = new Date(end);
-                            const calMonths = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
-                            const months = calMonths > 0 ? calMonths : (days / 30.44);
-                            totalPcmGross += Math.round(gross / months);
+                            // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
+                            totalPcmGross += Math.round((gross / days) * 365 / 12);
                             rateCount++;
                           }
                         });
@@ -5375,14 +5362,8 @@ export default function Dashboard() {
                                   const evVat = parseFloat(ev.vatAmount ?? 0);
                                   const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
                                   const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
-                                  // Calendar-month PCM (accurate, matches contract rate)
-                                  let evPcmGross = null;
-                                  if (ev.followOnStart && ev.followOnEnd && evGross > 0) {
-                                    const sD = new Date(ev.followOnStart), eD = new Date(ev.followOnEnd);
-                                    const calM = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
-                                    const m = calM > 0 ? calM : (evDays / 30.44);
-                                    evPcmGross = Math.round(evGross / m);
-                                  }
+                                  // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
+                                  const evPcmGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 365 / 12) : null;
                                   return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
@@ -5459,14 +5440,8 @@ export default function Dashboard() {
                                   const evVat = parseFloat(ev.vatAmount ?? 0);
                                   const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
                                   const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
-                                  // Calendar-month PCM (accurate, matches contract rate)
-                                  let evPcmGross = null;
-                                  if (ev.followOnStart && ev.followOnEnd && evGross > 0) {
-                                    const sD = new Date(ev.followOnStart), eD = new Date(ev.followOnEnd);
-                                    const calM = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
-                                    const m = calM > 0 ? calM : (evDays / 30.44);
-                                    evPcmGross = Math.round(evGross / m);
-                                  }
+                                  // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
+                                  const evPcmGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 365 / 12) : null;
                                   return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
