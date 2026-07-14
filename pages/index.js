@@ -2156,6 +2156,15 @@ export default function Dashboard() {
     setTimeout(() => setCopiedEmail(null), 1500);
   }, []);
 
+  // Table copy to clipboard (tab-separated for Excel paste)
+  const [copiedTable, setCopiedTable] = useState(null);
+  const copyTable = useCallback((rows, id) => {
+    const tsv = rows.map(r => r.join("\t")).join("\n");
+    navigator.clipboard.writeText(tsv).catch(() => {});
+    setCopiedTable(id);
+    setTimeout(() => setCopiedTable(null), 2000);
+  }, []);
+
   // Manual "leaving" markers — persisted in Redis (with localStorage fallback)
   const [leavingSet, setLeavingSet] = useState(() => {
     if (typeof window === "undefined") return new Set();
@@ -2464,9 +2473,20 @@ export default function Dashboard() {
       if (created < activityFrom || created > activityTo) continue;
       // Classify room type from unit ID → unitTypeName map
       const roomType = unitTypeMap[b.unit?.id] || "Other";
-      // Compute AWR from netAmount
+      // Compute AWR and PCM from netAmount + vatAmount
       const net = parseFloat(b.netAmount ?? 0);
+      const vat = parseFloat(b.vatAmount ?? 0);
+      const gross = net + (isNaN(vat) ? 0 : vat);
       const weeklyRate = (losDays > 0 && net > 0) ? Math.round((net / losDays) * 7) : 0;
+      const weeklyRateGross = (losDays > 0 && gross > 0) ? Math.round((gross / losDays) * 7) : 0;
+      // Calendar-month PCM (accurate contract rate)
+      let pcmGross = 0;
+      if (gross > 0 && start && end) {
+        const sD = new Date(start), eD = new Date(end);
+        const calM = (eD.getFullYear() - sD.getFullYear()) * 12 + (eD.getMonth() - sD.getMonth()) + (eD.getDate() - sD.getDate()) / 30;
+        const m = calM > 0 ? calM : (losDays / 30.44);
+        pcmGross = Math.round(gross / m);
+      }
       candidates.push({
         bookingReference: b.bookingReference,
         created,
@@ -2485,6 +2505,8 @@ export default function Dashboard() {
         bookingId: b.bookingId,
         netAmount: net,
         weeklyRate,
+        weeklyRateGross,
+        pcmGross,
       });
     }
 
@@ -3750,7 +3772,19 @@ export default function Dashboard() {
                 <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
                   {/* LoS Breakdown */}
                   <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
-                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>LoS Breakdown</p>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown</p>
+                      <button onClick={()=>{
+                        const losRows = [["LoS Band","Bookings","Days"]];
+                        [{l:"< 32 days",k:"<32d"},{l:"32 – 91 days",k:"32-91d"},{l:"92 – 181 days",k:"92-181d"},{l:"182 – 364 days",k:"182-364d"},{l:"365+ days",k:"365d+"}].forEach(r=>{
+                          losRows.push([r.l, recentActivity.losBuckets?.[r.k]||0, recentActivity.losDaysBuckets?.[r.k]||0]);
+                        });
+                        losRows.push(["Total", recentActivity.all?.length||0, recentActivity.totalDaysBooked||0]);
+                        copyTable(losRows,"los");
+                      }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="los"?C.sage:C.border}`,background:copiedTable==="los"?C.sage+"22":"transparent",color:copiedTable==="los"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                        {copiedTable==="los"?"✓ Copied":"Copy"}
+                      </button>
+                    </div>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead>
                         <tr style={{borderBottom:`1px solid ${C.border}44`}}>
@@ -3783,7 +3817,20 @@ export default function Dashboard() {
                   </div>
                   {/* Room Type Breakdown */}
                   <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
-                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Room Type Breakdown</p>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>Room Type Breakdown</p>
+                      <button onClick={()=>{
+                        const rtRows = [["Room Type","Bookings","Days"]];
+                        ["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].forEach(rt=>{
+                          if ((recentActivity.roomBuckets?.[rt]||0) > 0) rtRows.push([rt, recentActivity.roomBuckets[rt], recentActivity.roomDaysBuckets?.[rt]||0]);
+                        });
+                        if ((recentActivity.roomBuckets?.Other||0)>0) rtRows.push(["Other", recentActivity.roomBuckets.Other, recentActivity.roomDaysBuckets?.Other||0]);
+                        rtRows.push(["Total", recentActivity.all?.length||0, recentActivity.totalDaysBooked||0]);
+                        copyTable(rtRows,"roomtype");
+                      }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="roomtype"?C.sage:C.border}`,background:copiedTable==="roomtype"?C.sage+"22":"transparent",color:copiedTable==="roomtype"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                        {copiedTable==="roomtype"?"✓ Copied":"Copy"}
+                      </button>
+                    </div>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead>
                         <tr style={{borderBottom:`1px solid ${C.border}44`}}>
@@ -3873,11 +3920,22 @@ export default function Dashboard() {
               {/* Breakdown table */}
               {recentActivity.all.length > 0 && (
                 <div style={{overflowX:"auto"}}>
+                  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+                    <button onClick={()=>{
+                      const rows = [["Name","Booking Ref","Created","Start","End","LoS (days)","Room","PCM (£)","AWR (£)","Status","Type"]];
+                      recentActivity.all.forEach(r=>{
+                        rows.push([r.name||"—", r.bookingReference||"—", r.created, r.startDate, r.endDate, r.losDays, r.room, r.pcmGross||"—", r.weeklyRateGross||"—", r.status, r.activityType]);
+                      });
+                      copyTable(rows,"bookings");
+                    }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="bookings"?C.sage:C.border}`,background:copiedTable==="bookings"?C.sage+"22":"transparent",color:copiedTable==="bookings"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                      {copiedTable==="bookings"?"✓ Copied":"Copy All"}
+                    </button>
+                  </div>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        {["Name","Booking Ref","Created","Start → End","LoS","Room","AWR","Status","Type"].map(h=>(
-                          <th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{h}</th>
+                        {["Name","Booking Ref","Created","Start → End","LoS","Room","PCM","AWR","Status","Type"].map(h=>(
+                          <th key={h} style={{padding:"8px 10px",textAlign:h==="PCM"||h==="AWR"?"right":"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -3899,7 +3957,8 @@ export default function Dashboard() {
                             <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap",fontSize:11}}>{r.startDate} → {r.endDate}</td>
                             <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace"}}>{r.losDays}d</td>
                             <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap"}}>{r.room}</td>
-                            <td style={{padding:"8px 10px",color:r.weeklyRate>0?C.text:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{r.weeklyRate>0?`£${r.weeklyRate}`:"—"}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",color:r.pcmGross>0?C.gold:C.muted,fontFamily:"DM Mono,monospace",fontSize:11,fontWeight:700}}>{r.pcmGross>0?`£${r.pcmGross.toLocaleString()}`:"—"}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",color:r.weeklyRateGross>0?C.muted:C.muted+"66",fontFamily:"DM Mono,monospace",fontSize:11}}>{r.weeklyRateGross>0?`£${r.weeklyRateGross}`:"—"}</td>
                             <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:statusColor+"22",color:statusColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.status}</span></td>
                             <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:typeColor+"22",color:typeColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.activityType}</span></td>
                           </tr>
@@ -5225,7 +5284,17 @@ export default function Dashboard() {
                         return (
                           <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
                             <div style={{flex:"1 1 260px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
-                              <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>LoS Breakdown — Confirmed Renewals</p>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                                <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown — Confirmed Renewals</p>
+                                <button onClick={()=>{
+                                  const rows = [["LoS Band","Rooms","Days"]];
+                                  bucketKeys.forEach(k=>{rows.push([k, buckets[k], bucketDays[k]]);});
+                                  rows.push(["Total", losData.length, totalDays]);
+                                  copyTable(rows,"renewalLos");
+                                }} style={{fontSize:9,padding:"2px 8px",borderRadius:6,border:`1px solid ${copiedTable==="renewalLos"?C.sage:C.border}`,background:copiedTable==="renewalLos"?C.sage+"22":"transparent",color:copiedTable==="renewalLos"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                                  {copiedTable==="renewalLos"?"✓ Copied":"Copy"}
+                                </button>
+                              </div>
                               <div style={{display:"flex",justifyContent:"flex-end",gap:0,marginBottom:4}}>
                                 <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:60,textAlign:"right"}}>Rooms</span>
                                 <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:70,textAlign:"right"}}>Days</span>
@@ -5263,9 +5332,30 @@ export default function Dashboard() {
                       {/* Confirmed renewals in period */}
                       {filteredConfirmed.length > 0 && (
                         <div style={{marginTop:4}}>
-                          <p style={{fontSize:11,fontWeight:700,color:C.sage,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                            Confirmed in Period ({filteredConfirmed.length})
-                          </p>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                            <p style={{fontSize:11,fontWeight:700,color:C.sage,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                              Confirmed in Period ({filteredConfirmed.length})
+                            </p>
+                            <button onClick={()=>{
+                              const rows = [["Name","Confirmed","Room","Start","End","PCM (£)","AWR (£)","Status"]];
+                              filteredConfirmed.sort((a,b)=>(b.confirmedDate||"").localeCompare(a.confirmedDate||"")).forEach(ev=>{
+                                const d = (ev.followOnStart && ev.followOnEnd) ? Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000) : 0;
+                                const n = parseFloat(ev.netAmount ?? 0); const v = parseFloat(ev.vatAmount ?? 0);
+                                const g = n + (isNaN(v) ? 0 : v);
+                                const awr = (d > 0 && g > 0) ? Math.round((g / d) * 7) : "";
+                                let pcm = "";
+                                if (ev.followOnStart && ev.followOnEnd && g > 0) {
+                                  const s = new Date(ev.followOnStart), e = new Date(ev.followOnEnd);
+                                  const cm = (e.getFullYear()-s.getFullYear())*12+(e.getMonth()-s.getMonth())+(e.getDate()-s.getDate())/30;
+                                  pcm = Math.round(g / (cm > 0 ? cm : d/30.44));
+                                }
+                                rows.push([ev.name||"—", ev.confirmedDate||ev.contractSignedDate||"—", ev.room, ev.followOnStart, ev.followOnEnd, pcm, awr, "CONFIRMED"]);
+                              });
+                              copyTable(rows,"confirmedRenewals");
+                            }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="confirmedRenewals"?C.sage:C.border}`,background:copiedTable==="confirmedRenewals"?C.sage+"22":"transparent",color:copiedTable==="confirmedRenewals"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                              {copiedTable==="confirmedRenewals"?"✓ Copied":"Copy All"}
+                            </button>
+                          </div>
                           <div style={{overflowX:"auto",maxHeight:280,overflowY:"auto"}}>
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                               <thead>
@@ -5326,9 +5416,30 @@ export default function Dashboard() {
                       {/* Pending (contracts sent) in period */}
                       {filteredPending.length > 0 && (
                         <div style={{marginTop:14}}>
-                          <p style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                            Contracts Sent in Period ({filteredPending.length})
-                          </p>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                            <p style={{fontSize:11,fontWeight:700,color:C.blue,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                              Contracts Sent in Period ({filteredPending.length})
+                            </p>
+                            <button onClick={()=>{
+                              const rows = [["Name","Sent","Room","Start","End","PCM (£)","AWR (£)","Status"]];
+                              filteredPending.sort((a,b)=>(b.conversionDate||"").localeCompare(a.conversionDate||"")).forEach(ev=>{
+                                const d = (ev.followOnStart && ev.followOnEnd) ? Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000) : 0;
+                                const n = parseFloat(ev.netAmount ?? 0); const v = parseFloat(ev.vatAmount ?? 0);
+                                const g = n + (isNaN(v) ? 0 : v);
+                                const awr = (d > 0 && g > 0) ? Math.round((g / d) * 7) : "";
+                                let pcm = "";
+                                if (ev.followOnStart && ev.followOnEnd && g > 0) {
+                                  const s = new Date(ev.followOnStart), e = new Date(ev.followOnEnd);
+                                  const cm = (e.getFullYear()-s.getFullYear())*12+(e.getMonth()-s.getMonth())+(e.getDate()-s.getDate())/30;
+                                  pcm = Math.round(g / (cm > 0 ? cm : d/30.44));
+                                }
+                                rows.push([ev.name||"—", ev.conversionDate||"—", ev.room, ev.followOnStart, ev.followOnEnd, pcm, awr, "PENDING"]);
+                              });
+                              copyTable(rows,"pendingRenewals");
+                            }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="pendingRenewals"?C.sage:C.border}`,background:copiedTable==="pendingRenewals"?C.sage+"22":"transparent",color:copiedTable==="pendingRenewals"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                              {copiedTable==="pendingRenewals"?"✓ Copied":"Copy All"}
+                            </button>
+                          </div>
                           <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                               <thead>
