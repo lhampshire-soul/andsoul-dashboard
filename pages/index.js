@@ -879,7 +879,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       followOnEnd = fEnd;
       followOnLosDays = fDays > 0 ? fDays : 0;
       // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-      renewalPcm = fDays > 0 ? Math.round((fGross / fDays) * 365 / 12) : 0;
+      renewalPcm = fDays > 0 ? snapToRate(Math.round((fGross / fDays) * 365 / 12)) : 0;
     }
 
     renewalsMap[monthKey].push({
@@ -894,7 +894,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       startDate, endDate, losDays: days, cumulDays: cumulDays,
       room: b.unit?.name || "—",
       roomType: unitRoomType, // already validated non-null above
-      status, pcm: days > 0 ? Math.round((gross / days) * 365 / 12) : 0,
+      status, pcm: days > 0 ? snapToRate(Math.round((gross / days) * 365 / 12)) : 0,
       renewalPcm, // PCM of the follow-on stay (null if no follow-on)
       grossTotal: Math.round(gross),
       isRenewed,
@@ -1397,6 +1397,19 @@ async function rhUpdate(tok, path, body) {
   const data = await r.json();
   if (!r.ok) throw new Error(data?.error ?? `${r.status}`);
   return data;
+}
+
+// Standard &Soul gross PCM rates — snap derived PCM to nearest known rate
+const STANDARD_RATES = [995, 1050, 1150, 1200, 1250, 1350, 1450, 1499, 1549, 1550, 1800];
+function snapToRate(derived) {
+  if (!derived || derived <= 0) return 0;
+  let best = STANDARD_RATES[0], bestDiff = Math.abs(derived - best);
+  for (const r of STANDARD_RATES) {
+    const d = Math.abs(derived - r);
+    if (d < bestDiff) { best = r; bestDiff = d; }
+  }
+  // Only snap if within 10% of a standard rate; otherwise show derived (custom rate)
+  return bestDiff / best <= 0.10 ? best : derived;
 }
 
 async function rhFetchAll(tok, basePath, maxPages=50) {
@@ -2476,7 +2489,7 @@ export default function Dashboard() {
       const weeklyRateGross = (losDays > 0 && gross > 0) ? Math.round((gross / losDays) * 7) : 0;
       // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
       // RH calculates totalAmount = dailyRate × days, where dailyRate = monthlyRate × 12/365
-      const pcmGross = (losDays > 0 && gross > 0) ? Math.round((gross / losDays) * 365 / 12) : 0;
+      const pcmGross = (losDays > 0 && gross > 0) ? snapToRate(Math.round((gross / losDays) * 365 / 12)) : 0;
       candidates.push({
         bookingReference: b.bookingReference,
         created,
@@ -5259,7 +5272,7 @@ export default function Dashboard() {
                             totalWeeklyGross += (gross / days) * 7;
                             totalWeeklyNet += (net / days) * 7;
                             // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-                            totalPcmGross += Math.round((gross / days) * 365 / 12);
+                            totalPcmGross += snapToRate(Math.round((gross / days) * 365 / 12));
                             rateCount++;
                           }
                         });
@@ -5363,7 +5376,7 @@ export default function Dashboard() {
                                   const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
                                   const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
                                   // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-                                  const evPcmGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 365 / 12) : null;
+                                  const evPcmGross = (evDays > 0 && evGross > 0) ? snapToRate(Math.round((evGross / evDays) * 365 / 12)) : null;
                                   return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
@@ -5441,7 +5454,7 @@ export default function Dashboard() {
                                   const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
                                   const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
                                   // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-                                  const evPcmGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 365 / 12) : null;
+                                  const evPcmGross = (evDays > 0 && evGross > 0) ? snapToRate(Math.round((evGross / evDays) * 365 / 12)) : null;
                                   return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
