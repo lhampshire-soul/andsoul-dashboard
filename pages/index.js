@@ -1412,6 +1412,80 @@ function snapToRate(derived) {
   return bestDiff / best <= 0.10 ? best : derived;
 }
 
+// ─── LEAD SOURCE ATTRIBUTION (GHL methodology) ─────────────────────────────
+const SOURCE_COLORS = {
+  google_paid:"#4285f4", google_organic:"#34a853",
+  meta_paid:"#e09f3e", meta_organic:"#8b9a46",
+  spare_room:"#7b2d8e", student_platform:"#00b4d8",
+  word_of_mouth:"#6c9a8b", direct:"#888", direct_whatsapp:"#25d366",
+  referral:"#e07a5f", not_found:"#666", error:"#666",
+};
+const SOURCE_LABELS = {
+  google_paid:"Google", google_organic:"Google (Org)",
+  meta_paid:"Meta", meta_organic:"Meta (Org)",
+  spare_room:"SpareRoom", student_platform:"Student",
+  word_of_mouth:"WoM", direct:"Direct", direct_whatsapp:"WhatsApp",
+  referral:"Referral", not_found:"—", error:"?",
+};
+function classifyLeadSource(contact) {
+  const attrs = contact.attributions || [];
+  const tags = (contact.tags || []).map(t => (typeof t === "string" ? t : t?.name || "").toLowerCase());
+  const src = (contact.source || "").toLowerCase();
+  const med = (contact.medium || "").toLowerCase();
+  const cf = contact.customFields || [];
+  const selfRep = (cf.find(f => f.id === "8DXmJzpunaxq43o0aQpx")?.value || "").toLowerCase();
+  const selfSpec = (cf.find(f => f.id === "VEg3lD5L3n53ZPNXinbV")?.value || "").toLowerCase();
+  let gclid=false,fbclid=false,gbraid=false,adwords=false,fbAd=false;
+  let paidSearch=false,paidSocial=false,orgSearch=false,social=false,refSession=false;
+  let allDirect=attrs.length>0, igPaid=false, fbSrc=false, gRef=false, hasCamp=false;
+  for(const a of attrs){
+    const s=(a.utmSource||"").toLowerCase(), m=(a.utmMedium||"").toLowerCase();
+    const ss=(a.utmSessionSource||"").toLowerCase(), ref=(a.referrer||"").toLowerCase();
+    const ad=(a.adSource||"").toLowerCase();
+    if(a.utmGclid||a.gclid) gclid=true;
+    if(a.utmFbclid||a.fbclid) fbclid=true;
+    if(a.gbraid) gbraid=true;
+    if(s==="adwords") adwords=true;
+    if(ad==="facebook") fbAd=true;
+    if(ss==="paid search") paidSearch=true;
+    if(ss==="paid social") paidSocial=true;
+    if(ss==="organic search") orgSearch=true;
+    if(ss!=="direct traffic"&&ss!=="") allDirect=false;
+    if(ss==="social media") social=true;
+    if(ss==="referral") refSession=true;
+    if(s==="facebook"||s==="fb") fbSrc=true;
+    if(s==="ig"&&m==="paid") igPaid=true;
+    if(ref.includes("google.")) gRef=true;
+    if(a.utmCampaignId||a.utmCampaign) hasCamp=true;
+  }
+  // 1. Google (Paid)
+  if(gclid||adwords||gbraid||(paidSearch&&gRef)) return "google_paid";
+  // 2-4. Meta (Paid)
+  if((fbAd&&paidSocial)||(fbclid&&hasCamp)||igPaid||(fbSrc&&med==="facebook")) return "meta_paid";
+  // 5. Spare Room
+  if(src==="spareroom"||tags.includes("spareroom")||(med==="zapier"&&src==="spareroom")) return "spare_room";
+  // 6. Direct/WhatsApp
+  if(med==="whatsapp_coex"||tags.some(t=>t.includes("whatsapp")&&t.includes("lead"))) return "direct_whatsapp";
+  // 7. Google (Organic)
+  if(orgSearch&&gRef&&!gclid&&!adwords) return "google_organic";
+  // 8. Word of Mouth
+  if(selfRep.includes("word of mouth")&&!gclid&&!fbclid&&!adwords) return "word_of_mouth";
+  // 9. Meta (Organic)
+  if((selfRep.includes("instagram")||selfRep.includes("facebook")||(social&&!paidSocial))&&!gclid&&!fbclid&&!adwords&&!fbAd&&!paidSearch&&!paidSocial) return "meta_organic";
+  // 10. Student Platform
+  if((selfRep.includes("amber")||selfRep.includes("unilodger")||selfRep.includes("student.com")||selfRep.includes("university cribs"))&&!gclid&&!adwords) return "student_platform";
+  // 11. Direct
+  if(allDirect&&!gclid&&!fbclid) return "direct";
+  // 12. Referral
+  if(refSession&&!gclid&&!fbclid&&!social) return "referral";
+  // Fallback: tags
+  if(tags.some(t=>t.includes("spareroom"))) return "spare_room";
+  if(tags.some(t=>t.includes("facebook")||t.includes("instagram"))) return "meta_organic";
+  if(selfRep.includes("online search")||selfRep.includes("google")) return "direct";
+  if(selfRep==="other"&&selfSpec) return "referral";
+  return "not_found";
+}
+
 async function rhFetchAll(tok, basePath, maxPages=50) {
   let all = [];
   let page = 0;
@@ -2510,6 +2584,7 @@ export default function Dashboard() {
         weeklyRate,
         weeklyRateGross,
         pcmGross,
+        email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
       });
     }
 
@@ -2610,6 +2685,103 @@ export default function Dashboard() {
       }
     };
   }, [rhAllBookings, rhAllUnits, activityFrom, activityTo]);
+
+  // ── Lead source attribution (async GHL lookup) ──
+  const [leadSources, setLeadSources] = useState({});
+  const [lsLoading, setLsLoading] = useState(false);
+  const lsCache = useRef({});
+  useEffect(() => {
+    if (!recentActivity.all.length || !ghlConn) return;
+    const uncached = recentActivity.all.filter(b => b.name && !lsCache.current[b.name]);
+    if (!uncached.length) {
+      // All cached — just set from cache
+      const mapped = {};
+      recentActivity.all.forEach(b => { if (b.name) mapped[b.name] = lsCache.current[b.name] || "not_found"; });
+      setLeadSources(mapped);
+      return;
+    }
+    // De-duplicate by name
+    const unique = {};
+    uncached.forEach(b => { if (!unique[b.name]) unique[b.name] = b; });
+    const entries = Object.values(unique);
+    let cancelled = false;
+    (async () => {
+      setLsLoading(true);
+      const results = {};
+      // Process in batches of 5
+      for (let i = 0; i < entries.length; i += 5) {
+        if (cancelled) break;
+        const batch = entries.slice(i, i + 5);
+        await Promise.all(batch.map(async (b) => {
+          try {
+            let ghlContact = null;
+            // Strategy 1: Search by email
+            if (b.email) {
+              try {
+                const r = await ghlGet(`/contacts/?locationId=${GHL_LOCATION}&query=${encodeURIComponent(b.email)}&limit=5`);
+                const contacts = r?.contacts || [];
+                if (contacts.length > 0) ghlContact = contacts.sort((a,c) => (c.dateAdded||"").localeCompare(a.dateAdded||""))[0];
+              } catch(e) { console.log("LS email search failed:", b.email, e.message); }
+            }
+            // Strategy 2: Search by full name
+            if (!ghlContact && b.name) {
+              try {
+                const r = await ghlGet(`/contacts/?locationId=${GHL_LOCATION}&query=${encodeURIComponent(b.name)}&limit=5`);
+                const contacts = r?.contacts || [];
+                if (contacts.length > 0) ghlContact = contacts.sort((a,c) => (c.dateAdded||"").localeCompare(a.dateAdded||""))[0];
+              } catch(e) { console.log("LS name search failed:", b.name, e.message); }
+            }
+            // Strategy 3: Search by last name, filter by first name
+            if (!ghlContact && b.lastName) {
+              try {
+                const r = await ghlGet(`/contacts/?locationId=${GHL_LOCATION}&query=${encodeURIComponent(b.lastName)}&limit=10`);
+                const contacts = r?.contacts || [];
+                const fn = (b.firstName || "").toLowerCase();
+                const filtered = contacts.filter(c => {
+                  const cfn = (c.firstName || "").toLowerCase();
+                  return cfn.includes(fn) || fn.includes(cfn) || (cfn[0] && fn[0] && cfn[0] === fn[0]);
+                });
+                if (filtered.length > 0) ghlContact = filtered.sort((a,c) => (c.dateAdded||"").localeCompare(a.dateAdded||""))[0];
+              } catch(e) { console.log("LS lastName search failed:", b.lastName, e.message); }
+            }
+            if (ghlContact) {
+              // Fetch full contact details for attribution data
+              try {
+                const full = await ghlGet(`/contacts/${ghlContact.id}`);
+                const c = full?.contact || full || {};
+                results[b.name] = classifyLeadSource(c);
+              } catch(e) {
+                console.log("LS contact detail failed:", ghlContact.id, e.message);
+                results[b.name] = "not_found";
+              }
+            } else {
+              results[b.name] = "not_found";
+            }
+          } catch(e) {
+            console.log("LS lookup error:", b.name, e.message);
+            results[b.name] = "error";
+          }
+        }));
+      }
+      if (!cancelled) {
+        Object.assign(lsCache.current, results);
+        const mapped = {};
+        recentActivity.all.forEach(b => { if (b.name) mapped[b.name] = lsCache.current[b.name] || "not_found"; });
+        setLeadSources(mapped);
+        setLsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [recentActivity.all, ghlConn]);
+
+  // Compute lead source summary counts
+  const lsSummary = useMemo(() => {
+    const counts = {};
+    Object.values(leadSources).forEach(code => {
+      counts[code] = (counts[code] || 0) + 1;
+    });
+    return counts;
+  }, [leadSources]);
 
   const openSmsModal = useCallback((entry, channel = "sms") => {
     const firstName = entry.name.split(" ")[0];
@@ -3919,14 +4091,34 @@ export default function Dashboard() {
                 </div>
               )}
 
+              {/* Lead Source Breakdown */}
+              {recentActivity.all.length > 0 && Object.keys(leadSources).length > 0 && (
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+                  {Object.entries(lsSummary).filter(([c])=>c!=="not_found"&&c!=="error").sort((a,b)=>b[1]-a[1]).map(([code,count])=>(
+                    <div key={code} style={{background:C.bg,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:9,background:(SOURCE_COLORS[code]||"#666")+"22",color:SOURCE_COLORS[code]||"#666",padding:"2px 7px",borderRadius:8,fontWeight:600}}>{SOURCE_LABELS[code]||code}</span>
+                      <span style={{fontFamily:"DM Mono,monospace",fontSize:13,fontWeight:700,color:C.text}}>{count}</span>
+                    </div>
+                  ))}
+                  {(lsSummary.not_found||0)>0&&(
+                    <div style={{background:C.bg,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:9,color:C.muted,fontWeight:600}}>Not found</span>
+                      <span style={{fontFamily:"DM Mono,monospace",fontSize:13,fontWeight:700,color:C.muted}}>{lsSummary.not_found}</span>
+                    </div>
+                  )}
+                  {lsLoading&&<span style={{fontSize:10,color:C.muted,alignSelf:"center"}}>Loading sources…</span>}
+                </div>
+              )}
+
               {/* Breakdown table */}
               {recentActivity.all.length > 0 && (
                 <div style={{overflowX:"auto"}}>
                   <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
                     <button onClick={()=>{
-                      const rows = [["Name","Booking Ref","Created","Start","End","LoS (days)","Room","PCM (£)","AWR (£)","Status","Type"]];
+                      const rows = [["Name","Source","Booking Ref","Created","Start","End","LoS (days)","Room","PCM (£)","AWR (£)","Status","Type"]];
                       recentActivity.all.forEach(r=>{
-                        rows.push([r.name||"—", r.bookingReference||"—", r.created, r.startDate, r.endDate, r.losDays, r.room, r.pcmGross||"—", r.weeklyRateGross||"—", r.status, r.activityType]);
+                        const srcCode = leadSources[r.name] || "not_found";
+                        rows.push([r.name||"—", SOURCE_LABELS[srcCode]||"—", r.bookingReference||"—", r.created, r.startDate, r.endDate, r.losDays, r.room, r.pcmGross||"—", r.weeklyRateGross||"—", r.status, r.activityType]);
                       });
                       copyTable(rows,"bookings");
                     }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="bookings"?C.sage:C.border}`,background:copiedTable==="bookings"?C.sage+"22":"transparent",color:copiedTable==="bookings"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
@@ -3936,7 +4128,7 @@ export default function Dashboard() {
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        {["Name","Booking Ref","Created","Start → End","LoS","Room","PCM","AWR","Status","Type"].map(h=>(
+                        {["Name","Source","Booking Ref","Created","Start → End","LoS","Room","PCM","AWR","Status","Type"].map(h=>(
                           <th key={h} style={{padding:"8px 10px",textAlign:h==="PCM"||h==="AWR"?"right":"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{h}</th>
                         ))}
                       </tr>
@@ -3945,9 +4137,13 @@ export default function Dashboard() {
                       {recentActivity.all.map((r,i)=>{
                         const statusColor = r.status==="CHECKED_IN"?C.sage:r.status==="CONFIRMED"?C.blue:C.gold;
                         const typeColor = r.activityType==="Returning"?C.sage:C.blue;
+                        const srcCode = leadSources[r.name] || (lsLoading ? "loading" : "not_found");
+                        const srcColor = SOURCE_COLORS[srcCode] || "#666";
+                        const srcLabel = srcCode === "loading" ? "…" : (SOURCE_LABELS[srcCode] || "—");
                         return (
                           <tr key={r.roomStayId||i} style={{borderBottom:`1px solid ${C.border}22`}}>
                             <td style={{padding:"8px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{r.name||"—"}</td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:9,background:srcColor+"22",color:srcColor,padding:"2px 7px",borderRadius:8,fontWeight:600,whiteSpace:"nowrap"}}>{srcLabel}</span></td>
                             <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",fontSize:11}}>
                               {r.bookingId?(
                                 <a href={`https://app.resharmonics.com/bookings/${r.bookingId}`} target="_blank" rel="noopener noreferrer" style={{color:C.gold,textDecoration:"none",borderBottom:`1px dashed ${C.gold}55`}}>{r.bookingReference}</a>
