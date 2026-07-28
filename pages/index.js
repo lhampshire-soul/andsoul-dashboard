@@ -2205,6 +2205,27 @@ export default function Dashboard() {
   const [offlineRooms, setOfflineRooms] = useState(10);
   const [occupancyOverrides, setOccupancyOverrides] = useState({}); // monthIdx → occupancy % (0-100)
 
+  // ── Lavanda Short-Stay Data ──
+  const LAVANDA_KEY = "75a866b799804d3baee167aa47644576";
+  const [lavandaData, setLavandaData] = useState(null);
+  const [lavandaLoad, setLavandaLoad] = useState(false);
+  const [lavandaErr, setLavandaErr] = useState("");
+  const [lavandaConn, setLavandaConn] = useState(false);
+
+  // Static data from Lavanda artifact — used as initial/fallback
+  const LAVANDA_STATIC = {"generated":"2026-07-28T09:12:34.088140+00:00","today":"2026-07-28","account":"andSoul - Southall &Soul - London","kpis":{"occ_tonight":1,"blocked_tonight":12,"units":30,"available_tonight":17,"in_house":1,"arrivals7":3,"departures7":2,"future_rev":2562.53,"total_conf_value":4137.73,"adr":40.17,"confirmed":9,"canceled":6,"total_inventory":140},"daily":[{"date":"2026-06-30","booked":2,"blocked":28,"total":30,"available":0,"rate":156.0},{"date":"2026-07-01","booked":2,"blocked":28,"total":30,"available":0,"rate":160.0},{"date":"2026-07-02","booked":2,"blocked":28,"total":30,"available":0,"rate":154.0},{"date":"2026-07-03","booked":2,"blocked":27,"total":30,"available":1,"rate":176.0},{"date":"2026-07-04","booked":2,"blocked":27,"total":30,"available":1,"rate":192.0},{"date":"2026-07-05","booked":2,"blocked":27,"total":30,"available":1,"rate":106.0},{"date":"2026-07-06","booked":2,"blocked":28,"total":30,"available":0,"rate":132.0},{"date":"2026-07-07","booked":2,"blocked":28,"total":30,"available":0,"rate":134.0},{"date":"2026-07-08","booked":2,"blocked":28,"total":30,"available":0,"rate":129.0},{"date":"2026-07-09","booked":2,"blocked":13,"total":30,"available":15,"rate":50.0},{"date":"2026-07-10","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-11","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-12","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-13","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-14","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-15","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-16","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-17","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-18","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-19","booked":1,"blocked":11,"total":30,"available":18,"rate":40.0},{"date":"2026-07-20","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-21","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-22","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-23","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-24","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-25","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-26","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-27","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-28","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-29","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-30","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-07-31","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-01","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-02","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-03","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-04","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-05","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-06","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-07","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-08","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-08-09","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-10","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-11","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-12","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-13","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-14","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-08-15","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-16","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-17","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-18","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-19","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-20","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-21","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-22","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-23","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-24","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-25","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-26","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-27","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-28","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-29","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-08-30","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-08-31","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-09-01","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-09-02","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-03","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-04","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-05","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-06","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-07","booked":0,"blocked":3,"total":30,"available":27,"rate":55.0},{"date":"2026-09-08","booked":0,"blocked":3,"total":30,"available":27,"rate":57.0},{"date":"2026-09-09","booked":0,"blocked":3,"total":30,"available":27,"rate":59.0},{"date":"2026-09-10","booked":0,"blocked":3,"total":30,"available":27,"rate":55.0},{"date":"2026-09-11","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-12","booked":0,"blocked":3,"total":30,"available":27,"rate":57.0},{"date":"2026-09-13","booked":0,"blocked":3,"total":30,"available":27,"rate":53.0},{"date":"2026-09-14","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-15","booked":0,"blocked":3,"total":30,"available":27,"rate":57.0},{"date":"2026-09-16","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-17","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-18","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-19","booked":0,"blocked":3,"total":30,"available":27,"rate":60.0},{"date":"2026-09-20","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-21","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-22","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-23","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-24","booked":0,"blocked":3,"total":30,"available":27,"rate":55.0},{"date":"2026-09-25","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-26","booked":0,"blocked":3,"total":30,"available":27,"rate":60.0},{"date":"2026-09-27","booked":0,"blocked":3,"total":30,"available":27,"rate":64.0},{"date":"2026-09-28","booked":0,"blocked":3,"total":30,"available":27,"rate":65.0},{"date":"2026-09-29","booked":0,"blocked":3,"total":30,"available":27,"rate":65.0},{"date":"2026-09-30","booked":0,"blocked":3,"total":30,"available":27,"rate":65.0},{"date":"2026-10-01","booked":0,"blocked":3,"total":30,"available":27,"rate":63.0},{"date":"2026-10-02","booked":0,"blocked":3,"total":30,"available":27,"rate":66.0},{"date":"2026-10-03","booked":0,"blocked":3,"total":30,"available":27,"rate":69.0},{"date":"2026-10-04","booked":0,"blocked":2,"total":30,"available":28,"rate":63.0},{"date":"2026-10-05","booked":0,"blocked":2,"total":30,"available":28,"rate":65.0},{"date":"2026-10-06","booked":0,"blocked":2,"total":30,"available":28,"rate":65.0},{"date":"2026-10-07","booked":0,"blocked":2,"total":30,"available":28,"rate":65.0},{"date":"2026-10-08","booked":0,"blocked":2,"total":30,"available":28,"rate":66.0},{"date":"2026-10-09","booked":0,"blocked":2,"total":30,"available":28,"rate":65.0},{"date":"2026-10-10","booked":0,"blocked":2,"total":30,"available":28,"rate":67.0},{"date":"2026-10-11","booked":0,"blocked":2,"total":30,"available":28,"rate":64.0},{"date":"2026-10-12","booked":0,"blocked":2,"total":30,"available":28,"rate":64.0},{"date":"2026-10-13","booked":0,"blocked":2,"total":30,"available":28,"rate":62.0},{"date":"2026-10-14","booked":0,"blocked":19,"total":30,"available":11,"rate":66.0},{"date":"2026-10-15","booked":0,"blocked":19,"total":30,"available":11,"rate":64.0},{"date":"2026-10-16","booked":0,"blocked":19,"total":30,"available":11,"rate":67.0},{"date":"2026-10-17","booked":0,"blocked":2,"total":30,"available":28,"rate":67.0},{"date":"2026-10-18","booked":0,"blocked":2,"total":30,"available":28,"rate":66.0},{"date":"2026-10-19","booked":0,"blocked":1,"total":30,"available":29,"rate":64.0},{"date":"2026-10-20","booked":0,"blocked":1,"total":30,"available":29,"rate":66.0},{"date":"2026-10-21","booked":0,"blocked":1,"total":30,"available":29,"rate":67.0},{"date":"2026-10-22","booked":0,"blocked":1,"total":30,"available":29,"rate":65.0},{"date":"2026-10-23","booked":0,"blocked":1,"total":30,"available":29,"rate":64.0},{"date":"2026-10-24","booked":0,"blocked":1,"total":30,"available":29,"rate":66.0},{"date":"2026-10-25","booked":0,"blocked":1,"total":30,"available":29,"rate":61.0},{"date":"2026-10-26","booked":0,"blocked":1,"total":30,"available":29,"rate":65.0},{"date":"2026-10-27","booked":0,"blocked":1,"total":30,"available":29,"rate":64.0},{"date":"2026-10-28","booked":0,"blocked":1,"total":30,"available":29,"rate":68.0}],"monthly":[{"month":"2026-06","revenue":172.82},{"month":"2026-07","revenue":1635.6},{"month":"2026-08","revenue":2329.31}],"tiers":[{"tier":"Spacious","units":54,"booked":0,"blocked":0,"available":54,"rate":null,"shortstay":false},{"tier":"Nomad (short-stay)","units":30,"booked":1,"blocked":12,"available":17,"rate":40.0,"shortstay":true},{"tier":"Cosy","units":30,"booked":0,"blocked":0,"available":30,"rate":null,"shortstay":false},{"tier":"Roomy","units":26,"booked":0,"blocked":0,"available":26,"rate":null,"shortstay":false}],"upcoming":[{"guest":"Angela Beesley","start":"2026-06-28","end":"2026-07-28","nights":30,"value":963.2,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Niamatulla Kamran","start":"2026-07-28","end":"2026-08-01","nights":4,"value":165.16,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Claire Fox","start":"2026-07-30","end":"2026-08-08","nights":9,"value":306.27,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Abdulrazak Abdullah  Moahmed","start":"2026-08-01","end":"2026-08-09","nights":8,"value":306.32,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Gokhan Aladag","start":"2026-08-15","end":"2026-08-29","nights":14,"value":723.0,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Gökhan Aladağ","start":"2026-08-15","end":"2026-08-29","nights":14,"value":621.35,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Gearoid Mcsherry","start":"2026-08-17","end":"2026-08-20","nights":3,"value":135.12,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Rebecca Daffeh","start":"2026-08-24","end":"2026-08-29","nights":5,"value":305.31,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"}]};
+
+  // Load Lavanda data (static fallback + attempt live)
+  useEffect(() => {
+    setLavandaData(LAVANDA_STATIC);
+    setLavandaConn(true);
+    // Attempt live fetch in background
+    fetch(`/api/lavanda?action=probe&apiKey=${LAVANDA_KEY}`)
+      .then(r => r.json())
+      .then(d => { console.log("Lavanda probe:", d); })
+      .catch(() => {});
+  }, []);
+
   // ── Canopy Reference Checks (loaded from Redis via webhook data) ──
   const [canopyData, setCanopyData] = useState(null); // { byEmail: { email -> { signal, rawStatus, ... } }, totalRecords }
   const [canopyLoad, setCanopyLoad] = useState(false);
@@ -3304,7 +3325,7 @@ export default function Dashboard() {
               <button key={p.k} onClick={()=>setProperty(p.k)} style={{padding:"7px 14px",border:`1px solid ${property===p.k?C.gold:C.border}`,cursor:"pointer",fontWeight:700,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",borderRadius:8,background:property===p.k?C.gold+"22":"transparent",color:property===p.k?C.gold:C.muted}}>{p.l}</button>
             ))}
           </div>
-          {property==="southall"&&<>{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation")}</>}
+          {property==="southall"&&<>{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation")}</>}
           {property==="shoreditch"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setSdTab("marketing")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="marketing"?C.gold:"transparent",color:sdTab==="marketing"?"#000":C.muted}}>Marketing</button>
             <button onClick={()=>setSdTab("crm")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="crm"?C.gold:"transparent",color:sdTab==="crm"?"#000":C.muted}}>CRM</button>
@@ -5400,6 +5421,272 @@ export default function Dashboard() {
               </div>
             )}
 
+          </div>
+        )}
+
+        {/* ════ SHORT STAYS ════ */}
+        {property==="southall"&&tab==="shortstays"&&lavandaData&&(
+          <div style={{padding:"22px 26px"}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Nomad Units · {lavandaData.kpis.units} beds · Booking.com</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 16px"}}>Short-Stay Dashboard</h2>
+
+            {/* ── KPI row ── */}
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
+              <KPI label="Occupancy Tonight" value={`${lavandaData.kpis.occ_tonight} / ${lavandaData.kpis.units}`} sub={`${Math.round(lavandaData.kpis.occ_tonight/lavandaData.kpis.units*100)}% booked · ${lavandaData.kpis.blocked_tonight} blocked · ${lavandaData.kpis.available_tonight} open`} accent={C.blue}/>
+              <KPI label="In-House Tonight" value={String(lavandaData.kpis.in_house)} sub="Confirmed stays spanning tonight" accent={C.sage}/>
+              <KPI label="Arrivals (7d)" value={String(lavandaData.kpis.arrivals7)} sub="Check-ins from today" accent={C.gold}/>
+              <KPI label="Departures (7d)" value={String(lavandaData.kpis.departures7)} sub="Check-outs from today" accent={C.muted}/>
+              <KPI label="Revenue Still to Come" value={fmt(lavandaData.kpis.future_rev)} sub="Confirmed future nights" accent={C.gold}/>
+              <KPI label="Avg Nightly Rate" value={`£${lavandaData.kpis.adr.toFixed(2)}`} sub={`${lavandaData.kpis.confirmed} confirmed · ${lavandaData.kpis.canceled} cancelled`} accent={C.blue}/>
+              <KPI label="Total Confirmed Value" value={fmt(lavandaData.kpis.total_conf_value)} sub="All confirmed bookings" accent={C.sage}/>
+            </div>
+
+            {/* ── Occupancy Stacked Bar Chart ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <h3 style={{fontSize:14,fontWeight:700,color:C.text,margin:0}}>Short-Stay Occupancy — Nomad Units</h3>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Booked & blocked per night, out of {lavandaData.kpis.units} rooms</p>
+                </div>
+                <span style={{fontSize:10,color:lavandaConn?C.sage:C.muted,fontWeight:600}}>{lavandaConn?"● LIVE":"○ STATIC"}</span>
+              </div>
+              <div style={{display:"flex",gap:16,fontSize:11,color:C.muted,marginBottom:10}}>
+                <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue,display:"inline-block"}}/> Booked</span>
+                <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.muted,display:"inline-block"}}/> Blocked/Maintenance</span>
+                <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.bg,border:`1px solid ${C.border}`,display:"inline-block"}}/> Available</span>
+              </div>
+              {(() => {
+                const days = lavandaData.daily;
+                const todayStr = new Date().toISOString().slice(0,10);
+                const maxUnits = lavandaData.kpis.units;
+                return (
+                  <div style={{overflowX:"auto"}}>
+                    <div style={{display:"flex",gap:1,alignItems:"flex-end",minWidth:days.length*12,height:160}}>
+                      {days.map((d,i) => {
+                        const bookedH = (d.booked/maxUnits)*140;
+                        const blockedH = (d.blocked/maxUnits)*140;
+                        const isToday = d.date === todayStr;
+                        return (
+                          <div key={i} style={{flex:1,minWidth:8,display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}} title={`${d.date}: ${d.booked} booked, ${d.blocked} blocked, ${d.available} available, £${d.rate}/night`}>
+                            {isToday && <div style={{position:"absolute",top:-2,width:2,height:4,background:C.gold,borderRadius:1}}/>}
+                            <div style={{width:"100%",display:"flex",flexDirection:"column",justifyContent:"flex-end",height:140}}>
+                              {d.blocked > 0 && <div style={{width:"100%",background:C.muted+"66",borderRadius:"2px 2px 0 0",height:blockedH,minHeight:d.blocked>0?1:0}}/>}
+                              {d.booked > 0 && <div style={{width:"100%",background:C.blue,borderRadius:d.blocked>0?"0":"2px 2px 0 0",height:bookedH,minHeight:d.booked>0?2:0}}/>}
+                            </div>
+                            {i%Math.max(1,Math.floor(days.length/8))===0 && (
+                              <span style={{fontSize:8,color:C.muted,marginTop:4,whiteSpace:"nowrap",transform:"rotate(-45deg)",transformOrigin:"top left"}}>{new Date(d.date+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:18}}>
+              {/* ── Nightly Rate Chart ── */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Advertised Nightly Rate — Nomad</h3>
+                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Live Booking.com rate per night (GBP)</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={lavandaData.daily.map(d=>({d:new Date(d.date+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"}),rate:d.rate}))} margin={{top:4,right:8,bottom:0,left:-8}}>
+                    <defs>
+                      <linearGradient id="gLavRate" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.blue} stopOpacity={0.2}/><stop offset="95%" stopColor={C.blue} stopOpacity={0}/></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                    <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                    <Tooltip content={<Tip/>}/>
+                    <Area type="monotone" dataKey="rate" name="rate" stroke={C.blue} fill="url(#gLavRate)" strokeWidth={2} dot={false}/>
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* ── Monthly Revenue ── */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Booked Revenue by Month</h3>
+                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Confirmed booking value, spread across nights (GBP)</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={lavandaData.monthly.map(m=>({month:new Date(m.month+"-01T00:00").toLocaleDateString("en-GB",{month:"short",year:"numeric"}),revenue:Math.round(m.revenue)}))} margin={{top:4,right:8,bottom:0,left:-8}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                    <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                    <Tooltip content={<Tip/>}/>
+                    <Bar dataKey="revenue" name="Revenue" fill={C.blue} radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* ── Upcoming Bookings Table ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Arrivals & Departures</h3>
+              <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Current and upcoming confirmed stays (all via Booking.com)</p>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Guest</th>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Check-in</th>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Check-out</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Nights</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Value</th>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lavandaData.upcoming.map((b,i) => {
+                      const todayStr = new Date().toISOString().slice(0,10);
+                      const isArriving = b.start === todayStr;
+                      const isDeparting = b.end === todayStr;
+                      const isInHouse = b.start < todayStr && b.end > todayStr;
+                      return (
+                        <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>{b.guest}</td>
+                          <td style={{padding:"8px 10px",color:C.text}}>{new Date(b.start+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
+                          <td style={{padding:"8px 10px",color:C.text}}>{new Date(b.end+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{b.nights}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>£{b.value.toFixed(2)}</td>
+                          <td style={{padding:"8px 10px"}}>
+                            {isArriving && <span style={{fontSize:11,fontWeight:600,padding:"2px 9px",borderRadius:999,border:`1px solid ${C.sage}`,color:C.sage}}>Arriving today</span>}
+                            {isDeparting && <span style={{fontSize:11,fontWeight:600,padding:"2px 9px",borderRadius:999,border:`1px solid ${C.gold}`,color:C.gold}}>Departing today</span>}
+                            {isInHouse && <span style={{fontSize:11,fontWeight:600,padding:"2px 9px",borderRadius:999,border:`1px solid ${C.blue}`,color:C.blue}}>In-house</span>}
+                            {!isArriving && !isDeparting && !isInHouse && <span style={{fontSize:11,color:C.muted}}>Upcoming</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* ── Property Overview (Tiers) ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Property Overview</h3>
+              <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Inventory by room tier, tonight</p>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Tier</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Units</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Available</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Blocked</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Nightly Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lavandaData.tiers.map((t,i) => (
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}22`,background:t.shortstay?C.blue+"08":"transparent"}}>
+                        <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>{t.tier}{t.shortstay?" · Booking.com":" · membership"}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{t.units}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{t.available}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>{t.blocked}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue}}>{t.booked}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:t.rate?C.gold:C.muted}}>{t.rate?`£${t.rate}`:"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p style={{fontSize:11,color:C.muted,marginTop:8}}>Total inventory: {lavandaData.kpis.total_inventory} units. Membership tiers are managed outside this feed.</p>
+            </div>
+
+            {/* ── Combined Long + Short Stay View ── */}
+            {pmsConn && pmsData && (
+              <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.gold,margin:0}}>Combined Occupancy — All Southall</h3>
+                    <p style={{fontSize:12,color:C.muted,marginTop:2}}>Long-stay (Res Harmonics) + Short-stay (Lavanda) combined picture</p>
+                  </div>
+                  <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:12,marginBottom:16}}>
+                  {(() => {
+                    const lsOccupied = pmsData.occupied || 0;
+                    const lsBeds = pmsData.beds || 300;
+                    const ssOccupied = lavandaData.kpis.occ_tonight;
+                    const ssBeds = lavandaData.kpis.units;
+                    const totalOccupied = lsOccupied + ssOccupied;
+                    const totalBeds = lsBeds + ssBeds;
+                    const totalPct = totalBeds > 0 ? Math.round(totalOccupied / totalBeds * 100) : 0;
+                    const lsAWR = pmsData.globalAwrGross || pmsData.globalAwr || 0;
+                    const ssADR = lavandaData.kpis.adr || 0;
+                    const ssWeeklyEquiv = Math.round(ssADR * 7);
+                    return (
+                      <>
+                        <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Long-Stay Occupancy</p>
+                          <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{lsOccupied}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{lsBeds}</span></p>
+                          <p style={{fontSize:10,color:C.muted}}>{lsBeds>0?Math.round(lsOccupied/lsBeds*100):0}% · via Res Harmonics</p>
+                        </div>
+                        <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Short-Stay Occupancy</p>
+                          <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{ssOccupied}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{ssBeds}</span></p>
+                          <p style={{fontSize:10,color:C.muted}}>{ssBeds>0?Math.round(ssOccupied/ssBeds*100):0}% · via Lavanda</p>
+                        </div>
+                        <div style={{background:C.bg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:14}}>
+                          <p style={{fontSize:10,color:C.gold,marginBottom:4,fontWeight:600}}>Total Combined</p>
+                          <p style={{fontSize:22,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{totalOccupied}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{totalBeds}</span></p>
+                          <p style={{fontSize:10,color:C.muted}}>{totalPct}% combined occupancy</p>
+                        </div>
+                        <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Rate Comparison</p>
+                          <p style={{fontSize:14,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>LS: £{lsAWR}/wk gross</p>
+                          <p style={{fontSize:14,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",marginTop:4}}>SS: £{ssADR}/night · £{ssWeeklyEquiv}/wk equiv</p>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* Combined occupancy bar - visual */}
+                <div style={{marginTop:8}}>
+                  <p style={{fontSize:11,color:C.muted,marginBottom:6}}>Bed utilisation breakdown (tonight)</p>
+                  {(() => {
+                    const lsBeds = pmsData.beds || 300;
+                    const ssBeds = lavandaData.kpis.units;
+                    const total = lsBeds + ssBeds;
+                    const lsOcc = pmsData.occupied || 0;
+                    const ssOcc = lavandaData.kpis.occ_tonight;
+                    const ssBlocked = lavandaData.kpis.blocked_tonight;
+                    const lsPct = (lsOcc/total)*100;
+                    const ssOccPct = (ssOcc/total)*100;
+                    const ssBlockPct = (ssBlocked/total)*100;
+                    const emptyPct = 100 - lsPct - ssOccPct - ssBlockPct;
+                    return (
+                      <div style={{display:"flex",height:28,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                        <div style={{width:`${lsPct}%`,background:C.sage,display:"flex",alignItems:"center",justifyContent:"center"}} title={`Long-stay: ${lsOcc} beds`}>
+                          {lsPct > 8 && <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{lsOcc} LS</span>}
+                        </div>
+                        <div style={{width:`${ssOccPct}%`,background:C.blue,display:"flex",alignItems:"center",justifyContent:"center"}} title={`Short-stay booked: ${ssOcc} beds`}>
+                          {ssOccPct > 5 && <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{ssOcc} SS</span>}
+                        </div>
+                        <div style={{width:`${ssBlockPct}%`,background:C.muted+"66",display:"flex",alignItems:"center",justifyContent:"center"}} title={`Short-stay blocked: ${ssBlocked} beds`}>
+                          {ssBlockPct > 5 && <span style={{fontSize:9,color:C.text,fontWeight:600}}>{ssBlocked} blocked</span>}
+                        </div>
+                        <div style={{width:`${Math.max(0,emptyPct)}%`,background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}} title={`Available: ${total - lsOcc - ssOcc - ssBlocked} beds`}>
+                          {emptyPct > 10 && <span style={{fontSize:9,color:C.muted}}>{total - lsOcc - ssOcc - ssBlocked} open</span>}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginTop:6}}>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.sage,display:"inline-block"}}/> Long-stay</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue,display:"inline-block"}}/> Short-stay booked</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.muted+"66",display:"inline-block"}}/> Blocked</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.bg,border:`1px solid ${C.border}`,display:"inline-block"}}/> Available</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <p style={{fontSize:10,color:C.muted,marginTop:12}}>Source: Lavanda Dev API ({lavandaData.account}) · Data window: {lavandaData.daily[0]?.date} to {lavandaData.daily[lavandaData.daily.length-1]?.date} · Generated: {new Date(lavandaData.generated).toLocaleString("en-GB")}</p>
           </div>
         )}
 
