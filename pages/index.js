@@ -1889,7 +1889,7 @@ const PerformanceInsights = ({ analytics, propertyLabel }) => {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [tab, setTab] = useState("marketing");
+  const [tab, setTab] = useState("summary");
   const [property, setProperty] = useState("southall");
   const [sdTab, setSdTab] = useState("marketing");
   const [preset, setPreset] = useState(30);
@@ -3325,13 +3325,296 @@ export default function Dashboard() {
               <button key={p.k} onClick={()=>setProperty(p.k)} style={{padding:"7px 14px",border:`1px solid ${property===p.k?C.gold:C.border}`,cursor:"pointer",fontWeight:700,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",borderRadius:8,background:property===p.k?C.gold+"22":"transparent",color:property===p.k?C.gold:C.muted}}>{p.l}</button>
             ))}
           </div>
-          {property==="southall"&&<>{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation")}</>}
+          {property==="southall"&&<>{tabBtn("summary","Summary")}{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation")}</>}
           {property==="shoreditch"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setSdTab("marketing")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="marketing"?C.gold:"transparent",color:sdTab==="marketing"?"#000":C.muted}}>Marketing</button>
             <button onClick={()=>setSdTab("crm")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="crm"?C.gold:"transparent",color:sdTab==="crm"?"#000":C.muted}}>CRM</button>
             <button onClick={()=>setSdTab("occupancy")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="occupancy"?C.gold:"transparent",color:sdTab==="occupancy"?"#000":C.muted}}>Occupancy</button>
           </div>}
         </div>
+
+        {/* ════ SUMMARY ════ */}
+        {property==="southall"&&tab==="summary"&&(
+          <div style={{padding:"22px 26px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Southall &Soul · All Room Types</p>
+                <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 0"}}>Property Overview</h2>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {pmsConn && <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● RH Live</span>}
+                {lavandaConn && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● Lavanda Live</span>}
+                {!pmsConn && !lavandaConn && <span style={{fontSize:10,color:C.muted}}>○ Not connected</span>}
+              </div>
+            </div>
+
+            {/* ── Hero KPI row ── */}
+            {(() => {
+              const lsOcc = pmsConn && pmsData ? pmsData.occupied : 0;
+              const lsTotal = BEDS;
+              const ssOcc = lavandaConn && lavandaData ? lavandaData.kpis.occ_tonight : 0;
+              const ssBlocked = lavandaConn && lavandaData ? lavandaData.kpis.blocked_tonight : 0;
+              const ssUnits = lavandaConn && lavandaData ? lavandaData.kpis.units : 0;
+              const totalOcc = lsOcc + ssOcc;
+              const usable = lsTotal - (pmsConn ? 10 : 0); // offline rooms
+              const totalPct = usable > 0 ? Math.round(totalOcc / usable * 100) : 0;
+              const lsPct = usable > 0 ? Math.round(lsOcc / usable * 100) : 0;
+              const vacancy = Math.max(0, usable - totalOcc);
+
+              const lsRev = pmsConn && pmsData ? pmsData.revenue : 0;
+              const ssRevMonth = lavandaConn && lavandaData && lavandaData.monthly ? lavandaData.monthly.find(m => m.month === `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`) : null;
+              const ssRev = ssRevMonth ? ssRevMonth.revenue : 0;
+              const totalRev = lsRev + ssRev;
+
+              const lsAWR = pmsConn && pmsData ? (pmsData.globalAwrGross || pmsData.globalAwr || 0) : 0;
+              const ssADR = lavandaConn && lavandaData ? lavandaData.kpis.adr : 0;
+
+              const lsCheckIns = pmsConn && pmsData ? pmsData.checkInsWeek : 0;
+              const lsCheckOuts = pmsConn && pmsData ? pmsData.checkOutsWeek : 0;
+              const ssArrivals = lavandaConn && lavandaData ? lavandaData.kpis.arrivals7 : 0;
+              const ssDepartures = lavandaConn && lavandaData ? lavandaData.kpis.departures7 : 0;
+
+              return (<>
+                {/* Top-level combined numbers */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:14,margin:"18px 0"}}>
+                  <div style={{background:`linear-gradient(135deg, ${C.card}, ${C.bg})`,border:`1px solid ${C.gold}44`,borderRadius:14,padding:20}}>
+                    <p style={{fontSize:10,color:C.gold,fontWeight:600,marginBottom:6}}>TOTAL OCCUPIED</p>
+                    <p style={{fontSize:36,fontWeight:800,color:C.gold,fontFamily:"DM Mono,monospace",lineHeight:1}}>{totalOcc}</p>
+                    <p style={{fontSize:13,color:C.muted,marginTop:6}}>{totalPct}% of {usable} usable rooms</p>
+                    <div style={{display:"flex",height:6,borderRadius:3,overflow:"hidden",marginTop:10,background:C.border}}>
+                      <div style={{width:`${lsPct}%`,background:C.sage,transition:"width 0.4s"}}/>
+                      <div style={{width:`${usable>0?Math.round(ssOcc/usable*100):0}%`,background:C.blue,transition:"width 0.4s"}}/>
+                    </div>
+                    <div style={{display:"flex",gap:12,marginTop:6,fontSize:10,color:C.muted}}>
+                      <span><span style={{color:C.sage,fontWeight:700}}>{lsOcc}</span> long-stay</span>
+                      <span><span style={{color:C.blue,fontWeight:700}}>{ssOcc}</span> short-stay</span>
+                      <span><span style={{fontWeight:700}}>{vacancy}</span> vacant</span>
+                    </div>
+                  </div>
+
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+                    <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>MONTHLY REVENUE</p>
+                    <p style={{fontSize:28,fontWeight:800,color:C.text,fontFamily:"DM Mono,monospace",lineHeight:1}}>{fmt(totalRev)}</p>
+                    <p style={{fontSize:12,color:C.muted,marginTop:8}}>
+                      <span style={{color:C.sage}}>{fmt(lsRev)}</span> long-stay
+                      {ssRev > 0 && <> · <span style={{color:C.blue}}>{fmt(ssRev)}</span> short-stay</>}
+                    </p>
+                  </div>
+
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+                    <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>RATES</p>
+                    <div style={{display:"flex",gap:16,alignItems:"baseline"}}>
+                      <div>
+                        <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>£{lsAWR}</p>
+                        <p style={{fontSize:10,color:C.muted}}>AWR gross (LS)</p>
+                      </div>
+                      {ssADR > 0 && <div>
+                        <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{ssADR.toFixed(0)}</p>
+                        <p style={{fontSize:10,color:C.muted}}>ADR (SS)</p>
+                      </div>}
+                    </div>
+                  </div>
+
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+                    <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>7-DAY MOVEMENT</p>
+                    <div style={{display:"flex",gap:20}}>
+                      <div>
+                        <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>+{lsCheckIns + ssArrivals}</p>
+                        <p style={{fontSize:10,color:C.muted}}>arrivals{ssArrivals>0?` (${lsCheckIns} LS + ${ssArrivals} SS)`:""}</p>
+                      </div>
+                      <div>
+                        <p style={{fontSize:22,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>-{lsCheckOuts + ssDepartures}</p>
+                        <p style={{fontSize:10,color:C.muted}}>departures{ssDepartures>0?` (${lsCheckOuts} LS + ${ssDepartures} SS)`:""}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Bed utilisation bar ── */}
+                <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                  <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:10}}>Bed Utilisation — Tonight</h3>
+                  <div style={{display:"flex",height:36,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                    {(() => {
+                      const segs = [
+                        {w: lsOcc/usable*100, bg: C.sage, label: `${lsOcc} LS`, min: 8},
+                        {w: ssOcc/usable*100, bg: C.blue, label: `${ssOcc} SS`, min: 5},
+                        {w: ssBlocked/usable*100, bg: C.muted+"66", label: `${ssBlocked} blocked`, min: 5},
+                        {w: Math.max(0, vacancy-ssBlocked)/usable*100, bg: C.bg, label: `${Math.max(0,vacancy-ssBlocked)} open`, min: 10},
+                      ];
+                      return segs.map((s,i) => (
+                        <div key={i} style={{width:`${s.w}%`,background:s.bg,display:"flex",alignItems:"center",justifyContent:"center",transition:"width 0.4s"}} title={s.label}>
+                          {s.w > s.min && <span style={{fontSize:10,color:i<2?"#fff":C.text,fontWeight:600}}>{s.label}</span>}
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginTop:8}}>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.sage,display:"inline-block"}}/> Long-stay</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue,display:"inline-block"}}/> Short-stay</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.muted+"66",display:"inline-block"}}/> Blocked</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.bg,border:`1px solid ${C.border}`,display:"inline-block"}}/> Available</span>
+                  </div>
+                </div>
+
+                {/* ── Monthly Occupancy Trend (stacked LS + SS) ── */}
+                {pmsConn && pmsData && pmsData.forecast && (
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Monthly Occupancy — Combined</h3>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Active rooms by month (long-stay from RH{lavandaConn?" + short-stay from Lavanda":""})</p>
+                    {(() => {
+                      const lavMonthly = {};
+                      if (lavandaConn && lavandaData && lavandaData.daily) {
+                        lavandaData.daily.forEach(d => {
+                          const mk = d.date.slice(0,7);
+                          if (!lavMonthly[mk]) lavMonthly[mk] = {sum:0,n:0};
+                          lavMonthly[mk].sum += d.booked;
+                          lavMonthly[mk].n++;
+                        });
+                      }
+                      const chartData = pmsData.forecast.map(fm => {
+                        const lm = lavMonthly[fm.key];
+                        const ssAvg = lm ? Math.round(lm.sum / lm.n) : 0;
+                        return {
+                          month: (fm.label||"").split(" ")[0],
+                          ls: fm.activeStays || 0,
+                          ss: ssAvg,
+                          total: (fm.activeStays||0) + ssAvg,
+                        };
+                      });
+                      return (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <ComposedChart data={chartData} margin={{top:4,right:8,bottom:0,left:-8}}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                            <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                            <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false}/>
+                            <Tooltip content={<Tip/>}/>
+                            <Bar dataKey="ls" name="Long-stay" stackId="a" fill={C.sage} radius={[0,0,0,0]}/>
+                            <Bar dataKey="ss" name="Short-stay" stackId="a" fill={C.blue} radius={[4,4,0,0]}/>
+                            <Line type="monotone" dataKey="total" name="Combined" stroke={C.gold} strokeWidth={2} dot={false}/>
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* ── Revenue Breakdown ── */}
+                {pmsConn && pmsData && pmsData.forecast && (
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Long-Stay Revenue by Month</h3>
+                      <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Booked days × AWR, from Res Harmonics</p>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={pmsData.forecast.map(fm => ({month:(fm.label||"").split(" ")[0],rev:Math.round((fm.bookedDays||0)/7*(pmsData.globalAwrGross||pmsData.globalAwr||0))}))} margin={{top:4,right:8,bottom:0,left:-8}}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                          <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                          <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>v>=1000?`£${Math.round(v/1000)}k`:`£${v}`}/>
+                          <Tooltip content={<Tip/>}/>
+                          <Bar dataKey="rev" name="LS Revenue" fill={C.sage} radius={[4,4,0,0]}/>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {lavandaConn && lavandaData && lavandaData.monthly && (
+                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                        <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Short-Stay Revenue by Month</h3>
+                        <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Confirmed Booking.com value, from Lavanda</p>
+                        <ResponsiveContainer width="100%" height={180}>
+                          <BarChart data={lavandaData.monthly.map(m=>({month:new Date(m.month+"-01T00:00").toLocaleDateString("en-GB",{month:"short"}),rev:Math.round(m.revenue)}))} margin={{top:4,right:8,bottom:0,left:-8}}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                            <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                            <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                            <Tooltip content={<Tip/>}/>
+                            <Bar dataKey="rev" name="SS Revenue" fill={C.blue} radius={[4,4,0,0]}/>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Upcoming Arrivals & Departures (combined) ── */}
+                {lavandaConn && lavandaData && lavandaData.upcoming && lavandaData.upcoming.length > 0 && (
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Short-Stay Arrivals & Departures</h3>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Confirmed Booking.com stays (Nomad Ensuite)</p>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Guest</th>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>In</th>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Out</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Nights</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Value</th>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lavandaData.upcoming.slice(0,6).map((b,i) => {
+                            const todayStr = new Date().toISOString().slice(0,10);
+                            const isIn = b.start === todayStr;
+                            const isOut = b.end === todayStr;
+                            const isHouse = b.start < todayStr && b.end > todayStr;
+                            return (
+                              <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                <td style={{padding:"6px 10px",color:C.text,fontWeight:500}}>{b.guest}</td>
+                                <td style={{padding:"6px 10px",color:C.text,fontSize:11}}>{new Date(b.start+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
+                                <td style={{padding:"6px 10px",color:C.text,fontSize:11}}>{new Date(b.end+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace"}}>{b.nights}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>£{b.value.toFixed(2)}</td>
+                                <td style={{padding:"6px 10px"}}>
+                                  {isIn && <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:999,border:`1px solid ${C.sage}`,color:C.sage}}>Arriving</span>}
+                                  {isOut && <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:999,border:`1px solid ${C.gold}`,color:C.gold}}>Departing</span>}
+                                  {isHouse && <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:999,border:`1px solid ${C.blue}`,color:C.blue}}>In-house</span>}
+                                  {!isIn && !isOut && !isHouse && <span style={{fontSize:10,color:C.muted}}>Upcoming</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Property Tier Snapshot ── */}
+                {lavandaConn && lavandaData && lavandaData.tiers && (
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Room Tiers — Tonight</h3>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>All Southall inventory by tier</p>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Tier</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Units</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Available</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Blocked</th>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Channel</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lavandaData.tiers.map((t,i) => (
+                            <tr key={i} style={{borderBottom:`1px solid ${C.border}22`,background:t.shortstay?C.blue+"08":"transparent"}}>
+                              <td style={{padding:"6px 10px",color:C.text,fontWeight:500}}>{t.tier}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace"}}>{t.units}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:t.booked>0?C.blue:C.muted}}>{t.booked}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{t.available}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>{t.blocked}</td>
+                              <td style={{padding:"6px 10px",fontSize:11,color:C.muted}}>{t.shortstay?"Booking.com":"Membership"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>);
+            })()}
+          </div>
+        )}
 
         {/* ════ MARKETING ════ */}
         {property==="southall"&&tab==="marketing"&&(
