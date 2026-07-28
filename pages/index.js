@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
-  Line, Bar, XAxis, YAxis,
+  Line, Bar, XAxis, YAxis, BarChart,
   CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart
 } from "recharts";
 
