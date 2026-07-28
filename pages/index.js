@@ -4691,6 +4691,26 @@ export default function Dashboard() {
                     activeCohorts.push(...surviving, ...newCohorts);
                   }
 
+                  // ── Fold Lavanda short-stay rooms into forecast (Nomad rooms are part of BEDS but booked via Lavanda) ──
+                  if (lavandaConn && lavandaData && lavandaData.daily) {
+                    const _lavM = {};
+                    lavandaData.daily.forEach(d => {
+                      const mk = d.date.slice(0, 7);
+                      if (!_lavM[mk]) _lavM[mk] = { sum: 0, n: 0 };
+                      _lavM[mk].sum += d.booked;
+                      _lavM[mk].n++;
+                    });
+                    const _cap = BEDS - offlineRooms;
+                    predRows.forEach(r => {
+                      const lm = _lavM[r.key];
+                      const avgSS = lm ? Math.round(lm.sum / lm.n) : 0;
+                      r.ssRooms = avgSS;
+                      r.predictedRooms = Math.min(_cap, r.predictedRooms + avgSS);
+                      r.predictedPct = _cap > 0 ? Math.round(r.predictedRooms / _cap * 100) : 0;
+                      if (r.isPast || r.isCurrent) r.actualPct = r.predictedPct;
+                    });
+                  }
+
                   // ── 95% Occupancy Target Date — derived from predRows (single source of truth) ──
                   const USABLE_T = BEDS - offlineRooms; // dynamically adjustable
                   const TARGET_95 = Math.ceil(USABLE_T * 0.95);
@@ -4711,10 +4731,10 @@ export default function Dashboard() {
                 <div style={{background:C.card,border:`1px solid ${targetHitMonth?C.sage:C.gold}44`,borderRadius:14,padding:18,marginBottom:16}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                     <div>
-                      <p style={{fontSize:11,color:targetHitMonth?C.sage:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>95% Occupancy Target · {TARGET_95} / {USABLE_T} usable rooms</p>
-                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>{offlineRooms} rooms offline · {USABLE_T} occupiable · 95% = {TARGET_95} rooms</p>
+                      <p style={{fontSize:11,color:targetHitMonth?C.sage:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>95% Occupancy Target · {TARGET_95} / {USABLE_T} usable rooms{lavandaConn?" (combined)":""}</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>{offlineRooms} rooms offline · {USABLE_T} occupiable · 95% = {TARGET_95} rooms{lavandaConn?` · incl. ${lavandaData?.kpis?.units||0} Nomad short-stay`:""}</p>
                     </div>
-                    <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE MODEL</span>
+                    <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE{lavandaConn?" · LS + SS":""}</span>
                   </div>
                   <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
                     <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
@@ -4750,7 +4770,7 @@ export default function Dashboard() {
                     })}
                   </div>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
-                    <span>Now: {startRooms} rooms ({Math.round(startRooms/USABLE_T*100)}%)</span>
+                    <span>Now: {startRooms} rooms ({Math.round(startRooms/USABLE_T*100)}%){predRows[0]?.ssRooms?` · incl. ${predRows[0].ssRooms} short-stay`:""}</span>
                     <span style={{color:C.sage}}>■ ≥95% target ({TARGET_95} rooms)</span>
                   </div>
                 </div>
