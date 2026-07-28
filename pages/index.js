@@ -556,9 +556,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   });
 
   // ── AWR — only 28+ day bookings, use b.unit.id for room type matching ──
+  // Compute both net (ex-VAT) and gross (inc-VAT) AWR
   const awrByType = {};
-  ROOM_TYPES.forEach(rt => awrByType[rt] = { sum: 0, count: 0 });
-  let globalAwrSum = 0, globalAwrCount = 0;
+  ROOM_TYPES.forEach(rt => awrByType[rt] = { sumNet: 0, sumGross: 0, count: 0 });
+  let globalAwrSumNet = 0, globalAwrSumGross = 0, globalAwrCount = 0;
 
   allBookings.forEach(b => {
     const status = (b.roomStayStatus ?? "").toUpperCase();
@@ -569,27 +570,34 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const days = Math.round((new Date(to) - new Date(from)) / 864e5);
     if (days < MIN_STAY_DAYS) return; // only long-term stays
     const net = parseFloat(b.netAmount ?? 0);
+    const vat = parseFloat(b.vatAmount ?? 0);
+    const gross = net + (isNaN(vat) ? 0 : vat);
     if (isNaN(net) || net <= 0) return;
-    const weeklyRate = (net / days) * 7;
-    if (weeklyRate <= 0 || weeklyRate > 5000) return; // sanity
+    const weeklyNet = (net / days) * 7;
+    const weeklyGross = (gross / days) * 7;
+    if (weeklyNet <= 0 || weeklyNet > 5000) return; // sanity
 
-    globalAwrSum += weeklyRate;
+    globalAwrSumNet += weeklyNet;
+    globalAwrSumGross += weeklyGross;
     globalAwrCount++;
 
     // Match to room type via b.unit.id (bookings use unit object, not unitId)
     const uid = b.unit?.id ?? b.unitId;
     const rt = unitIdToRoomType[uid];
     if (rt) {
-      awrByType[rt].sum += weeklyRate;
+      awrByType[rt].sumNet += weeklyNet;
+      awrByType[rt].sumGross += weeklyGross;
       awrByType[rt].count++;
     }
   });
 
   ROOM_TYPES.forEach(rt => {
-    roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sum / awrByType[rt].count) : 0;
+    roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sumNet / awrByType[rt].count) : 0;
+    roomTypeData[rt].awrGross = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sumGross / awrByType[rt].count) : 0;
   });
 
-  const globalAwr = globalAwrCount > 0 ? Math.round(globalAwrSum / globalAwrCount) : 0;
+  const globalAwr = globalAwrCount > 0 ? Math.round(globalAwrSumNet / globalAwrCount) : 0;
+  const globalAwrGross = globalAwrCount > 0 ? Math.round(globalAwrSumGross / globalAwrCount) : 0;
 
   // ─── Length-of-stay distribution (from last 12 months of bookings) ───
   // Bucket: <=31d, 31-91d, 92-181d, 365+d. Bookings that fall 182-364d
@@ -1160,6 +1168,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     forecast: forecastByRoom,
     roomTypeData,
     globalAwr,
+    globalAwrGross,
     renewalCount: renewalRoomStays.size,
     roomMoveCount: roomMoveRoomStays.size,
     losDistribution,
@@ -2644,12 +2653,16 @@ export default function Dashboard() {
         return parse(a.month) - parse(b.month);
       });
 
-    // AWR summary — use gross (inc-VAT) to match the AWR column in the booking table
+    // AWR summary — gross (inc-VAT) as primary, net (ex-VAT) as secondary
     const awrCandidates = candidates.filter(c => c.weeklyRateGross > 0 && c.weeklyRateGross < 5000);
     const avgAwr = awrCandidates.length > 0 ? Math.round(awrCandidates.reduce((s, c) => s + c.weeklyRateGross, 0) / awrCandidates.length) : 0;
+    const avgAwrNet = awrCandidates.length > 0 ? Math.round(awrCandidates.reduce((s, c) => s + c.weeklyRate, 0) / awrCandidates.length) : 0;
     const minAwr = awrCandidates.length > 0 ? Math.min(...awrCandidates.map(c => c.weeklyRateGross)) : 0;
+    const minAwrNet = awrCandidates.length > 0 ? Math.min(...awrCandidates.map(c => c.weeklyRate)) : 0;
     const maxAwr = awrCandidates.length > 0 ? Math.max(...awrCandidates.map(c => c.weeklyRateGross)) : 0;
+    const maxAwrNet = awrCandidates.length > 0 ? Math.max(...awrCandidates.map(c => c.weeklyRate)) : 0;
     const totalContractValue = candidates.reduce((s, c) => s + c.grossAmount, 0);
+    const totalContractValueNet = candidates.reduce((s, c) => s + c.netAmount, 0);
 
     // Build contact history from ALL bookings (not just filtered) to detect renewals
     // Only include 27+ day Southall stays from DIFFERENT booking references
@@ -2696,7 +2709,7 @@ export default function Dashboard() {
       newBookings, renewals: renewalBookings, pending: pendingBookings,
       all: candidates,
       losBuckets, losDaysBuckets, totalDaysBooked, roomBuckets, roomDaysBuckets, moveInOrdered,
-      awrSummary: { avg: avgAwr, min: minAwr, max: maxAwr, totalContractValue, count: awrCandidates.length },
+      awrSummary: { avg: avgAwr, avgNet: avgAwrNet, min: minAwr, minNet: minAwrNet, max: maxAwr, maxNet: maxAwrNet, totalContractValue, totalContractValueNet, count: awrCandidates.length },
       stats: {
         newCount: newBookings.length,
         renewalCount: renewalBookings.length,
@@ -4087,15 +4100,15 @@ export default function Dashboard() {
                       <tbody>
                         <tr style={{borderBottom:`1px solid ${C.border}22`}}>
                           <td style={{padding:"5px 8px",color:C.muted}}>Avg Weekly Rent</td>
-                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>£{recentActivity.awrSummary?.avg||0}</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>£{recentActivity.awrSummary?.avg||0}</span><br/><span style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.avgNet||0} net</span></td>
                         </tr>
                         <tr style={{borderBottom:`1px solid ${C.border}22`}}>
                           <td style={{padding:"5px 8px",color:C.muted}}>Min AWR</td>
-                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.min||0}</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.min||0}</span><br/><span style={{fontSize:9,color:C.muted+"99",fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.minNet||0} net</span></td>
                         </tr>
                         <tr style={{borderBottom:`1px solid ${C.border}22`}}>
                           <td style={{padding:"5px 8px",color:C.muted}}>Max AWR</td>
-                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.max||0}</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.max||0}</span><br/><span style={{fontSize:9,color:C.muted+"99",fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.maxNet||0} net</span></td>
                         </tr>
                         <tr style={{borderBottom:`1px solid ${C.border}22`}}>
                           <td style={{padding:"5px 8px",color:C.muted}}>Bookings with rate data</td>
@@ -4103,7 +4116,7 @@ export default function Dashboard() {
                         </tr>
                         <tr style={{borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total Contract Value</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>£{(recentActivity.awrSummary?.totalContractValue||0).toLocaleString()}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>£{(recentActivity.awrSummary?.totalContractValue||0).toLocaleString()}</span><br/><span style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{(recentActivity.awrSummary?.totalContractValueNet||0).toLocaleString()} net</span></td>
                         </tr>
                       </tbody>
                     </table>
@@ -5035,14 +5048,16 @@ export default function Dashboard() {
                   {ROOM_TYPES.map((rt) => {
                     const data = pmsData.roomTypeData[rt];
                     if (!data || data.totalUnits === 0) return null;
-                    const awr = data.awr;
-                    const color = awr >= TARGET_RATE ? C.sage : awr >= 250 ? C.gold : C.rose;
+                    const awrGross = data.awrGross || 0;
+                    const awrNet = data.awr;
+                    const color = awrGross >= TARGET_RATE ? C.sage : awrGross >= 250 ? C.gold : C.rose;
                     return (
                       <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
                         <p style={{fontSize:11,color:C.muted,marginBottom:4}}>{rt}</p>
-                        <p style={{fontSize:20,fontWeight:700,color:color,fontFamily:"DM Mono,monospace",marginBottom:2}}>{fmt(awr)}</p>
-                        <p style={{fontSize:10,color:awr >= TARGET_RATE ? C.sage : C.rose}}>
-                          {awr >= TARGET_RATE ? "✓ Target met" : `£${TARGET_RATE - awr} below target`}
+                        <p style={{fontSize:20,fontWeight:700,color:color,fontFamily:"DM Mono,monospace",marginBottom:0}}>{fmt(awrGross)}</p>
+                        <p style={{fontSize:9,color:C.muted,marginTop:1,marginBottom:2,fontFamily:"DM Mono,monospace"}}>£{awrNet} net</p>
+                        <p style={{fontSize:10,color:awrGross >= TARGET_RATE ? C.sage : C.rose}}>
+                          {awrGross >= TARGET_RATE ? "✓ Target met" : `£${TARGET_RATE - awrGross} below target`}
                         </p>
                       </div>
                     );
@@ -5052,15 +5067,16 @@ export default function Dashboard() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
                       <p style={{fontSize:11,color:C.muted,marginBottom:4}}>Blended AWR (28+ day bookings)</p>
-                      <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>
-                        {fmt(pmsData.globalAwr || 0)}
+                      <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace",marginBottom:0}}>
+                        {fmt(pmsData.globalAwrGross || 0)}
                       </p>
+                      <p style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:2}}>£{pmsData.globalAwr || 0} net (ex-VAT)</p>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <p style={{fontSize:12,color:C.muted,marginBottom:4}}>Target: {fmt(TARGET_RATE)}</p>
-                      <p style={{fontSize:18,fontWeight:700,color:(pmsData.globalAwr||0) >= TARGET_RATE ? C.sage : C.rose,fontFamily:"DM Mono,monospace"}}>
+                      <p style={{fontSize:18,fontWeight:700,color:(pmsData.globalAwrGross||0) >= TARGET_RATE ? C.sage : C.rose,fontFamily:"DM Mono,monospace"}}>
                         {(() => {
-                          const diff = (pmsData.globalAwr||0) - TARGET_RATE;
+                          const diff = (pmsData.globalAwrGross||0) - TARGET_RATE;
                           return diff >= 0 ? `+${fmt(diff)}` : fmt(diff);
                         })()}
                       </p>
@@ -5079,14 +5095,15 @@ export default function Dashboard() {
                     const data = pmsData.roomTypeData[rt];
                     if (!data || data.totalUnits === 0) return null;
 
-                    const currentAWR = data.awr || TARGET_RATE;
+                    const currentAWR = data.awrGross || TARGET_RATE;
+                    const currentAWRNet = data.awr || 0;
                     const adjustedRate = rateAdjustments[rt] ?? currentAWR;
                     const available = data.months[0]?.available ?? 0;
 
                     return (
                       <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
                         <p style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>{rt}</p>
-                        <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Rate for unsold rooms</p>
+                        <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Rate for unsold rooms (gross, inc-VAT)</p>
                         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
                           <input
                             type="range"
@@ -5099,7 +5116,7 @@ export default function Dashboard() {
                           />
                           <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",minWidth:"45px"}}>{fmt(adjustedRate)}</span>
                         </div>
-                        <p style={{fontSize:9,color:C.muted,marginBottom:10}}>Current: {fmt(currentAWR)} | Gap: {fmt(Math.abs(adjustedRate - currentAWR))}</p>
+                        <p style={{fontSize:9,color:C.muted,marginBottom:10}}>Current: {fmt(currentAWR)} gross · £{currentAWRNet} net | Gap: {fmt(Math.abs(adjustedRate - currentAWR))}</p>
                         <div style={{fontSize:10,color:C.muted,lineHeight:1.5}}>
                           <p>Booked: {data.months[0]?.booked ?? 0} rooms</p>
                           <p>Available: {available} rooms</p>
@@ -5135,13 +5152,13 @@ export default function Dashboard() {
                       ROOM_TYPES.forEach(rt => {
                         const data = pmsData.roomTypeData[rt];
                         if (!data || data.totalUnits === 0) return;
-                        const currentAWR = data.awr || 0;
+                        const currentAWR = data.awrGross || 0;
                         const adjustedRate = rateAdjustments[rt] ?? currentAWR;
                         const booked = data.months[m]?.booked ?? 0;
                         const available = data.months[m]?.available ?? 0;
                         const newFill = Math.round(available * FILL_RATE);
 
-                        // Booked rooms contribute at current AWR
+                        // Booked rooms contribute at current AWR (gross)
                         totalWeightedAWR += booked * currentAWR;
                         totalRooms += booked;
 
@@ -5188,7 +5205,7 @@ export default function Dashboard() {
                               <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Booked Rooms</th>
                               <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>+ New Fill (70%)</th>
                               <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Total Occupied</th>
-                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Projected AWR</th>
+                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Projected AWR (gross)</th>
                               <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>vs Target</th>
                               <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Proj. Monthly Rev</th>
                             </tr>
@@ -5200,7 +5217,7 @@ export default function Dashboard() {
                               ROOM_TYPES.forEach(rt => {
                                 const data = pmsData.roomTypeData[rt];
                                 if (!data || data.totalUnits === 0) return;
-                                const currentAWR = data.awr || 0;
+                                const currentAWR = data.awrGross || 0;
                                 const adjustedRate = rateAdjustments[rt] ?? currentAWR;
                                 const booked = data.months[p.month]?.booked ?? 0;
                                 const available = data.months[p.month]?.available ?? 0;
@@ -5245,7 +5262,8 @@ export default function Dashboard() {
                     ROOM_TYPES.forEach(rt => {
                       const data = pmsData.roomTypeData[rt];
                       if (!data || data.totalUnits === 0) return;
-                      const currentAWR = data.awr || 0;
+                      const currentAWR = data.awrGross || 0;
+                      const currentAWRNet = data.awr || 0;
                       const booked = data.months[0]?.booked ?? 0;
                       const available = data.months[0]?.available ?? 0;
                       if (currentAWR > 0) {
@@ -5254,7 +5272,7 @@ export default function Dashboard() {
                       }
                       totalBookedRooms += booked;
                       totalAvailableRooms += available;
-                      roomData.push({ rt, currentAWR, booked, available, totalUnits: data.totalUnits });
+                      roomData.push({ rt, currentAWR, currentAWRNet, booked, available, totalUnits: data.totalUnits });
                     });
 
                     const currentBlended = currentBlendedCount > 0 ? Math.round(currentBlendedWeighted / currentBlendedCount) : 0;
@@ -5341,19 +5359,21 @@ export default function Dashboard() {
                                       <span style={{color:C.muted}}>£{r.currentAWR}</span>
                                       <span style={{color:s.color,margin:"0 4px"}}>→</span>
                                       <span style={{color:s.color,fontWeight:600}}>£{r.newRate}</span>
-                                      <span style={{color:C.muted,marginLeft:4}}>(+£{r.increase}/wk)</span>
+                                      <span style={{color:C.muted,marginLeft:4}}>(+£{r.increase}/wk gross)</span>
                                     </span>
                                   </div>
                                 ))}
                               </div>
                               <div style={{marginTop:10,padding:"8px 10px",background:C.bg,borderRadius:8,display:"flex",justifyContent:"space-between"}}>
                                 <div>
-                                  <p style={{fontSize:9,color:C.muted}}>Projected AWR</p>
-                                  <p style={{fontSize:14,fontWeight:700,color: hitsTarget ? C.sage : s.color,fontFamily:"DM Mono,monospace"}}>£{projAWR}</p>
+                                  <p style={{fontSize:9,color:C.muted}}>Projected AWR (gross)</p>
+                                  <p style={{fontSize:14,fontWeight:700,color: hitsTarget ? C.sage : s.color,fontFamily:"DM Mono,monospace",marginBottom:0}}>£{projAWR}</p>
+                                  <p style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:1}}>£{Math.round(projAWR / 1.2)} net</p>
                                 </div>
                                 <div style={{textAlign:"right"}}>
-                                  <p style={{fontSize:9,color:C.muted}}>Monthly Revenue</p>
-                                  <p style={{fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{fmt(projRev)}</p>
+                                  <p style={{fontSize:9,color:C.muted}}>Monthly Revenue (gross)</p>
+                                  <p style={{fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginBottom:0}}>{fmt(projRev)}</p>
+                                  <p style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:1}}>{fmt(Math.round(projRev / 1.2))} net</p>
                                 </div>
                               </div>
                               {hitsTarget && <p style={{fontSize:9,color:C.sage,marginTop:6,textAlign:"center"}}>✓ Hits £{TARGET_RATE} AWR target</p>}
