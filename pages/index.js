@@ -2600,6 +2600,7 @@ export default function Dashboard() {
         bookingType: b.bookingType || "",
         bookingId: b.bookingId,
         netAmount: net,
+        grossAmount: gross,
         weeklyRate,
         weeklyRateGross,
         pcmGross,
@@ -2643,12 +2644,12 @@ export default function Dashboard() {
         return parse(a.month) - parse(b.month);
       });
 
-    // AWR summary
-    const awrCandidates = candidates.filter(c => c.weeklyRate > 0 && c.weeklyRate < 5000);
-    const avgAwr = awrCandidates.length > 0 ? Math.round(awrCandidates.reduce((s, c) => s + c.weeklyRate, 0) / awrCandidates.length) : 0;
-    const minAwr = awrCandidates.length > 0 ? Math.min(...awrCandidates.map(c => c.weeklyRate)) : 0;
-    const maxAwr = awrCandidates.length > 0 ? Math.max(...awrCandidates.map(c => c.weeklyRate)) : 0;
-    const totalContractValue = candidates.reduce((s, c) => s + c.netAmount, 0);
+    // AWR summary — use gross (inc-VAT) to match the AWR column in the booking table
+    const awrCandidates = candidates.filter(c => c.weeklyRateGross > 0 && c.weeklyRateGross < 5000);
+    const avgAwr = awrCandidates.length > 0 ? Math.round(awrCandidates.reduce((s, c) => s + c.weeklyRateGross, 0) / awrCandidates.length) : 0;
+    const minAwr = awrCandidates.length > 0 ? Math.min(...awrCandidates.map(c => c.weeklyRateGross)) : 0;
+    const maxAwr = awrCandidates.length > 0 ? Math.max(...awrCandidates.map(c => c.weeklyRateGross)) : 0;
+    const totalContractValue = candidates.reduce((s, c) => s + c.grossAmount, 0);
 
     // Build contact history from ALL bookings (not just filtered) to detect renewals
     // Only include 27+ day Southall stays from DIFFERENT booking references
