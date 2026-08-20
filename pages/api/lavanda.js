@@ -239,6 +239,19 @@ export default async function handler(req, res) {
       return res.status(gqlRes.status).json(data);
     }
 
+    // ── Action: raw — passthrough GET to any Lavanda path (debugging/reconciliation) ──
+    if (action === "raw") {
+      if (!apiKey) return res.status(400).json({ error: "Missing apiKey" });
+      const path = req.query.path || "/account";
+      if (!path.startsWith("/")) return res.status(400).json({ error: "path must start with /" });
+      const r = await fetch(`https://lavanda.azure-api.net${path}`, {
+        headers: { "Ocp-Apim-Subscription-Key": apiKey, Accept: "application/json" },
+      });
+      const text = await r.text();
+      let parsed; try { parsed = JSON.parse(text); } catch { parsed = { rawResponse: text.slice(0, 3000) }; }
+      return res.status(r.status).json(parsed);
+    }
+
     // ── Action: probe — Azure APIM at lavanda.azure-api.net, paths WITHOUT /api/dev prefix ──
     if (action === "probe") {
       if (!apiKey) return res.status(400).json({ error: "Missing apiKey" });
