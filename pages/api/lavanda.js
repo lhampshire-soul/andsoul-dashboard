@@ -111,31 +111,25 @@ export default async function handler(req, res) {
       const portal = req.query.portal || "";
 
       const b64 = (s) => Buffer.from(s).toString("base64");
+      const EMAIL = "lhampshire@andsoul.com";
       const authVariants = [
-        { name: "key-as-user", auth: `Basic ${b64(apiKey + ":")}` },
-        { name: "key-as-pass", auth: `Basic ${b64(":" + apiKey)}` },
-        { name: "key-both", auth: `Basic ${b64(apiKey + ":" + apiKey)}` },
-        { name: "api-user", auth: `Basic ${b64("api:" + apiKey)}` },
-        { name: "andsoul-user", auth: `Basic ${b64("andsoul:" + apiKey)}` },
+        { name: "email:key", auth: `Basic ${b64(EMAIL + ":" + apiKey)}` },
+        { name: "key:email", auth: `Basic ${b64(apiKey + ":" + EMAIL)}` },
       ];
-      const portalVariants = portal ? [portal] : [apiKey, "andsoul"];
+      const portalVariants = portal ? [portal] : [apiKey, "andsoul", ""];
       const url = "https://api.lavanda.app/api/dev/account";
       const results = {};
 
       for (const av of authVariants) {
         for (const pv of portalVariants) {
           try {
-            const r = await fetch(url, {
-              headers: {
-                Authorization: av.auth,
-                "XX-SUBSCRIPTION-PORTAL-ID": pv,
-                Accept: "application/json",
-              },
-            });
+            const hdrs = { Authorization: av.auth, Accept: "application/json" };
+            if (pv) hdrs["XX-SUBSCRIPTION-PORTAL-ID"] = pv;
+            const r = await fetch(url, { headers: hdrs });
             const text = await r.text();
-            results[`${av.name} | portal=${pv.slice(0,12)}`] = { status: r.status, preview: text.slice(0, 250) };
+            results[`${av.name} | portal=${pv.slice(0,12)||"none"}`] = { status: r.status, preview: text.slice(0, 250) };
           } catch (e) {
-            results[`${av.name} | portal=${pv.slice(0,12)}`] = { status: "error", preview: e.message };
+            results[`${av.name} | portal=${pv.slice(0,12)||"none"}`] = { status: "error", preview: e.message };
           }
         }
       }
