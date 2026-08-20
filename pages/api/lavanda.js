@@ -105,32 +105,21 @@ export default async function handler(req, res) {
       return res.status(gqlRes.status).json(data);
     }
 
-    // ── Action: probe — legacy API uses HTTP Basic Auth + XX-SUBSCRIPTION-PORTAL-ID header ──
+    // ── Action: probe — Azure APIM at lavanda.azure-api.net, paths WITHOUT /api/dev prefix ──
     if (action === "probe") {
       if (!apiKey) return res.status(400).json({ error: "Missing apiKey" });
-      const portal = req.query.portal || "";
 
-      const b64 = (s) => Buffer.from(s).toString("base64");
-      const EMAIL = "lhampshire@andsoul.com";
-      const authVariants = [
-        { name: "email:key", auth: `Basic ${b64(EMAIL + ":" + apiKey)}` },
-        { name: "key:email", auth: `Basic ${b64(apiKey + ":" + EMAIL)}` },
-      ];
-      const portalVariants = portal ? [portal] : [apiKey, "andsoul", ""];
-      const url = "https://api.lavanda.app/api/dev/account";
+      const headers = { "Ocp-Apim-Subscription-Key": apiKey, Accept: "application/json" };
+      const paths = ["/account", "/properties?perPage=3", "/bookings?perPage=3"];
       const results = {};
 
-      for (const av of authVariants) {
-        for (const pv of portalVariants) {
-          try {
-            const hdrs = { Authorization: av.auth, Accept: "application/json" };
-            if (pv) hdrs["XX-SUBSCRIPTION-PORTAL-ID"] = pv;
-            const r = await fetch(url, { headers: hdrs });
-            const text = await r.text();
-            results[`${av.name} | portal=${pv.slice(0,12)||"none"}`] = { status: r.status, preview: text.slice(0, 250) };
-          } catch (e) {
-            results[`${av.name} | portal=${pv.slice(0,12)||"none"}`] = { status: "error", preview: e.message };
-          }
+      for (const p of paths) {
+        try {
+          const r = await fetch(`https://lavanda.azure-api.net${p}`, { headers });
+          const text = await r.text();
+          results[p] = { status: r.status, preview: text.slice(0, 2500) };
+        } catch (e) {
+          results[p] = { status: "error", preview: e.message };
         }
       }
 
