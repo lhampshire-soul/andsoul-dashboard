@@ -105,35 +105,37 @@ export default async function handler(req, res) {
       return res.status(gqlRes.status).json(data);
     }
 
-    // ── Action: probe — try various base URLs to find the right one ──
+    // ── Action: probe — legacy API uses HTTP Basic Auth + XX-SUBSCRIPTION-PORTAL-ID header ──
     if (action === "probe") {
       if (!apiKey) return res.status(400).json({ error: "Missing apiKey" });
+      const portal = req.query.portal || "";
 
-      const bases = [
-        "https://lavanda.azure-api.net",
-        "https://api.lavanda.app",
-        "https://pms.lavanda.app",
+      const b64 = (s) => Buffer.from(s).toString("base64");
+      const authVariants = [
+        { name: "key-as-user", auth: `Basic ${b64(apiKey + ":")}` },
+        { name: "key-as-pass", auth: `Basic ${b64(":" + apiKey)}` },
+        { name: "key-both", auth: `Basic ${b64(apiKey + ":" + apiKey)}` },
+        { name: "api-user", auth: `Basic ${b64("api:" + apiKey)}` },
+        { name: "andsoul-user", auth: `Basic ${b64("andsoul:" + apiKey)}` },
       ];
-      const paths = ["/api/dev/account", "/api/dev/bookings?limit=1", "/api/dev/properties?limit=1"];
+      const portalVariants = portal ? [portal] : [apiKey, "andsoul"];
+      const url = "https://api.lavanda.app/api/dev/account";
       const results = {};
 
-      for (const base of bases) {
-        for (const path of paths) {
-          const url = base + path;
+      for (const av of authVariants) {
+        for (const pv of portalVariants) {
           try {
             const r = await fetch(url, {
               headers: {
-                "Ocp-Apim-Subscription-Key": apiKey,
-                "XX-SUBSCRIPTION-PORTAL-ID": apiKey,
-                Authorization: `Bearer ${apiKey}`,
-                "x-api-key": apiKey,
+                Authorization: av.auth,
+                "XX-SUBSCRIPTION-PORTAL-ID": pv,
                 Accept: "application/json",
               },
             });
             const text = await r.text();
-            results[url] = { status: r.status, preview: text.slice(0, 300) };
+            results[`${av.name} | portal=${pv.slice(0,12)}`] = { status: r.status, preview: text.slice(0, 250) };
           } catch (e) {
-            results[url] = { status: "error", preview: e.message };
+            results[`${av.name} | portal=${pv.slice(0,12)}`] = { status: "error", preview: e.message };
           }
         }
       }
