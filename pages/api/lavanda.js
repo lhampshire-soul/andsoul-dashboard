@@ -192,6 +192,7 @@ export default async function handler(req, res) {
           occ_tonight: tonight.booked,
           blocked_tonight: tonight.blocked,
           units: ssUnits,
+          effective_tonight: Math.max(0, ssUnits - tonight.blocked), // live released capacity = booked + open
           available_tonight: tonight.available,
           in_house: inHouse,
           arrivals7,

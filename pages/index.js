@@ -1524,7 +1524,20 @@ async function rhFetchAll(tok, basePath, maxPages=50) {
   let page = 0;
   while (page < maxPages) {
     const sep = basePath.includes("?") ? "&" : "?";
-    const data = await rhFetch(tok, `${basePath}${sep}page=${page}&size=100`);
+    // Retry each page up to 3 times — a single transient failure must not
+    // silently truncate the dataset (causes wildly wrong revenue/occupancy)
+    let data = null, lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        data = await rhFetch(tok, `${basePath}${sep}page=${page}&size=100`);
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        await new Promise(r => setTimeout(r, 700 * (attempt + 1)));
+      }
+    }
+    if (lastErr) throw lastErr;
     const content = data.content ?? data.data ?? data.results ?? (Array.isArray(data) ? data : []);
     all = all.concat(content);
     const pageInfo = data.page ?? {};
@@ -2957,6 +2970,12 @@ export default function Dashboard() {
       let allUnits = [];
       try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) {}
 
+      // Sanity guard: never overwrite good data with an obviously-truncated load
+      if (mergedBookings.length < 50 || allGuestStays.length < 50) {
+        console.warn(`PMS silent refresh: partial load detected (bookings=${mergedBookings.length}, stays=${allGuestStays.length}) — keeping previous data`);
+        return;
+      }
+
       const metrics = computePmsMetrics(allGuestStays, mergedBookings, allUnits);
 
       // Enrich renewal objects with status change dates
@@ -3007,6 +3026,12 @@ export default function Dashboard() {
       console.log("Bookings loaded:", allBookings.length, "(incl", pendingBookings.length, "pending)");
       let allUnits = [];
       try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) { console.log("units error:", e.message); }
+
+      // Sanity guard: a truncated bookings load produces wildly wrong revenue/AWR.
+      // Fail loudly instead of showing bad numbers.
+      if (allBookings.length < 50 || allGuestStays.length < 50) {
+        throw new Error(`Partial data from Res Harmonics (bookings=${allBookings.length}, stays=${allGuestStays.length}) — retry connection`);
+      }
 
       const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
       console.log(`RH: occupied=${metrics.occupied}, checkIns=${metrics.checkInsWeek}, checkOuts=${metrics.checkOutsWeek}, monthRev=${metrics.revenue}, awr=${metrics.globalAwr}`);
@@ -5791,7 +5816,7 @@ export default function Dashboard() {
 
             {/* ── KPI row ── */}
             <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
-              <KPI label="Occupancy Tonight" value={`${lavandaData.kpis.occ_tonight} / ${lavandaData.kpis.units}`} sub={`${Math.round(lavandaData.kpis.occ_tonight/lavandaData.kpis.units*100)}% booked · ${lavandaData.kpis.blocked_tonight} blocked · ${lavandaData.kpis.available_tonight} open`} accent={C.blue}/>
+              <KPI label="Occupancy Tonight" value={(() => { const eff = lavandaData.kpis.effective_tonight ?? Math.max(0, lavandaData.kpis.units - lavandaData.kpis.blocked_tonight); return `${lavandaData.kpis.occ_tonight} / ${eff}`; })()} sub={(() => { const eff = lavandaData.kpis.effective_tonight ?? Math.max(0, lavandaData.kpis.units - lavandaData.kpis.blocked_tonight); return `${eff>0?Math.round(lavandaData.kpis.occ_tonight/eff*100):0}% of ${eff} released · ${lavandaData.kpis.blocked_tonight} blocked · ${lavandaData.kpis.units} allocated`; })()} accent={C.blue}/>
               <KPI label="In-House Tonight" value={String(lavandaData.kpis.in_house)} sub="Confirmed stays spanning tonight" accent={C.sage}/>
               <KPI label="Arrivals (7d)" value={String(lavandaData.kpis.arrivals7)} sub="Check-ins from today" accent={C.gold}/>
               <KPI label="Departures (7d)" value={String(lavandaData.kpis.departures7)} sub="Check-outs from today" accent={C.muted}/>
@@ -5968,11 +5993,12 @@ export default function Dashboard() {
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:12,marginBottom:16}}>
                   {(() => {
                     const lsOccupied = pmsData.occupied || 0;
-                    const lsBeds = pmsData.beds || 300;
+                    const ssUnitsAlloc = lavandaData.kpis.units;               // 30 Nomad, inside the 300
+                    const lsBeds = BEDS - ssUnitsAlloc;                        // long-stay pool = 300 − Nomad
                     const ssOccupied = lavandaData.kpis.occ_tonight;
-                    const ssBeds = lavandaData.kpis.units;
+                    const ssEffective = lavandaData.kpis.effective_tonight ?? Math.max(0, ssUnitsAlloc - lavandaData.kpis.blocked_tonight);
                     const totalOccupied = lsOccupied + ssOccupied;
-                    const totalBeds = lsBeds + ssBeds;
+                    const totalBeds = BEDS - offlineRooms;                     // whole building, usable
                     const totalPct = totalBeds > 0 ? Math.round(totalOccupied / totalBeds * 100) : 0;
                     const lsAWR = pmsData.globalAwrGross || pmsData.globalAwr || 0;
                     const ssADR = lavandaData.kpis.adr || 0;
@@ -5986,8 +6012,8 @@ export default function Dashboard() {
                         </div>
                         <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
                           <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Short-Stay Occupancy</p>
-                          <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{ssOccupied}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{ssBeds}</span></p>
-                          <p style={{fontSize:10,color:C.muted}}>{ssBeds>0?Math.round(ssOccupied/ssBeds*100):0}% · via Lavanda</p>
+                          <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{ssOccupied}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{ssEffective}</span></p>
+                          <p style={{fontSize:10,color:C.muted}}>{ssEffective>0?Math.round(ssOccupied/ssEffective*100):0}% of released · {ssUnitsAlloc} allocated · via Lavanda</p>
                         </div>
                         <div style={{background:C.bg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:14}}>
                           <p style={{fontSize:10,color:C.gold,marginBottom:4,fontWeight:600}}>Total Combined</p>
@@ -6008,9 +6034,7 @@ export default function Dashboard() {
                 <div style={{marginTop:8}}>
                   <p style={{fontSize:11,color:C.muted,marginBottom:6}}>Bed utilisation breakdown (tonight)</p>
                   {(() => {
-                    const lsBeds = pmsData.beds || 300;
-                    const ssBeds = lavandaData.kpis.units;
-                    const total = lsBeds + ssBeds;
+                    const total = BEDS; // whole building — Nomad units are inside the 300
                     const lsOcc = pmsData.occupied || 0;
                     const ssOcc = lavandaData.kpis.occ_tonight;
                     const ssBlocked = lavandaData.kpis.blocked_tonight;
