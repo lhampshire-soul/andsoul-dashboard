@@ -86,8 +86,10 @@ export default async function handler(req, res) {
       const ssUnits = ssGroup?.attributes?.total_units || 30;
       const totalInventory = propGroups.reduce((s, g) => s + (g?.attributes?.total_units || 0), 0);
 
-      const confirmed = allBookings.filter(b => !b.attributes.canceled && (b.attributes.status || "").toLowerCase() !== "canceled");
+      // Only status === "confirmed" counts — inquiries have null cost and aren't real bookings
+      const confirmed = allBookings.filter(b => (b.attributes.status || "").toLowerCase() === "confirmed");
       const canceled = allBookings.filter(b => b.attributes.canceled || (b.attributes.status || "").toLowerCase() === "canceled");
+      const inquiries = allBookings.filter(b => (b.attributes.status || "").toLowerCase() === "inquiry");
 
       // Daily occupancy: count units with a confirmed booking each night
       const daily = [];
@@ -194,6 +196,7 @@ export default async function handler(req, res) {
           adr,
           confirmed: confirmed.length,
           canceled: canceled.length,
+          inquiries: inquiries.length,
           total_inventory: totalInventory,
         },
         daily,

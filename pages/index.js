@@ -1156,7 +1156,12 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     return results;
   })();
 
+  // RH official offline rooms: bookable === false, actual bedrooms only
+  const rhOfflineUnitsList = allUnits.filter(u => u.bookable === false && /^Room:/i.test((u.unitName || "").trim()));
+
   return {
+    rhOfflineUnits: rhOfflineUnitsList.length,
+    rhOfflineList: rhOfflineUnitsList.map(u => `${(u.unitName||"").trim()} (${u.unitTypeName||""})`),
     occupied: inHouseCount,
     inHouseGuests: inHouseGuestCount,
     checkInsWeek,
@@ -2202,7 +2207,9 @@ export default function Dashboard() {
   const [losOverride, setLosOverride] = useState(null);
   const [rateAdjustments, setRateAdjustments] = useState({});
   const [forecastAwrOverride, setForecastAwrOverride] = useState(null); // null = use live AWR from RH
-  const [offlineRooms, setOfflineRooms] = useState(10);
+  const [offlineRooms, setOfflineRoomsRaw] = useState(10);
+  const setOfflineRooms = (v) => { setOfflineRoomsRaw(v); try { localStorage.setItem("southall_offline_rooms", String(v)); } catch {} };
+  useEffect(() => { try { const v = localStorage.getItem("southall_offline_rooms"); if (v != null && !isNaN(+v)) setOfflineRoomsRaw(+v); } catch {} }, []);
   const [occupancyOverrides, setOccupancyOverrides] = useState({}); // monthIdx → occupancy % (0-100)
 
   // ── Lavanda Short-Stay Data ──
@@ -3369,7 +3376,7 @@ export default function Dashboard() {
               const ssBlocked = lavandaConn && lavandaData ? lavandaData.kpis.blocked_tonight : 0;
               const ssUnits = lavandaConn && lavandaData ? lavandaData.kpis.units : 0;
               const totalOcc = lsOcc + ssOcc;
-              const usable = lsTotal - (pmsConn ? 10 : 0); // offline rooms
+              const usable = lsTotal - offlineRooms; // manual maintenance entry (synced with forecast model)
               const totalPct = usable > 0 ? Math.round(totalOcc / usable * 100) : 0;
               const lsPct = usable > 0 ? Math.round(lsOcc / usable * 100) : 0;
               const vacancy = Math.max(0, usable - totalOcc);
@@ -3467,6 +3474,38 @@ export default function Dashboard() {
                     <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.muted+"66",display:"inline-block"}}/> Blocked</span>
                     <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.bg,border:`1px solid ${C.border}`,display:"inline-block"}}/> Available</span>
                   </div>
+                </div>
+
+                {/* ── Offline & Maintenance Rooms ── */}
+                <div style={{background:C.card,border:`1px solid ${C.rose}44`,borderRadius:14,padding:18,marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
+                    <div>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>Offline & Maintenance Rooms</h3>
+                      <p style={{fontSize:12,color:C.muted}}>Manual entry — RH doesn't track most maintenance blocks. Drives usable rooms & the 95% target model.</p>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:11,color:C.muted}}>Rooms offline:</span>
+                      <input type="number" min={0} max={50} value={offlineRooms} onChange={e=>{const v=Math.max(0,Math.min(50,+e.target.value||0));setOfflineRooms(v);}} style={{width:64,fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",textAlign:"right",outline:"none"}}/>
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))",gap:10,marginTop:14}}>
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Manual entry (all Southall)</p>
+                      <p style={{fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{offlineRooms}</p>
+                      <p style={{fontSize:10,color:C.muted}}>Usable: {lsTotal - offlineRooms} / {lsTotal}</p>
+                    </div>
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>RH officially unbookable</p>
+                      <p style={{fontSize:18,fontWeight:700,color:pmsConn&&pmsData?C.gold:C.muted,fontFamily:"DM Mono,monospace"}}>{pmsConn&&pmsData?(pmsData.rhOfflineUnits??"—"):"—"}</p>
+                      <p style={{fontSize:10,color:C.muted}} title={pmsConn&&pmsData&&pmsData.rhOfflineList?pmsData.rhOfflineList.join(", "):""}>{pmsConn&&pmsData&&pmsData.rhOfflineList&&pmsData.rhOfflineList.length>0?pmsData.rhOfflineList.slice(0,2).join(", ")+(pmsData.rhOfflineList.length>2?` +${pmsData.rhOfflineList.length-2} more`:""):"bookable=false in Res Harmonics"}</p>
+                    </div>
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Lavanda blocked tonight (Nomad)</p>
+                      <p style={{fontSize:18,fontWeight:700,color:lavandaConn?C.blue:C.muted,fontFamily:"DM Mono,monospace"}}>{lavandaConn&&lavandaData?ssBlocked:"—"}</p>
+                      <p style={{fontSize:10,color:C.muted}}>Incl. maintenance & unlisted nights on Booking.com</p>
+                    </div>
+                  </div>
+                  <p style={{fontSize:10,color:C.muted,marginTop:10}}>⚠ Some maintenance rooms are within the 30 Lavanda-allocated Nomad units — avoid double counting: the manual figure should cover all rooms genuinely out of service across the building.</p>
                 </div>
 
                 {/* ── Monthly Occupancy Trend (stacked LS + SS) ── */}
@@ -5753,7 +5792,7 @@ export default function Dashboard() {
               <KPI label="Arrivals (7d)" value={String(lavandaData.kpis.arrivals7)} sub="Check-ins from today" accent={C.gold}/>
               <KPI label="Departures (7d)" value={String(lavandaData.kpis.departures7)} sub="Check-outs from today" accent={C.muted}/>
               <KPI label="Revenue Still to Come" value={fmt(lavandaData.kpis.future_rev)} sub="Confirmed future nights" accent={C.gold}/>
-              <KPI label="Avg Nightly Rate" value={`£${lavandaData.kpis.adr.toFixed(2)}`} sub={`${lavandaData.kpis.confirmed} confirmed · ${lavandaData.kpis.canceled} cancelled`} accent={C.blue}/>
+              <KPI label="Avg Nightly Rate" value={`£${lavandaData.kpis.adr.toFixed(2)}`} sub={`${lavandaData.kpis.confirmed} confirmed · ${lavandaData.kpis.canceled} cancelled${lavandaData.kpis.inquiries?` · ${lavandaData.kpis.inquiries} inquiries`:""}`} accent={C.blue}/>
               <KPI label="Total Confirmed Value" value={fmt(lavandaData.kpis.total_conf_value)} sub="All confirmed bookings" accent={C.sage}/>
             </div>
 
