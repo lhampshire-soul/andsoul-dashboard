@@ -83,8 +83,13 @@ export default async function handler(req, res) {
       }
 
       // ── Aggregate ──
+      // Exclude child properties: any property referenced in another group's relationships.properties
+      const childIds = new Set();
+      propGroups.forEach(g => (g?.relationships?.properties?.data || []).forEach(c => childIds.add(c.id)));
+      const parentGroups = propGroups.filter(g => !childIds.has(g.id) && (g?.attributes?.total_units || 0) > 0);
+
       const ssUnits = ssGroup?.attributes?.total_units || 30;
-      const totalInventory = propGroups.reduce((s, g) => s + (g?.attributes?.total_units || 0), 0);
+      const totalInventory = parentGroups.reduce((s, g) => s + (g?.attributes?.total_units || 0), 0);
 
       // Only status === "confirmed" counts — inquiries have null cost and aren't real bookings
       const confirmed = allBookings.filter(b => (b.attributes.status || "").toLowerCase() === "confirmed");
@@ -146,7 +151,7 @@ export default async function handler(req, res) {
       const adr = totalNights > 0 ? Math.round((totalConfValue / totalNights) * 100) / 100 : 0;
 
       // Tiers
-      const tiers = propGroups.map(g => {
+      const tiers = parentGroups.map(g => {
         const isSS = g.id === ssGroup?.id;
         const name = (g?.attributes?.name || "").replace(/^Southall\s*&?Soul\s*-\s*/i, "");
         return {
