@@ -3387,7 +3387,9 @@ export default function Dashboard() {
               const totalRev = lsRev + ssRev;
 
               const lsAWR = pmsConn && pmsData ? (pmsData.globalAwrGross || pmsData.globalAwr || 0) : 0;
+              const lsAWRNet = pmsConn && pmsData ? (pmsData.globalAwr || 0) : 0;
               const ssADR = lavandaConn && lavandaData ? lavandaData.kpis.adr : 0;
+              const ssADRNet = ssADR > 0 ? ssADR / 1.2 : 0;
 
               const lsCheckIns = pmsConn && pmsData ? pmsData.checkInsWeek : 0;
               const lsCheckOuts = pmsConn && pmsData ? pmsData.checkOutsWeek : 0;
@@ -3427,10 +3429,12 @@ export default function Dashboard() {
                       <div>
                         <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>£{lsAWR}</p>
                         <p style={{fontSize:10,color:C.muted}}>AWR gross (LS)</p>
+                        <p style={{fontSize:11,color:C.sage,fontFamily:"DM Mono,monospace",marginTop:2}}>£{lsAWRNet} <span style={{color:C.muted,fontFamily:"inherit"}}>net /wk</span></p>
                       </div>
                       {ssADR > 0 && <div>
                         <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{ssADR.toFixed(0)}</p>
-                        <p style={{fontSize:10,color:C.muted}}>ADR (SS)</p>
+                        <p style={{fontSize:10,color:C.muted}}>ADR gross (SS)</p>
+                        <p style={{fontSize:11,color:C.blue,fontFamily:"DM Mono,monospace",marginTop:2}}>£{ssADRNet.toFixed(0)} <span style={{color:C.muted,fontFamily:"inherit"}}>net /night</span></p>
                       </div>}
                     </div>
                   </div>
