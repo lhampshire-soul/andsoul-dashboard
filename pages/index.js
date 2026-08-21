@@ -369,10 +369,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       if (totalDays < MIN_STAY_DAYS) return; // skip short stays
       const net = parseFloat(b.netAmount ?? 0);
       if (isNaN(net) || net <= 0) return;
-      // Check overlap with period
-      if (from > periodEnd || to < periodStart) return;
+      // Nights basis: a stay occupies nights [from, to-1] — checkout day excluded
+      const lastNight = new Date(new Date(to).getTime() - 864e5).toISOString().slice(0,10);
+      if (from > periodEnd || lastNight < periodStart) return;
       const overlapStart = from > periodStart ? from : periodStart;
-      const overlapEnd = to < periodEnd ? to : periodEnd;
+      const overlapEnd = lastNight < periodEnd ? lastNight : periodEnd;
       const overlapDays = Math.max(0, (new Date(overlapEnd) - new Date(overlapStart)) / 864e5 + 1);
       total += (net / totalDays) * overlapDays;
     });
@@ -449,11 +450,12 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       if (seenRidsOcc.has(rid)) return;
       seenRidsOcc.add(rid);
 
-      // Count booked days per unit (prevents double counting overlapping bookings on same unit)
+      // Count booked NIGHTS per unit — checkout day excluded (nights basis,
+      // aligned with Lavanda short-stay counting)
       const uid = g.unitId;
       if (!unitDays[uid]) unitDays[uid] = new Set();
       const overlapStart = new Date(Math.max(new Date(mS), new Date(stayFrom)));
-      const overlapEnd = new Date(Math.min(new Date(mE), new Date(stayTo)));
+      const overlapEnd = new Date(Math.min(new Date(mE), new Date(stayTo).getTime() - 864e5));
       for (let day = new Date(overlapStart); day <= overlapEnd; day.setDate(day.getDate() + 1)) {
         unitDays[uid].add(localDateStr(day));
       }
@@ -598,6 +600,32 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
 
   const globalAwr = globalAwrCount > 0 ? Math.round(globalAwrSumNet / globalAwrCount) : 0;
   const globalAwrGross = globalAwrCount > 0 ? Math.round(globalAwrSumGross / globalAwrCount) : 0;
+
+  // ── Per-month AWR — average weekly rate of qualifying bookings active in each month ──
+  forecastByRoom.forEach(fm => {
+    const mS = fm.key + "-01";
+    const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+    let sG = 0, sN = 0, n = 0;
+    allBookings.forEach(b => {
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (!["CHECKED_IN", "CONFIRMED"].includes(status)) return;
+      const from = (b.startDate ?? "").slice(0,10);
+      const to = (b.endDate ?? "").slice(0,10);
+      if (!from || !to) return;
+      const days = Math.round((new Date(to) - new Date(from)) / 864e5);
+      if (days < MIN_STAY_DAYS) return;
+      if (from > mE || to <= mS) return; // nights overlap with month
+      const net = parseFloat(b.netAmount ?? 0);
+      const vat = parseFloat(b.vatAmount ?? 0);
+      if (isNaN(net) || net <= 0) return;
+      const wN = net / days * 7, wG = (net + (isNaN(vat) ? 0 : vat)) / days * 7;
+      if (wN <= 0 || wN > 5000) return;
+      sN += wN; sG += wG; n++;
+    });
+    fm.awrGross = n > 0 ? Math.round(sG / n) : globalAwrGross;
+    fm.awrNet = n > 0 ? Math.round(sN / n) : globalAwr;
+    fm.awrCount = n;
+  });
 
   // ─── Length-of-stay distribution (from last 12 months of bookings) ───
   // Bucket: <=31d, 31-91d, 92-181d, 365+d. Bookings that fall 182-364d
@@ -3544,6 +3572,7 @@ export default function Dashboard() {
                     <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Active rooms by month (long-stay from RH{lavandaConn?" + short-stay from Lavanda":""})</p>
                     {(() => {
                       const lavMonthly = {};
+                      const ssRevByMonth = {};
                       if (lavandaConn && lavandaData && lavandaData.daily) {
                         lavandaData.daily.forEach(d => {
                           const mk = d.date.slice(0,7);
@@ -3551,24 +3580,44 @@ export default function Dashboard() {
                           lavMonthly[mk].sum += d.booked;
                           lavMonthly[mk].n++;
                         });
+                        (lavandaData.monthly || []).forEach(m => { ssRevByMonth[m.month] = m.revenue; });
                       }
                       const chartData = pmsData.forecast.map(fm => {
                         const lm = lavMonthly[fm.key];
                         const ssAvg = lm ? Math.round(lm.sum / lm.n) : 0;
+                        const awr = fm.awrGross || pmsData.globalAwrGross || 0;
+                        const lsRev = Math.round((fm.bookedDays || 0) / 7 * awr);
+                        const ssRev = Math.round(ssRevByMonth[fm.key] || 0);
                         return {
                           month: (fm.label||"").split(" ")[0],
                           ls: fm.activeStays || 0,
                           ss: ssAvg,
                           total: (fm.activeStays||0) + ssAvg,
+                          awr, awrNet: fm.awrNet || pmsData.globalAwr || 0,
+                          lsRev, ssRev, rev: lsRev + ssRev,
                         };
                       });
+                      const OccTip = ({active,payload,label}) => {
+                        if(!active||!payload?.length) return null;
+                        const d = payload[0]?.payload || {};
+                        return <div style={{background:"#13161b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12}}>
+                          <p style={{color:C.muted,marginBottom:6,fontFamily:"monospace"}}>{label}</p>
+                          <p style={{color:C.sage,margin:"2px 0"}}>Long-stay: <strong>{d.ls} rooms</strong></p>
+                          <p style={{color:C.blue,margin:"2px 0"}}>Short-stay: <strong>{d.ss} rooms</strong></p>
+                          <p style={{color:C.gold,margin:"2px 0"}}>Combined: <strong>{d.total} rooms</strong></p>
+                          <div style={{borderTop:`1px solid ${C.border}`,margin:"6px 0"}}/>
+                          <p style={{color:C.sage,margin:"2px 0"}}>AWR: <strong>£{d.awr}</strong> gross <span style={{color:C.muted}}>(£{d.awrNet} net)</span></p>
+                          <p style={{color:C.text,margin:"2px 0"}}>Revenue: <strong>{fmt(d.rev)}</strong></p>
+                          <p style={{color:C.muted,margin:"2px 0",fontSize:10}}>LS {fmt(d.lsRev)} · SS {fmt(d.ssRev)}</p>
+                        </div>;
+                      };
                       return (
                         <ResponsiveContainer width="100%" height={220}>
                           <ComposedChart data={chartData} margin={{top:4,right:8,bottom:0,left:-8}}>
                             <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                             <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
                             <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false}/>
-                            <Tooltip content={<Tip/>}/>
+                            <Tooltip content={<OccTip/>}/>
                             <Bar dataKey="ls" name="Long-stay" stackId="a" fill={C.sage} radius={[0,0,0,0]}/>
                             <Bar dataKey="ss" name="Short-stay" stackId="a" fill={C.blue} radius={[4,4,0,0]}/>
                             <Line type="monotone" dataKey="total" name="Combined" stroke={C.gold} strokeWidth={2} dot={false}/>
@@ -3586,7 +3635,7 @@ export default function Dashboard() {
                       <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Long-Stay Revenue by Month</h3>
                       <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Booked days × AWR, from Res Harmonics · rooms only, excludes parking & extras</p>
                       <ResponsiveContainer width="100%" height={180}>
-                        <BarChart data={pmsData.forecast.map(fm => ({month:(fm.label||"").split(" ")[0],rev:Math.round((fm.bookedDays||0)/7*(pmsData.globalAwrGross||pmsData.globalAwr||0))}))} margin={{top:4,right:8,bottom:0,left:-8}}>
+                        <BarChart data={pmsData.forecast.map(fm => ({month:(fm.label||"").split(" ")[0],rev:Math.round((fm.bookedDays||0)/7*(fm.awrGross||pmsData.globalAwrGross||pmsData.globalAwr||0))}))} margin={{top:4,right:8,bottom:0,left:-8}}>
                           <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                           <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
                           <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>v>=1000?`£${Math.round(v/1000)}k`:`£${v}`}/>
