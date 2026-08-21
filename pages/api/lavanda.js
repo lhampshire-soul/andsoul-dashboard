@@ -52,7 +52,7 @@ export default async function handler(req, res) {
 
       // 4. Calendar for the short-stay property group (rates + blocked)
       const todayStr = new Date().toISOString().slice(0, 10);
-      const rangeStart = new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10);
+      const rangeStart = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
       const rangeEnd = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
       // The short-stay group = the one referenced by bookings (or largest with bookings)
       const bookedPropIds = new Set(allBookings.map(b => b?.relationships?.property?.data?.id).filter(Boolean));
@@ -133,6 +133,7 @@ export default async function handler(req, res) {
       // Revenue
       let totalConfValue = 0, totalNights = 0, futureRev = 0;
       const monthlyMap = {};
+      const dailyRevMap = {};
       confirmed.forEach(b => {
         const a = b.attributes;
         const cost = Number(a.total_cost) || 0;
@@ -144,9 +145,12 @@ export default async function handler(req, res) {
           const d = new Date(t).toISOString().slice(0, 10);
           const mk = d.slice(0, 7);
           monthlyMap[mk] = (monthlyMap[mk] || 0) + perNight;
+          dailyRevMap[d] = (dailyRevMap[d] || 0) + perNight;
           if (d >= todayStr) futureRev += perNight;
         }
       });
+      // Attach per-night revenue to daily entries (enables range-based revenue on the frontend)
+      daily.forEach(d => { d.rev = Math.round((dailyRevMap[d.date] || 0) * 100) / 100; });
       const monthly = Object.keys(monthlyMap).sort().map(m => ({ month: m, revenue: Math.round(monthlyMap[m] * 100) / 100 }));
       const adr = totalNights > 0 ? Math.round((totalConfValue / totalNights) * 100) / 100 : 0;
 

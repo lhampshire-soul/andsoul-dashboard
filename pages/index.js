@@ -3434,10 +3434,39 @@ export default function Dashboard() {
               const lsPct = usable > 0 ? Math.round(lsOcc / usable * 100) : 0;
               const vacancy = Math.max(0, usable - totalOcc);
 
-              const lsRev = pmsConn && pmsData ? pmsData.revenue : 0;
-              const ssRevMonth = lavandaConn && lavandaData && lavandaData.monthly ? lavandaData.monthly.find(m => m.month === `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`) : null;
-              const ssRev = ssRevMonth ? ssRevMonth.revenue : 0;
-              const totalRev = lsRev + ssRev;
+              // ── Revenue for the SELECTED DATE RANGE (driven by the range picker) ──
+              // Nights basis: booking value × (range nights ÷ total booking nights)
+              let lsRev = 0, lsRevGross = 0;
+              if (pmsConn && rhAllBookings && rhAllBookings.length > 0) {
+                rhAllBookings.forEach(b => {
+                  const st = (b.roomStayStatus ?? "").toUpperCase();
+                  if (!["CHECKED_IN","CONFIRMED","CHECKED_OUT"].includes(st)) return;
+                  const f = (b.startDate ?? "").slice(0,10), t = (b.endDate ?? "").slice(0,10);
+                  if (!f || !t) return;
+                  const totalDays = Math.max(1, (new Date(t) - new Date(f)) / 864e5);
+                  if (totalDays < 28) return;
+                  const net = parseFloat(b.netAmount ?? 0), vat = parseFloat(b.vatAmount ?? 0);
+                  if (isNaN(net) || net <= 0) return;
+                  const lastNight = new Date(new Date(t).getTime() - 864e5).toISOString().slice(0,10);
+                  if (f > to || lastNight < from) return;
+                  const oS = f > from ? f : from, oE = lastNight < to ? lastNight : to;
+                  const days = Math.max(0, (new Date(oE) - new Date(oS)) / 864e5 + 1);
+                  lsRev += (net / totalDays) * days;
+                  lsRevGross += ((net + (isNaN(vat) ? 0 : vat)) / totalDays) * days;
+                });
+                lsRev = Math.round(lsRev); lsRevGross = Math.round(lsRevGross);
+              } else if (pmsConn && pmsData) {
+                lsRev = pmsData.revenue; lsRevGross = pmsData.revenue;
+              }
+              let ssRev = 0, ssRevCovered = true;
+              if (lavandaConn && lavandaData && lavandaData.daily) {
+                lavandaData.daily.forEach(d => { if (d.date >= from && d.date <= to && d.rev != null) ssRev += d.rev; });
+                ssRev = Math.round(ssRev);
+                const firstDay = lavandaData.daily[0]?.date;
+                if (firstDay && from < firstDay) ssRevCovered = false; // range predates Lavanda data window
+              }
+              const totalRev = lsRevGross + ssRev;
+              const rangeDays = Math.round((new Date(to) - new Date(from)) / 864e5) + 1;
 
               const lsAWR = pmsConn && pmsData ? (pmsData.globalAwrGross || pmsData.globalAwr || 0) : 0;
               const lsAWRNet = pmsConn && pmsData ? (pmsData.globalAwr || 0) : 0;
@@ -3468,12 +3497,13 @@ export default function Dashboard() {
                   </div>
 
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
-                    <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>MONTHLY REVENUE</p>
+                    <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>REVENUE · {new Date(from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} ({rangeDays}d)</p>
                     <p style={{fontSize:28,fontWeight:800,color:C.text,fontFamily:"DM Mono,monospace",lineHeight:1}}>{fmt(totalRev)}</p>
                     <p style={{fontSize:12,color:C.muted,marginTop:8}}>
-                      <span style={{color:C.sage}}>{fmt(lsRev)}</span> long-stay
+                      <span style={{color:C.sage}}>{fmt(lsRevGross)}</span> long-stay gross <span style={{fontSize:10}}>({fmt(lsRev)} net)</span>
                       {ssRev > 0 && <> · <span style={{color:C.blue}}>{fmt(ssRev)}</span> short-stay</>}
                     </p>
+                    {!ssRevCovered && <p style={{fontSize:9,color:C.muted,marginTop:4}}>⚠ Short-stay data starts {lavandaData?.daily?.[0]?.date} — earlier dates not included</p>}
                   </div>
 
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
