@@ -3584,7 +3584,7 @@ export default function Dashboard() {
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
                     <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
                       <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Long-Stay Revenue by Month</h3>
-                      <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Booked days × AWR, from Res Harmonics</p>
+                      <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Booked days × AWR, from Res Harmonics · rooms only, excludes parking & extras</p>
                       <ResponsiveContainer width="100%" height={180}>
                         <BarChart data={pmsData.forecast.map(fm => ({month:(fm.label||"").split(" ")[0],rev:Math.round((fm.bookedDays||0)/7*(pmsData.globalAwrGross||pmsData.globalAwr||0))}))} margin={{top:4,right:8,bottom:0,left:-8}}>
                           <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
