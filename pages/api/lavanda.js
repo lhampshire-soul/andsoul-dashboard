@@ -61,8 +61,11 @@ export default async function handler(req, res) {
       const calById = {}; // date -> {rate, blocked, available}
       if (ssGroup) {
         try {
+          // Calendar has its own (shorter) window — the endpoint caps at ~200 entries,
+          // so the 120-day booking history range would truncate it and lose blocked/rate data.
+          const calStart = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
           const cRes = await fetch(
-            `${BASE}/properties/${ssGroup.id}/calendar?start_date=${rangeStart}&end_date=${rangeEnd}&perPage=200`,
+            `${BASE}/properties/${ssGroup.id}/calendar?start_date=${calStart}&end_date=${rangeEnd}&perPage=200`,
             { headers }
           );
           if (cRes.ok) {
