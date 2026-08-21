@@ -3436,7 +3436,7 @@ export default function Dashboard() {
 
               // ── Revenue for the SELECTED DATE RANGE (driven by the range picker) ──
               // Nights basis: booking value × (range nights ÷ total booking nights)
-              let lsRev = 0, lsRevGross = 0;
+              let lsRev = 0, lsRevGross = 0, shortBreakRev = 0;
               if (pmsConn && rhAllBookings && rhAllBookings.length > 0) {
                 rhAllBookings.forEach(b => {
                   const st = (b.roomStayStatus ?? "").toUpperCase();
@@ -3444,17 +3444,22 @@ export default function Dashboard() {
                   const f = (b.startDate ?? "").slice(0,10), t = (b.endDate ?? "").slice(0,10);
                   if (!f || !t) return;
                   const totalDays = Math.max(1, (new Date(t) - new Date(f)) / 864e5);
-                  if (totalDays < 28) return;
                   const net = parseFloat(b.netAmount ?? 0), vat = parseFloat(b.vatAmount ?? 0);
                   if (isNaN(net) || net <= 0) return;
                   const lastNight = new Date(new Date(t).getTime() - 864e5).toISOString().slice(0,10);
                   if (f > to || lastNight < from) return;
                   const oS = f > from ? f : from, oE = lastNight < to ? lastNight : to;
                   const days = Math.max(0, (new Date(oE) - new Date(oS)) / 864e5 + 1);
-                  lsRev += (net / totalDays) * days;
-                  lsRevGross += ((net + (isNaN(vat) ? 0 : vat)) / totalDays) * days;
+                  if (totalDays >= 28) {
+                    lsRev += (net / totalDays) * days;
+                    lsRevGross += ((net + (isNaN(vat) ? 0 : vat)) / totalDays) * days;
+                  } else {
+                    // RH bookings under 28 nights (day lets / short breaks) — kept separate so
+                    // the card ties out with the monthly finance export
+                    shortBreakRev += ((net + (isNaN(vat) ? 0 : vat)) / totalDays) * days;
+                  }
                 });
-                lsRev = Math.round(lsRev); lsRevGross = Math.round(lsRevGross);
+                lsRev = Math.round(lsRev); lsRevGross = Math.round(lsRevGross); shortBreakRev = Math.round(shortBreakRev);
               } else if (pmsConn && pmsData) {
                 lsRev = pmsData.revenue; lsRevGross = pmsData.revenue;
               }
@@ -3465,7 +3470,7 @@ export default function Dashboard() {
                 const firstDay = lavandaData.daily[0]?.date;
                 if (firstDay && from < firstDay) ssRevCovered = false; // range predates Lavanda data window
               }
-              const totalRev = lsRevGross + ssRev;
+              const totalRev = lsRevGross + shortBreakRev + ssRev;
               const rangeDays = Math.round((new Date(to) - new Date(from)) / 864e5) + 1;
 
               const lsAWR = pmsConn && pmsData ? (pmsData.globalAwrGross || pmsData.globalAwr || 0) : 0;
@@ -3501,6 +3506,7 @@ export default function Dashboard() {
                     <p style={{fontSize:28,fontWeight:800,color:C.text,fontFamily:"DM Mono,monospace",lineHeight:1}}>{fmt(totalRev)}</p>
                     <p style={{fontSize:12,color:C.muted,marginTop:8}}>
                       <span style={{color:C.sage}}>{fmt(lsRevGross)}</span> long-stay gross <span style={{fontSize:10}}>({fmt(lsRev)} net)</span>
+                      {shortBreakRev > 0 && <> · <span style={{color:C.gold}}>{fmt(shortBreakRev)}</span> short breaks <span style={{fontSize:10}}>(RH &lt;28n)</span></>}
                       {ssRev > 0 && <> · <span style={{color:C.blue}}>{fmt(ssRev)}</span> short-stay</>}
                     </p>
                     {!ssRevCovered && <p style={{fontSize:9,color:C.muted,marginTop:4}}>⚠ Short-stay data starts {lavandaData?.daily?.[0]?.date} — earlier dates not included</p>}
@@ -3662,8 +3668,8 @@ export default function Dashboard() {
                 {pmsConn && pmsData && pmsData.forecast && (
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
                     <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
-                      <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Long-Stay Revenue by Month</h3>
-                      <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Booked days × AWR, from Res Harmonics · rooms only, excludes parking & extras</p>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Long-Stay Revenue by Month <span style={{fontSize:10,fontWeight:400,color:C.muted}}>· ESTIMATE</span></h3>
+                      <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Modelled: booked nights × monthly AWR ÷ 7 · rooms only · ±1-2% vs actuals — use the Revenue card / finance export for exact figures</p>
                       <ResponsiveContainer width="100%" height={180}>
                         <BarChart data={pmsData.forecast.map(fm => ({month:(fm.label||"").split(" ")[0],rev:Math.round((fm.bookedDays||0)/7*(fm.awrGross||pmsData.globalAwrGross||pmsData.globalAwr||0))}))} margin={{top:4,right:8,bottom:0,left:-8}}>
                           <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
