@@ -172,6 +172,43 @@ export default async function handler(req, res) {
         };
       });
 
+      // ── Length-of-stay bands (mirrors the RH long-stay breakdown) ──
+      const LOS_BANDS = [
+        { key: "lt31", min: 0, max: 30 },
+        { key: "d31_91", min: 31, max: 91 },
+        { key: "d92_181", min: 92, max: 181 },
+        { key: "d182_363", min: 182, max: 363 },
+        { key: "d364", min: 364, max: 99999 },
+      ];
+      const emptyBands = () => LOS_BANDS.reduce((o, b) => { o[b.key] = 0; return o; }, {});
+      const los = {
+        inHouse: { counts: emptyBands(), total: 0 },
+        upcoming: { counts: emptyBands(), total: 0 },
+      };
+      let ssInHouseNights = 0, ssInHouseValue = 0, ssUpNights = 0, ssUpValue = 0;
+      confirmed.forEach(b => {
+        const a = b.attributes;
+        const f = a.start_date, t = a.end_date;
+        if (!f || !t) return;
+        const n = Number(a.total_days) || Math.round((new Date(t) - new Date(f)) / msDay);
+        if (n < 1) return;
+        let g = null;
+        if (f <= todayStr && t > todayStr) g = los.inHouse;
+        else if (f > todayStr) g = los.upcoming;
+        else return; // already departed
+        const band = LOS_BANDS.find(x => n >= x.min && n <= x.max);
+        if (band) { g.counts[band.key]++; g.total++; }
+        const cost = Number(a.total_cost) || 0;
+        if (g === los.inHouse) { ssInHouseNights += n; ssInHouseValue += cost; }
+        else { ssUpNights += n; ssUpValue += cost; }
+      });
+      const adrFor = (v, n) => (n > 0 ? Math.round((v / n) * 100) / 100 : 0);
+      const ssAdr = {
+        inHouse: { adr: adrFor(ssInHouseValue, ssInHouseNights), count: los.inHouse.total },
+        upcoming: { adr: adrFor(ssUpValue, ssUpNights), count: los.upcoming.total },
+        all: { adr: adrFor(ssInHouseValue + ssUpValue, ssInHouseNights + ssUpNights), count: los.inHouse.total + los.upcoming.total },
+      };
+
       // Upcoming bookings (in-house or future, soonest first)
       const upcoming = confirmed
         .filter(b => b.attributes.end_date >= todayStr)
@@ -216,6 +253,8 @@ export default async function handler(req, res) {
         monthly,
         tiers,
         upcoming,
+        los,
+        ssAdr,
         _debug: { bookingCount: allBookings.length, propGroupCount: propGroups.length, calSample: calRaw?.data?.slice ? calRaw.data.slice(0, 2) : calRaw },
       });
     }

@@ -730,12 +730,19 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     upcoming: { counts: makeEmpty(), total: 0 },
     bands: LOS_BANDS,
   };
+  // Only count actual bedrooms — parking spaces, bikes and communal areas are
+  // bookable units in RH but are not stays and must not inflate the LoS mix.
+  const roomUnitIds = new Set(
+    allUnits.filter(u => /^Room:/i.test((u.unitName || "").trim())).map(u => u.id)
+  );
   allBookings.forEach(b => {
     const status = (b.roomStayStatus ?? "").toUpperCase();
     let group;
     if (status === "CHECKED_IN") group = losByStatus.inHouse;
     else if (status === "CONFIRMED" || status === "PENDING") group = losByStatus.upcoming;
     else return;
+    const uid = b.unit?.id ?? b.unitId;
+    if (roomUnitIds.size > 0 && !roomUnitIds.has(uid)) return; // skip parking/bike/communal
     const fromD = (b.startDate ?? "").slice(0, 10);
     const toD   = (b.endDate ?? "").slice(0, 10);
     if (!fromD || !toD) return;
@@ -4779,24 +4786,36 @@ export default function Dashboard() {
                   </div>
                 );
               };
-              // Combined totals
-              const combined = { counts: {}, total: inHouse.total + upcoming.total };
-              bands.forEach(b => { combined.counts[b.key] = (inHouse.counts[b.key] || 0) + (upcoming.counts[b.key] || 0); });
+              // ── Short-stay (Lavanda) LoS, folded in live ──
+              const ssLos = (lavandaConn && lavandaData && lavandaData.los) ? lavandaData.los : null;
+              const ssCombined = ssLos ? (() => {
+                const c = { counts: {}, total: ssLos.inHouse.total + ssLos.upcoming.total };
+                bands.forEach(b => { c.counts[b.key] = (ssLos.inHouse.counts[b.key] || 0) + (ssLos.upcoming.counts[b.key] || 0); });
+                return c;
+              })() : null;
+
+              // Combined totals — long-stay + short-stay
+              const combined = { counts: {}, total: inHouse.total + upcoming.total + (ssCombined ? ssCombined.total : 0) };
+              bands.forEach(b => {
+                combined.counts[b.key] = (inHouse.counts[b.key] || 0) + (upcoming.counts[b.key] || 0) + (ssCombined ? (ssCombined.counts[b.key] || 0) : 0);
+              });
               return (
                 <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:14,padding:18,marginBottom:16}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                     <div>
                       <p style={{fontSize:11,color:C.blue,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Length-of-Stay Breakdown</p>
-                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current & upcoming bookings by stay duration</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current &amp; upcoming bookings by stay duration · bedrooms only (excludes parking &amp; bikes){ssLos?" · long-stay (RH) + short-stay (Lavanda)":""}</p>
                     </div>
-                    <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● RH LIVE</span>
+                      {ssLos && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● LAVANDA LIVE</span>}
+                    </div>
                   </div>
-                  <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                    <div style={{flex:"2 1 500px",display:"flex",gap:14,flexWrap:"wrap"}}>
-                      {renderGroup(inHouse, "Checked In", "currently in the building")}
-                      {renderGroup(upcoming, "Confirmed & Pending", "future bookings")}
-                    </div>
-                    {renderGroup(combined, "All Bookings", `${inHouse.total} checked in + ${upcoming.total} upcoming`)}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",gap:14}}>
+                    {renderGroup(inHouse, "Checked In · Long-Stay", "currently in the building")}
+                    {renderGroup(upcoming, "Confirmed & Pending · Long-Stay", "future bookings")}
+                    {ssCombined && ssCombined.total > 0 && renderGroup(ssCombined, "Short-Stay · Booking.com", `${ssLos.inHouse.total} in-house + ${ssLos.upcoming.total} upcoming`)}
+                    {renderGroup(combined, "All Bookings", `${inHouse.total + upcoming.total} long-stay${ssCombined ? ` + ${ssCombined.total} short-stay` : ""}`)}
                   </div>
                   {/* AWR by status row */}
                   {pmsData.awrByStatus && (() => {
@@ -4808,8 +4827,25 @@ export default function Dashboard() {
                     ];
                     return (
                       <div style={{marginTop:14}}>
-                        <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:10}}>Average Weekly Rate (AWR) · 28+ Day Bookings</p>
+                        <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:10}}>Average Weekly Rate (AWR) · Long-Stay · 28+ Day Bookings</p>
                         <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                          {lavandaConn && lavandaData?.ssAdr && lavandaData.ssAdr.all.count > 0 && (
+                            <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.blue}44`,order:99}}>
+                              <p style={{fontSize:12,fontWeight:700,color:C.blue,marginBottom:2}}>Short-Stay ADR</p>
+                              <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{lavandaData.ssAdr.all.count} active bookings · per night</p>
+                              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:2}}>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Net (ex-VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",margin:0}}>£{(lavandaData.ssAdr.all.adr/1.2).toFixed(0)}</p>
+                                </div>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",margin:0}}>£{lavandaData.ssAdr.all.adr.toFixed(0)}</p>
+                                </div>
+                              </div>
+                              <p style={{fontSize:10,color:C.muted,marginTop:4}}>≈ £{Math.round(lavandaData.ssAdr.all.adr*7).toLocaleString()}/wk equivalent gross</p>
+                            </div>
+                          )}
                           {cards.map((c, i) => (
                             <div key={i} style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
                               <p style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:2}}>{c.title}</p>
