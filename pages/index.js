@@ -907,7 +907,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     const expired = (isPast || isEarlyCheckout) && !isRenewed && !isPendingRenewal;
 
     // Calculate follow-on stay's PCM rate and dates when available
-    let renewalPcm = null;
+    let renewalPcm = null, renewalRateType = null, renewalTrueRate = null;
     let followOnStart = null, followOnEnd = null, followOnLosDays = 0;
     const followOnRsId = renewalFollowOnRoomStayId[b.roomStayId];
     if (followOnRsId && bookingByRoomStayId[followOnRsId]) {
@@ -921,8 +921,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       followOnStart = fStart;
       followOnEnd = fEnd;
       followOnLosDays = fDays > 0 ? fDays : 0;
-      // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-      renewalPcm = fDays > 0 ? snapToRate(Math.round((fGross / fDays) * 365 / 12)) : 0;
+      // True contracted rate from RH where available, else derived (never snapped)
+      renewalPcm = pcmGrossFor(fb, fGross, fDays);
+      renewalRateType = fb._rateType ?? null;
+      renewalTrueRate = fb._trueRatePcm ?? null;
     }
 
     renewalsMap[monthKey].push({
@@ -937,8 +939,9 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       startDate, endDate, losDays: days, cumulDays: cumulDays,
       room: b.unit?.name || "—",
       roomType: unitRoomType, // already validated non-null above
-      status, pcm: days > 0 ? snapToRate(Math.round((gross / days) * 365 / 12)) : 0,
-      renewalPcm, // PCM of the follow-on stay (null if no follow-on)
+      status, pcm: pcmGrossFor(b, gross, days),
+      rateType: b._rateType ?? null, trueRate: b._trueRatePcm ?? null,
+      renewalPcm, renewalRateType, renewalTrueRate, // follow-on stay (null if none)
       grossTotal: Math.round(gross),
       isRenewed,
       isPendingRenewal,
@@ -1140,6 +1143,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         vatAmount: b.vatAmount ?? 0,
         // These will be enriched after individual roomStay fetch:
         conversionDate: null, confirmedDate: null, contractSignedDate: null,
+        _rateType: b._rateType ?? null, _trueRatePcm: b._trueRatePcm ?? null,
       });
     });
     return results;
@@ -1186,6 +1190,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
         vatAmount: b.vatAmount ?? 0,
         // These will be enriched after individual roomStay fetch:
         conversionDate: null, confirmedDate: null, contractSignedDate: null,
+        _rateType: b._rateType ?? null, _trueRatePcm: b._trueRatePcm ?? null,
       });
     });
     return results;
@@ -1448,17 +1453,29 @@ async function rhUpdate(tok, path, body) {
   return data;
 }
 
-// Standard &Soul gross PCM rates — snap derived PCM to nearest known rate
-const STANDARD_RATES = [995, 1050, 1150, 1200, 1250, 1350, 1450, 1499, 1549, 1550, 1800];
-function snapToRate(derived) {
-  if (!derived || derived <= 0) return 0;
-  let best = STANDARD_RATES[0], bestDiff = Math.abs(derived - best);
-  for (const r of STANDARD_RATES) {
-    const d = Math.abs(derived - r);
-    if (d < bestDiff) { best = r; bestDiff = d; }
-  }
-  // Only snap if within 10% of a standard rate; otherwise show derived (custom rate)
-  return bestDiff / best <= 0.10 ? best : derived;
+// ─── TRUE CONTRACTED PCM ──────────────────────────────────────────────────────
+// Res Harmonics holds the real contracted rate on the roomStay DETAIL endpoint:
+//   rate.rateType    → "MONTHLY" | "DAILY"
+//   discountDailyRate→ the agreed (discounted) rate for that period — VAT-INCLUSIVE
+//   originalRate     → pre-discount rate for the same period
+// The list endpoint only carries netAmount/vatAmount, so bookings are enriched
+// with these fields on load (see enrichBookingsWithRates).
+//
+// Rates are NEVER snapped to a "standard" price list — snapping invented rates
+// that don't exist on the contract (e.g. a real £1,225 was displayed as £1,200).
+// Where a true rate is unavailable we fall back to the money-derived figure,
+// unrounded to any price list.
+function pcmGrossFor(b, gross, days) {
+  if (b && b._rateType === "MONTHLY" && b._trueRatePcm > 0) return Math.round(b._trueRatePcm);
+  return days > 0 ? Math.round((gross / days) * 365 / 12) : 0;
+}
+// VAT on long stays is reduced (observed 4–19% depending on stay length), so net
+// must be derived from each booking's own net/gross split — never gross ÷ 1.2.
+function pcmNetFor(b, net, gross, days) {
+  const g = pcmGrossFor(b, gross, days);
+  if (!g) return 0;
+  const ratio = gross > 0 ? net / gross : 1;
+  return Math.round(g * ratio);
 }
 
 // ─── LEAD SOURCE ATTRIBUTION (GHL methodology) ─────────────────────────────
@@ -1582,6 +1599,42 @@ async function rhFetchAll(tok, basePath, maxPages=50) {
     page++;
   }
   return all;
+}
+
+// ─── Enrich bookings with the TRUE contracted rate from the roomStay detail ───
+// The bookings list endpoint has no rate fields, so PCM used to be derived from
+// total value ÷ days and then snapped to a price list — which mis-stated ~34% of
+// bookings (e.g. a contracted £1,225 displayed as £1,200). We fetch the detail
+// for each active long-stay room booking and attach the real rate.
+async function enrichBookingsWithRates(tok, bookings) {
+  const targets = bookings.filter(b => {
+    const s = (b.roomStayStatus ?? "").toUpperCase();
+    if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(s)) return false;
+    if (!b.roomStayId) return false;
+    const f = (b.startDate ?? "").slice(0, 10), t = (b.endDate ?? "").slice(0, 10);
+    if (!f || !t) return false;
+    return Math.round((new Date(t) - new Date(f)) / 864e5) >= MIN_STAY_DAYS;
+  });
+  const BATCH = 25;
+  let ok = 0;
+  for (let i = 0; i < targets.length; i += BATCH) {
+    const batch = targets.slice(i, i + BATCH);
+    await Promise.all(batch.map(async (b) => {
+      try {
+        const d = await rhFetch(tok, `/api/v3/roomStays/${b.roomStayId}`);
+        if (!d || d.error) return;
+        b._rateType = d.rate?.rateType ?? null;
+        // discountDailyRate = agreed rate for the rate period (gross / VAT-inclusive)
+        b._trueRatePcm = d.discountDailyRate ?? d.originalRate ?? null;
+        b._originalRatePcm = d.originalRate ?? null;
+        b._rateName = d.rate?.name ?? null;
+        b._rateCode = d.rate?.rateCode ?? null;
+        ok++;
+      } catch {}
+    }));
+  }
+  console.log(`Rate enrichment: ${ok}/${targets.length} bookings got true contracted rates`);
+  return ok;
 }
 
 // ─── Enrich renewal objects with status change dates from individual roomStay ─
@@ -2678,9 +2731,9 @@ export default function Dashboard() {
       const gross = net + (isNaN(vat) ? 0 : vat);
       const weeklyRate = (losDays > 0 && net > 0) ? Math.round((net / losDays) * 7) : 0;
       const weeklyRateGross = (losDays > 0 && gross > 0) ? Math.round((gross / losDays) * 7) : 0;
-      // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-      // RH calculates totalAmount = dailyRate × days, where dailyRate = monthlyRate × 12/365
-      const pcmGross = (losDays > 0 && gross > 0) ? snapToRate(Math.round((gross / losDays) * 365 / 12)) : 0;
+      // True contracted rate from the RH roomStay detail where available,
+      // otherwise derived from value ÷ days (never snapped to a price list)
+      const pcmGross = (losDays > 0 && gross > 0) ? pcmGrossFor(b, gross, losDays) : 0;
       candidates.push({
         bookingReference: b.bookingReference,
         created,
@@ -3011,6 +3064,8 @@ export default function Dashboard() {
         return;
       }
 
+      await enrichBookingsWithRates(tok, mergedBookings);
+
       const metrics = computePmsMetrics(allGuestStays, mergedBookings, allUnits);
 
       // Enrich renewal objects with status change dates
@@ -3067,6 +3122,9 @@ export default function Dashboard() {
       if (allBookings.length < 50 || allGuestStays.length < 50) {
         throw new Error(`Partial data from Res Harmonics (bookings=${allBookings.length}, stays=${allGuestStays.length}) — retry connection`);
       }
+
+      // Attach true contracted rates BEFORE computing metrics so PCM is exact
+      await enrichBookingsWithRates(tok, allBookings);
 
       const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
       console.log(`RH: occupied=${metrics.occupied}, checkIns=${metrics.checkInsWeek}, checkOuts=${metrics.checkOutsWeek}, monthRev=${metrics.revenue}, awr=${metrics.globalAwr}`);
@@ -6298,8 +6356,7 @@ export default function Dashboard() {
                           if (days > 0 && gross > 0) {
                             totalWeeklyGross += (gross / days) * 7;
                             totalWeeklyNet += (net / days) * 7;
-                            // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-                            totalPcmGross += snapToRate(Math.round((gross / days) * 365 / 12));
+                            totalPcmGross += pcmGrossFor(ev, gross, days);
                             rateCount++;
                           }
                         });
@@ -6402,8 +6459,7 @@ export default function Dashboard() {
                                   const evVat = parseFloat(ev.vatAmount ?? 0);
                                   const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
                                   const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
-                                  // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-                                  const evPcmGross = (evDays > 0 && evGross > 0) ? snapToRate(Math.round((evGross / evDays) * 365 / 12)) : null;
+                                  const evPcmGross = (evDays > 0 && evGross > 0) ? pcmGrossFor(ev, evGross, evDays) : null;
                                   return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
@@ -6480,8 +6536,7 @@ export default function Dashboard() {
                                   const evVat = parseFloat(ev.vatAmount ?? 0);
                                   const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
                                   const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
-                                  // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
-                                  const evPcmGross = (evDays > 0 && evGross > 0) ? snapToRate(Math.round((evGross / evDays) * 365 / 12)) : null;
+                                  const evPcmGross = (evDays > 0 && evGross > 0) ? pcmGrossFor(ev, evGross, evDays) : null;
                                   return (
                                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                                     <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
