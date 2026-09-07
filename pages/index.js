@@ -7309,6 +7309,49 @@ export default function Dashboard() {
                     Object.values(byType).forEach(arr => arr.sort((a, b) => a.availableFrom.localeCompare(b.availableFrom)));
                     const sortedTypes = Object.entries(byType).sort((a, b) => b[1].length - a[1].length);
 
+                    // ── Fully-open rooms: every bedroom with NO current or upcoming booking ──
+                    // Independent of the departures list above — this walks the whole unit list.
+                    // Ensuite (Nomad) rooms are let via Lavanda/Booking.com, so Res Harmonics
+                    // always shows them empty; they are reported separately from live Lavanda
+                    // data and excluded from the long-stay availability %.
+                    const openSummary = (() => {
+                      const units = rhAllUnits || [];
+                      if (units.length === 0) return null;
+                      const bedrooms = units.filter(u => /^Room:/i.test((u.unitName || "").trim()));
+                      if (bedrooms.length === 0) return null;
+                      const busy = new Set();
+                      (rhAllBookings || []).forEach(b => {
+                        const s = (b.roomStayStatus || "").toUpperCase();
+                        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(s)) return;
+                        const e = (b.endDate || "").slice(0, 10);
+                        if (!e || e < todayStr) return; // ended already — not a live booking
+                        const id = b.unit?.id ?? b.unitId;
+                        if (id) busy.add(id);
+                      });
+                      const totals = {}, open = {};
+                      bedrooms.forEach(u => {
+                        const t = baseRoomType(u.unitTypeName);
+                        if (!t) return;
+                        totals[t] = (totals[t] || 0) + 1;
+                        if (!busy.has(u.id)) open[t] = (open[t] || 0) + 1;
+                      });
+                      const SHORT_STAY_TYPE = "Ensuite";
+                      const rows = Object.keys(totals)
+                        .filter(t => t !== SHORT_STAY_TYPE)
+                        .map(t => ({ type: t, total: totals[t], open: open[t] || 0 }))
+                        .sort((a, b) => b.open - a.open || b.total - a.total);
+                      const lsTotal = rows.reduce((s, r) => s + r.total, 0);
+                      const lsOpen = rows.reduce((s, r) => s + r.open, 0);
+                      // Short-stay line uses live Lavanda availability, not RH's empty view
+                      const ss = totals[SHORT_STAY_TYPE] ? {
+                        total: totals[SHORT_STAY_TYPE],
+                        open: (lavandaConn && lavandaData?.kpis) ? lavandaData.kpis.available_tonight : null,
+                        blocked: (lavandaConn && lavandaData?.kpis) ? lavandaData.kpis.blocked_tonight : null,
+                        booked: (lavandaConn && lavandaData?.kpis) ? lavandaData.kpis.occ_tonight : null,
+                      } : null;
+                      return { rows, lsTotal, lsOpen, pct: lsTotal > 0 ? (lsOpen / lsTotal) * 100 : 0, ss };
+                    })();
+
                     return (
                       <div style={{marginTop:24}}>
                         <div style={{marginBottom:14}}>
@@ -7318,6 +7361,55 @@ export default function Dashboard() {
                             {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
                           </p>
                         </div>
+
+                        {/* ── FULLY OPEN BY ROOM TYPE ── */}
+                        {openSummary && (
+                          <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:12,padding:18,marginBottom:16}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:14}}>
+                              <div>
+                                <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Fully Open by Room Type</p>
+                                <p style={{fontSize:12,color:C.muted,marginTop:2}}>Bedrooms with no current guest and nothing booked ahead — completely empty stock</p>
+                              </div>
+                              <div style={{textAlign:"right"}}>
+                                <p style={{fontSize:28,fontWeight:800,color:openSummary.pct>=15?C.rose:openSummary.pct>=8?C.gold:C.sage,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                                  {openSummary.pct.toFixed(1)}%
+                                </p>
+                                <p style={{fontSize:11,color:C.muted,marginTop:2}}>{openSummary.lsOpen} of {openSummary.lsTotal} long-stay rooms</p>
+                              </div>
+                            </div>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}}>
+                              {openSummary.rows.map(r => {
+                                const p = r.total > 0 ? (r.open / r.total) * 100 : 0;
+                                const col = r.open === 0 ? C.sage : p >= 20 ? C.rose : C.gold;
+                                return (
+                                  <div key={r.type} style={{background:C.bg,border:`1px solid ${r.open>0?col+"44":C.border}`,borderRadius:10,padding:"10px 12px"}}>
+                                    <p style={{fontSize:11,color:C.text,fontWeight:600,marginBottom:4}}>{r.type}</p>
+                                    <p style={{fontSize:20,fontWeight:700,color:col,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                                      {r.open}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/{r.total}</span>
+                                    </p>
+                                    <div style={{height:4,background:C.border,borderRadius:2,marginTop:6,overflow:"hidden"}}>
+                                      <div style={{width:`${p}%`,height:"100%",background:col,transition:"width 0.4s"}}/>
+                                    </div>
+                                    <p style={{fontSize:10,color:C.muted,marginTop:4}}>{p.toFixed(0)}% open</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {openSummary.ss && (
+                              <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                                <div>
+                                  <p style={{fontSize:11,color:C.blue,fontWeight:700}}>Ensuite (Nomad) · {openSummary.ss.total} rooms · short-stay</p>
+                                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>Let via Booking.com — Res Harmonics always shows these empty, so they are excluded from the % above</p>
+                                </div>
+                                <p style={{fontSize:12,color:C.muted,fontFamily:"DM Mono,monospace"}}>
+                                  {openSummary.ss.open != null
+                                    ? <>Tonight: <span style={{color:C.blue,fontWeight:700}}>{openSummary.ss.booked}</span> booked · <span style={{color:C.muted}}>{openSummary.ss.blocked} blocked</span> · <span style={{color:C.sage,fontWeight:700}}>{openSummary.ss.open}</span> open</>
+                                    : "Lavanda not connected"}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
                           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
