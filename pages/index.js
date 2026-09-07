@@ -322,16 +322,35 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     }
   });
 
-  // ── In House count (CHECKED_IN, deduplicated by roomStayId) ──
-  const checkedInRooms = new Set();
+  // ── In House count — distinct BEDROOMS occupied tonight ──
+  // Deduplicated by UNIT, not roomStayId: a room move or an overlapping stay
+  // produces two roomStayIds on one room and would otherwise be counted twice.
+  // Restricted to actual bedrooms (parking/bikes/communal are bookable units in
+  // RH but are not occupancy) and to stays that genuinely cover today.
+  const bedroomIds = new Set(
+    (allUnits || []).filter(u => /^Room:/i.test((u.unitName || "").trim())).map(u => u.id)
+  );
+  const unitNameById = {};
+  (allUnits || []).forEach(u => { unitNameById[u.id] = (u.unitName || "").trim(); });
+  const checkedInUnits = new Set();
+  const checkedInUnitsLongStay = new Set();
   let inHouseGuestCount = 0;
   allGuestStays.forEach(g => {
-    if ((g.status ?? "").toUpperCase() === "CHECKED_IN") {
-      checkedInRooms.add(g.roomStayId);
-      inHouseGuestCount++;
-    }
+    if ((g.status ?? "").toUpperCase() !== "CHECKED_IN") return;
+    if (bedroomIds.size > 0 && !bedroomIds.has(g.unitId)) return;
+    const f = (g.dateFrom ?? "").slice(0, 10);
+    const t = (g.dateTo ?? "").slice(0, 10);
+    if (!f || !t || !(f <= today && t > today)) return;
+    checkedInUnits.add(g.unitId);
+    inHouseGuestCount++;
+    if (Math.round((new Date(t) - new Date(f)) / 864e5) >= MIN_STAY_DAYS) checkedInUnitsLongStay.add(g.unitId);
   });
-  const inHouseCount = checkedInRooms.size;
+  const inHouseCount = checkedInUnits.size;
+  // Room numbers so the frontend can de-duplicate against Lavanda short stays
+  // (a room double-booked across both systems must only count once)
+  const occupiedRoomNumbers = [...checkedInUnits]
+    .map(id => (unitNameById[id] || "").replace(/^Room:\s*/i, "").trim())
+    .filter(Boolean);
 
   // ── Check-ins (7d) — only genuinely NEW members, not renewals or room moves ──
   const newCheckInRooms7d = new Set();
@@ -1203,6 +1222,9 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     rhOfflineUnits: rhOfflineUnitsList.length,
     rhOfflineList: rhOfflineUnitsList.map(u => `${(u.unitName||"").trim()} (${u.unitTypeName||""})`),
     occupied: inHouseCount,
+    occupiedLongStay: checkedInUnitsLongStay.size,
+    occupiedShortBreak: inHouseCount - checkedInUnitsLongStay.size,
+    occupiedRoomNumbers,
     inHouseGuests: inHouseGuestCount,
     checkInsWeek,
     checkOutsWeek,
@@ -3490,7 +3512,16 @@ export default function Dashboard() {
             {(() => {
               const lsOcc = pmsConn && pmsData ? pmsData.occupied : 0;
               const lsTotal = BEDS;
-              const ssOcc = lavandaConn && lavandaData ? lavandaData.kpis.occ_tonight : 0;
+              const ssOccRaw = lavandaConn && lavandaData ? lavandaData.kpis.occ_tonight : 0;
+              // A room double-booked across both systems is ONE occupied room.
+              // Subtract any Nomad room that Res Harmonics also shows occupied.
+              const todaySum = new Date().toISOString().slice(0,10);
+              const rhOccRooms = new Set((pmsConn && pmsData?.occupiedRoomNumbers) || []);
+              const ssRoomsTonight = (lavandaConn && lavandaData?.ssStays)
+                ? [...new Set(lavandaData.ssStays.filter(s => s.start <= todaySum && s.end > todaySum).map(s => s.room))]
+                : [];
+              const ssDuplicated = ssRoomsTonight.filter(r => rhOccRooms.has(r)).length;
+              const ssOcc = ssRoomsTonight.length > 0 ? ssRoomsTonight.length - ssDuplicated : ssOccRaw;
               const ssBlocked = lavandaConn && lavandaData ? lavandaData.kpis.blocked_tonight : 0;
               const ssUnits = lavandaConn && lavandaData ? lavandaData.kpis.units : 0;
               const totalOcc = lsOcc + ssOcc;
@@ -3559,11 +3590,16 @@ export default function Dashboard() {
                       <div style={{width:`${lsPct}%`,background:C.sage,transition:"width 0.4s"}}/>
                       <div style={{width:`${usable>0?Math.round(ssOcc/usable*100):0}%`,background:C.blue,transition:"width 0.4s"}}/>
                     </div>
-                    <div style={{display:"flex",gap:12,marginTop:6,fontSize:10,color:C.muted}}>
-                      <span><span style={{color:C.sage,fontWeight:700}}>{lsOcc}</span> long-stay</span>
+                    <div style={{display:"flex",gap:12,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap"}}>
+                      <span><span style={{color:C.sage,fontWeight:700}}>{lsOcc}</span> via RH{pmsData?.occupiedShortBreak>0?` (${pmsData.occupiedLongStay} long-stay + ${pmsData.occupiedShortBreak} short break)`:" long-stay"}</span>
                       <span><span style={{color:C.blue,fontWeight:700}}>{ssOcc}</span> short-stay</span>
                       <span><span style={{fontWeight:700}}>{vacancy}</span> vacant</span>
                     </div>
+                    {ssDuplicated > 0 && (
+                      <p style={{fontSize:9,color:C.rose,marginTop:4}}>
+                        {ssDuplicated} room{ssDuplicated!==1?"s":""} booked in both systems — counted once (see double bookings under Renewals)
+                      </p>
+                    )}
                   </div>
 
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
@@ -3810,7 +3846,78 @@ export default function Dashboard() {
                 )}
 
                 {/* ── Property Tier Snapshot ── */}
-                {lavandaConn && lavandaData && lavandaData.tiers && (
+                {/* Built from Res Harmonics inventory + occupancy (the source of truth for
+                    the building), with Lavanda overlaid on the Nomad tier. The old version
+                    used Lavanda's tier list, which showed every membership tier as 0 booked
+                    because long-stay tenants don't exist in Lavanda. */}
+                {pmsConn && rhAllUnits && rhAllUnits.length > 0 && (() => {
+                  const todayT = new Date().toISOString().slice(0,10);
+                  const rhOcc = new Set((pmsData?.occupiedRoomNumbers) || []);
+                  const ssBookedT = new Set(
+                    (lavandaConn && lavandaData?.ssStays)
+                      ? lavandaData.ssStays.filter(s => s.start <= todayT && s.end > todayT).map(s => s.room)
+                      : []
+                  );
+                  const tiers = {};
+                  rhAllUnits.filter(u => /^Room:/i.test((u.unitName||"").trim())).forEach(u => {
+                    const t = baseRoomType(u.unitTypeName);
+                    if (!t) return;
+                    const roomNo = (u.unitName||"").replace(/^Room:\s*/i,"").trim();
+                    if (!tiers[t]) tiers[t] = { units:0, occLs:0, occSs:0, offline:0 };
+                    tiers[t].units++;
+                    if (u.bookable === false) tiers[t].offline++;
+                    const inRh = rhOcc.has(roomNo), inSs = ssBookedT.has(roomNo);
+                    if (inRh) tiers[t].occLs++;
+                    else if (inSs) tiers[t].occSs++;   // avoid double counting a clash
+                  });
+                  const rows = Object.entries(tiers).sort((a,b)=>b[1].units-a[1].units);
+                  const T = rows.reduce((s,[,v])=>({units:s.units+v.units, occLs:s.occLs+v.occLs, occSs:s.occSs+v.occSs}),{units:0,occLs:0,occSs:0});
+                  return (
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Room Tiers — Tonight</h3>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>All Southall bedrooms by tier · occupancy from Res Harmonics{lavandaConn?" + Lavanda (Nomad)":""}</p>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            {["Tier","Rooms","Occupied","Long-stay","Short-stay","Empty","Occ %"].map((h,i)=>(
+                              <th key={h} style={{textAlign:i===0?"left":"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(([t,v]) => {
+                            const occ = v.occLs + v.occSs;
+                            const pct = v.units>0?Math.round(occ/v.units*100):0;
+                            return (
+                              <tr key={t} style={{borderBottom:`1px solid ${C.border}22`,background:v.occSs>0?C.blue+"08":"transparent"}}>
+                                <td style={{padding:"6px 10px",color:C.text,fontWeight:500}}>{t}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace"}}>{v.units}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:700}}>{occ}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{v.occLs}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:v.occSs>0?C.blue:C.muted}}>{v.occSs||"—"}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:v.units-occ>0?C.rose:C.muted}}>{v.units-occ}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:pct>=95?C.sage:pct>=80?C.gold:C.rose}}>{pct}%</td>
+                              </tr>
+                            );
+                          })}
+                          <tr style={{borderTop:`1px solid ${C.border}`}}>
+                            <td style={{padding:"8px 10px",color:C.text,fontWeight:700}}>Total</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700}}>{T.units}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{T.occLs+T.occSs}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.sage}}>{T.occLs}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.blue}}>{T.occSs}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.rose}}>{T.units-T.occLs-T.occSs}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{T.units>0?Math.round((T.occLs+T.occSs)/T.units*100):0}%</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>);
+                })()}
+
+                {/* Legacy Lavanda-only tier view (channel inventory) */}
+                {false && lavandaConn && lavandaData && lavandaData.tiers && (
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
                     <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Room Tiers — Tonight</h3>
                     <p style={{fontSize:12,color:C.muted,marginBottom:14}}>All Southall inventory by tier</p>
