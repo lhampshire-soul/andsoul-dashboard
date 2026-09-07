@@ -7338,18 +7338,37 @@ export default function Dashboard() {
                       const SHORT_STAY_TYPE = "Ensuite";
                       const rows = Object.keys(totals)
                         .filter(t => t !== SHORT_STAY_TYPE)
-                        .map(t => ({ type: t, total: totals[t], open: open[t] || 0 }))
+                        .map(t => ({ type: t, total: totals[t], open: open[t] || 0, source: "rh" }))
                         .sort((a, b) => b.open - a.open || b.total - a.total);
                       const lsTotal = rows.reduce((s, r) => s + r.total, 0);
                       const lsOpen = rows.reduce((s, r) => s + r.open, 0);
-                      // Short-stay line uses live Lavanda availability, not RH's empty view
+
+                      // Short-stay (Nomad): RH shows every one of these empty because their
+                      // bookings live in Lavanda. Use Lavanda's per-unit forward-booking data
+                      // so they can be counted alongside the long-stay stock.
+                      const su = (lavandaConn && lavandaData?.ssUnitStatus) ? lavandaData.ssUnitStatus : null;
                       const ss = totals[SHORT_STAY_TYPE] ? {
+                        type: SHORT_STAY_TYPE,
                         total: totals[SHORT_STAY_TYPE],
-                        open: (lavandaConn && lavandaData?.kpis) ? lavandaData.kpis.available_tonight : null,
-                        blocked: (lavandaConn && lavandaData?.kpis) ? lavandaData.kpis.blocked_tonight : null,
-                        booked: (lavandaConn && lavandaData?.kpis) ? lavandaData.kpis.occ_tonight : null,
+                        open: su ? su.fullyOpen : null,
+                        booked: su ? su.withForwardBooking : null,
+                        blocked: su ? su.blockedTonight : null,
+                        source: "lavanda",
                       } : null;
-                      return { rows, lsTotal, lsOpen, pct: lsTotal > 0 ? (lsOpen / lsTotal) * 100 : 0, ss };
+
+                      const hasSS = !!(ss && ss.open != null);
+                      const allRows = hasSS ? [...rows, { type: ss.type, total: ss.total, open: ss.open, source: "lavanda" }]
+                                              .sort((a, b) => b.open - a.open || b.total - a.total)
+                                            : rows;
+                      const grandTotal = lsTotal + (hasSS ? ss.total : 0);
+                      const grandOpen = lsOpen + (hasSS ? ss.open : 0);
+                      return {
+                        rows: allRows, lsTotal, lsOpen,
+                        lsPct: lsTotal > 0 ? (lsOpen / lsTotal) * 100 : 0,
+                        grandTotal, grandOpen,
+                        pct: grandTotal > 0 ? (grandOpen / grandTotal) * 100 : 0,
+                        ss, hasSS,
+                      };
                     })();
 
                     return (
@@ -7374,7 +7393,14 @@ export default function Dashboard() {
                                 <p style={{fontSize:28,fontWeight:800,color:openSummary.pct>=15?C.rose:openSummary.pct>=8?C.gold:C.sage,fontFamily:"DM Mono,monospace",lineHeight:1}}>
                                   {openSummary.pct.toFixed(1)}%
                                 </p>
-                                <p style={{fontSize:11,color:C.muted,marginTop:2}}>{openSummary.lsOpen} of {openSummary.lsTotal} long-stay rooms</p>
+                                <p style={{fontSize:11,color:C.muted,marginTop:2}}>
+                                  <strong style={{color:C.text}}>{openSummary.grandOpen}</strong> of {openSummary.grandTotal} rooms fully open
+                                </p>
+                                {openSummary.hasSS && (
+                                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>
+                                    {openSummary.lsOpen} long-stay ({openSummary.lsPct.toFixed(1)}%) + {openSummary.ss.open} short-stay
+                                  </p>
+                                )}
                               </div>
                             </div>
                             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}}>
@@ -7382,8 +7408,11 @@ export default function Dashboard() {
                                 const p = r.total > 0 ? (r.open / r.total) * 100 : 0;
                                 const col = r.open === 0 ? C.sage : p >= 20 ? C.rose : C.gold;
                                 return (
-                                  <div key={r.type} style={{background:C.bg,border:`1px solid ${r.open>0?col+"44":C.border}`,borderRadius:10,padding:"10px 12px"}}>
-                                    <p style={{fontSize:11,color:C.text,fontWeight:600,marginBottom:4}}>{r.type}</p>
+                                  <div key={r.type} style={{background:C.bg,border:`1px solid ${r.source==="lavanda"?C.blue+"55":r.open>0?col+"44":C.border}`,borderRadius:10,padding:"10px 12px"}}>
+                                    <p style={{fontSize:11,color:C.text,fontWeight:600,marginBottom:4}}>
+                                      {r.type}
+                                      {r.source==="lavanda" && <span style={{fontSize:9,color:C.blue,fontWeight:500,marginLeft:5}}>· Nomad</span>}
+                                    </p>
                                     <p style={{fontSize:20,fontWeight:700,color:col,fontFamily:"DM Mono,monospace",lineHeight:1}}>
                                       {r.open}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/{r.total}</span>
                                     </p>
@@ -7398,13 +7427,17 @@ export default function Dashboard() {
                             {openSummary.ss && (
                               <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                                 <div>
-                                  <p style={{fontSize:11,color:C.blue,fontWeight:700}}>Ensuite (Nomad) · {openSummary.ss.total} rooms · short-stay</p>
-                                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>Let via Booking.com — Res Harmonics always shows these empty, so they are excluded from the % above</p>
+                                  <p style={{fontSize:11,color:C.blue,fontWeight:700}}>Ensuite (Nomad) · {openSummary.ss.total} rooms · short-stay via Booking.com</p>
+                                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>
+                                    {openSummary.hasSS
+                                      ? <>Forward bookings come from Lavanda (Res Harmonics shows these rooms empty), so they are counted in the total above. <span style={{color:C.gold}}>{openSummary.ss.blocked} of the {openSummary.ss.open} open are blocked in the calendar tonight</span> — not currently sellable without unblocking.</>
+                                      : "Lavanda not connected — short-stay rooms excluded from the total above"}
+                                  </p>
                                 </div>
-                                <p style={{fontSize:12,color:C.muted,fontFamily:"DM Mono,monospace"}}>
-                                  {openSummary.ss.open != null
-                                    ? <>Tonight: <span style={{color:C.blue,fontWeight:700}}>{openSummary.ss.booked}</span> booked · <span style={{color:C.muted}}>{openSummary.ss.blocked} blocked</span> · <span style={{color:C.sage,fontWeight:700}}>{openSummary.ss.open}</span> open</>
-                                    : "Lavanda not connected"}
+                                <p style={{fontSize:12,color:C.muted,fontFamily:"DM Mono,monospace",whiteSpace:"nowrap"}}>
+                                  {openSummary.hasSS
+                                    ? <><span style={{color:C.blue,fontWeight:700}}>{openSummary.ss.booked}</span> booked ahead · <span style={{color:C.rose,fontWeight:700}}>{openSummary.ss.open}</span> nothing booked</>
+                                    : "—"}
                                 </p>
                               </div>
                             )}

@@ -202,6 +202,33 @@ export default async function handler(req, res) {
         if (g === los.inHouse) { ssInHouseNights += n; ssInHouseValue += cost; }
         else { ssUpNights += n; ssUpValue += cost; }
       });
+      // ── Per-unit forward booking status ──
+      // Which individual short-stay units have a current or future confirmed
+      // booking, and which have nothing booked at all. Needed so the room
+      // availability summary can count Nomad stock properly instead of
+      // treating every Lavanda-managed room as empty.
+      const ssChildIds = new Set((ssGroup?.relationships?.properties?.data || []).map(x => x.id));
+      const ssBusyUnits = new Set();
+      let ssForwardBookings = 0, ssForwardOutsideGroup = 0;
+      confirmed.forEach(b => {
+        const end = b.attributes.end_date;
+        if (!end || end < todayStr) return; // already departed
+        ssForwardBookings++;
+        const uid = b.relationships?.unit?.data?.id;
+        if (!uid) return;
+        if (ssChildIds.has(uid)) ssBusyUnits.add(uid);
+        else ssForwardOutsideGroup++; // e.g. a short stay booked into a 2-Bedroom
+      });
+      const ssUnitTotal = ssChildIds.size || ssUnits;
+      const ssUnitStatus = {
+        total: ssUnitTotal,
+        withForwardBooking: ssBusyUnits.size,
+        fullyOpen: Math.max(0, ssUnitTotal - ssBusyUnits.size),
+        blockedTonight: tonight.blocked,
+        forwardBookings: ssForwardBookings,
+        forwardBookingsOutsideGroup: ssForwardOutsideGroup,
+      };
+
       const adrFor = (v, n) => (n > 0 ? Math.round((v / n) * 100) / 100 : 0);
       const ssAdr = {
         inHouse: { adr: adrFor(ssInHouseValue, ssInHouseNights), count: los.inHouse.total },
@@ -255,6 +282,7 @@ export default async function handler(req, res) {
         upcoming,
         los,
         ssAdr,
+        ssUnitStatus,
         _debug: { bookingCount: allBookings.length, propGroupCount: propGroups.length, calSample: calRaw?.data?.slice ? calRaw.data.slice(0, 2) : calRaw },
       });
     }
