@@ -357,6 +357,24 @@ export default async function handler(req, res) {
         ssStays: Object.entries(byUnit).flatMap(([uid, list]) =>
           list.map(s => ({ room: unitRoomNo[uid] || null, ...s }))
         ).filter(s => s.room),
+        // Every confirmed booking with its CREATION date, so the Recent Booking
+        // Activity panel can include short-stay bookings made in the period
+        // alongside the Res Harmonics ones.
+        bookingsLite: confirmed.map(b => {
+          const a = b.attributes;
+          const uid = b.relationships?.unit?.data?.id;
+          const nights = Number(a.total_days) ||
+            Math.max(1, Math.round((new Date(a.end_date) - new Date(a.start_date)) / msDay));
+          return {
+            code: a.confirmation_code || null,
+            created: (a.booked_time || "").slice(0, 10) || null,
+            start: a.start_date, end: a.end_date, nights,
+            value: Number(a.total_cost) || 0,
+            platform: a.platform || null,
+            room: uid ? (unitRoomNo[uid] || null) : null,
+            guest: `${a.lead_guest_first_name || ""} ${a.lead_guest_last_name || ""}`.trim(),
+          };
+        }),
         _debug: { bookingCount: allBookings.length, propGroupCount: propGroups.length, calSample: calRaw?.data?.slice ? calRaw.data.slice(0, 2) : calRaw },
       });
     }

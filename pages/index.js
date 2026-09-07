@@ -218,6 +218,21 @@ const baseRoomType = (typeName) => {
 
 const MIN_STAY_DAYS = 28; // Only count bookings >= 28 days for occupancy & AWR
 
+// ─── Length-of-stay bands — single source of truth ───────────────────────────
+// Aligned to the 28-night boundary that actually matters commercially: under 28
+// nights is a short break (and attracts full VAT), 28+ is a tenancy. The old
+// bands cut at 31/32 days, which split genuine one-month bookings (30- and
+// 31-night stays) across two buckets and made the totals unusable.
+const LOS_BANDS = [
+  { key: "lt28",     label: "≤ 27 days",      short: "≤27d",     note: "Short break",  min: 0,   max: 27 },
+  { key: "d28_91",   label: "28 – 91 days",   short: "28-91d",   note: "1–3 months",   min: 28,  max: 91 },
+  { key: "d92_181",  label: "92 – 181 days",  short: "92-181d",  note: "3–6 months",   min: 92,  max: 181 },
+  { key: "d182_364", label: "182 – 364 days", short: "182-364d", note: "6–12 months",  min: 182, max: 364 },
+  { key: "d365",     label: "365+ days",      short: "365d+",    note: "12 months+",   min: 365, max: 99999 },
+];
+const losBandFor = (days) =>
+  LOS_BANDS.find(b => days >= b.min && days <= b.max) || LOS_BANDS[LOS_BANDS.length - 1];
+
 // ─── Shared PMS metrics computation ──────────────────────────────────────────
 // Used by both connectPMS (initial load) and silentPmsRefresh (background)
 // Helper: format date as YYYY-MM-DD using LOCAL time (avoids BST/UTC timezone shift)
@@ -655,10 +670,10 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   const losCutoffStr = localDateStr(losCutoff);
 
   const losBuckets = {
-    short:  { label: "≤31 days",    min: 0,   max: 31,   count: 0, sumDays: 0 },
-    medium: { label: "31–91 days",  min: 31,  max: 91,   count: 0, sumDays: 0 },
-    long:   { label: "92–181 days", min: 91,  max: 181,  count: 0, sumDays: 0 },
-    annual: { label: "365+ days",   min: 181, max: 9999, count: 0, sumDays: 0 },
+    short:  { label: "≤27 days",     min: 0,   max: 27,   count: 0, sumDays: 0 },
+    medium: { label: "28–91 days",   min: 28,  max: 91,   count: 0, sumDays: 0 },
+    long:   { label: "92–181 days",  min: 92,  max: 181,  count: 0, sumDays: 0 },
+    annual: { label: "182+ days",    min: 182, max: 9999, count: 0, sumDays: 0 },
   };
 
   allBookings.forEach(b => {
@@ -677,7 +692,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     // Exclude very short desk / hot-room bookings
     if (days < 1) return;
     let bucket;
-    if (days <= 31) bucket = losBuckets.short;
+    if (days <= 27) bucket = losBuckets.short;
     else if (days <= 91) bucket = losBuckets.medium;
     else if (days <= 181) bucket = losBuckets.long;
     else bucket = losBuckets.annual;
@@ -735,14 +750,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
 
   // ─── Live LoS breakdown by booking status ──────────────────────────────────
   // Two groups: "inHouse" (CHECKED_IN) and "upcoming" (CONFIRMED + PENDING).
-  // Bands per user spec: <31d, 31-91d, 92-181d, 182-363d, 364d+.
-  const LOS_BANDS = [
-    { key: "lt31",    label: "< 31 days",       min: 0,   max: 30  },
-    { key: "d31_91",  label: "31 – 91 days",    min: 31,  max: 91  },
-    { key: "d92_181", label: "92 – 181 days",   min: 92,  max: 181 },
-    { key: "d182_363",label: "182 – 363 days",  min: 182, max: 363 },
-    { key: "d364",    label: "364+ days",        min: 364, max: 99999 },
-  ];
+  // Bands come from the shared LOS_BANDS definition (28-night boundary).
   const makeEmpty = () => LOS_BANDS.reduce((o, b) => { o[b.key] = 0; return o; }, {});
   const losByStatus = {
     inHouse:  { counts: makeEmpty(), total: 0 },
@@ -2741,7 +2749,9 @@ export default function Dashboard() {
       const end = b.endDate?.slice(0,10);
       if (!start || !end) continue;
       const losDays = Math.round((new Date(end) - new Date(start)) / 86400000);
-      if (losDays < 27) continue;
+      // Short breaks (<28 nights) are now kept and shown in their own band
+      // rather than being dropped, so the totals reconcile.
+      if (losDays < 1) continue;
       const created = parseCreated(b.bookingReference);
       if (!created) continue;
       if (created < activityFrom || created > activityTo) continue;
@@ -2757,6 +2767,7 @@ export default function Dashboard() {
       // otherwise derived from value ÷ days (never snapped to a price list)
       const pcmGross = (losDays > 0 && gross > 0) ? pcmGrossFor(b, gross, losDays) : 0;
       candidates.push({
+        source: "rh",
         bookingReference: b.bookingReference,
         created,
         startDate: start,
@@ -2781,17 +2792,43 @@ export default function Dashboard() {
       });
     }
 
-    // LoS breakdown buckets (all candidates are already 27+ days)
-    const losBuckets = { "<32d":0, "32-91d":0, "92-181d":0, "182-364d":0, "365d+":0 };
-    const losDaysBuckets = { "<32d":0, "32-91d":0, "92-181d":0, "182-364d":0, "365d+":0 };
-    for (const c of candidates) {
-      if (c.losDays < 32) { losBuckets["<32d"]++; losDaysBuckets["<32d"] += c.losDays; }
-      else if (c.losDays <= 91) { losBuckets["32-91d"]++; losDaysBuckets["32-91d"] += c.losDays; }
-      else if (c.losDays <= 181) { losBuckets["92-181d"]++; losDaysBuckets["92-181d"] += c.losDays; }
-      else if (c.losDays <= 364) { losBuckets["182-364d"]++; losDaysBuckets["182-364d"] += c.losDays; }
-      else { losBuckets["365d+"]++; losDaysBuckets["365d+"] += c.losDays; }
+    // ── Short-stay bookings created in the same window (Lavanda) ──
+    // Included so the activity panel covers every booking taken, not just
+    // long-stay. Tracked separately so the breakdown can be split by source.
+    const lavCandidates = [];
+    if (lavandaConn && lavandaData?.bookingsLite) {
+      lavandaData.bookingsLite.forEach(b => {
+        if (!b.created || b.created < activityFrom || b.created > activityTo) return;
+        if (!b.nights || b.nights < 1) return;
+        lavCandidates.push({
+          source: "lav",
+          bookingReference: b.code || "—",
+          created: b.created, startDate: b.start, endDate: b.end,
+          losDays: b.nights, status: "CONFIRMED",
+          name: b.guest, room: b.room ? `Room: ${b.room}` : "—",
+          roomType: "Ensuite/Nomad",
+          grossAmount: b.value, platform: b.platform,
+        });
+      });
     }
-    const totalDaysBooked = candidates.reduce((s, c) => s + c.losDays, 0);
+
+    // LoS breakdown — shared bands, split by source so long-stay (Res Harmonics)
+    // and short-stay (Lavanda) can be read separately as well as combined
+    const mkBand = () => LOS_BANDS.reduce((o, b) => { o[b.short] = 0; return o; }, {});
+    const losBuckets = mkBand();       // combined (kept for existing consumers)
+    const losDaysBuckets = mkBand();
+    const losBySource = { rh: mkBand(), lav: mkBand() };
+    const losDaysBySource = { rh: mkBand(), lav: mkBand() };
+    const srcTotals = { rh: { count: 0, days: 0 }, lav: { count: 0, days: 0 } };
+    [...candidates, ...lavCandidates].forEach(c => {
+      const k = losBandFor(c.losDays).short;
+      const src = c.source === "lav" ? "lav" : "rh";
+      losBuckets[k]++; losDaysBuckets[k] += c.losDays;
+      losBySource[src][k]++; losDaysBySource[src][k] += c.losDays;
+      srcTotals[src].count++; srcTotals[src].days += c.losDays;
+    });
+    const totalDaysBooked = candidates.reduce((s, c) => s + c.losDays, 0) +
+                            lavCandidates.reduce((s, c) => s + c.losDays, 0);
 
     // Room type breakdown
     const roomBuckets = {};
@@ -2872,7 +2909,8 @@ export default function Dashboard() {
     return {
       newBookings, renewals: renewalBookings, pending: pendingBookings,
       all: candidates,
-      losBuckets, losDaysBuckets, totalDaysBooked, roomBuckets, roomDaysBuckets, moveInOrdered,
+      losBuckets, losDaysBuckets, losBySource, losDaysBySource, srcTotals, lavCandidates,
+      totalDaysBooked, roomBuckets, roomDaysBuckets, moveInOrdered,
       awrSummary: { avg: avgAwr, avgNet: avgAwrNet, min: minAwr, minNet: minAwrNet, max: maxAwr, maxNet: maxAwrNet, totalContractValue, totalContractValueNet, count: awrCandidates.length },
       stats: {
         newCount: newBookings.length,
@@ -2881,7 +2919,7 @@ export default function Dashboard() {
         totalActivity: newBookings.length + renewalBookings.length,
       }
     };
-  }, [rhAllBookings, rhAllUnits, activityFrom, activityTo]);
+  }, [rhAllBookings, rhAllUnits, activityFrom, activityTo, lavandaConn, lavandaData]);
 
   // ── Lead source attribution (async GHL lookup) ──
   const [leadSources, setLeadSources] = useState({});
@@ -4636,13 +4674,22 @@ export default function Dashboard() {
                   {/* LoS Breakdown */}
                   <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                      <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown</p>
+                      <div>
+                        <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown</p>
+                        <p style={{fontSize:9,color:C.muted,marginTop:2}}>RH = long-stay · Lav = short-stay (Booking.com)</p>
+                      </div>
                       <button onClick={()=>{
-                        const losRows = [["LoS Band","Bookings","Days"]];
-                        [{l:"< 32 days",k:"<32d"},{l:"32 – 91 days",k:"32-91d"},{l:"92 – 181 days",k:"92-181d"},{l:"182 – 364 days",k:"182-364d"},{l:"365+ days",k:"365d+"}].forEach(r=>{
-                          losRows.push([r.l, recentActivity.losBuckets?.[r.k]||0, recentActivity.losDaysBuckets?.[r.k]||0]);
+                        const losRows = [["LoS Band","Res Harmonics","Lavanda","Total","Days"]];
+                        LOS_BANDS.forEach(b=>{
+                          const rh = recentActivity.losBySource?.rh?.[b.short]||0;
+                          const lav = recentActivity.losBySource?.lav?.[b.short]||0;
+                          losRows.push([`${b.label} (${b.note})`, rh, lav, rh+lav, recentActivity.losDaysBuckets?.[b.short]||0]);
                         });
-                        losRows.push(["Total", recentActivity.all?.length||0, recentActivity.totalDaysBooked||0]);
+                        losRows.push(["Total",
+                          recentActivity.srcTotals?.rh?.count||0,
+                          recentActivity.srcTotals?.lav?.count||0,
+                          (recentActivity.srcTotals?.rh?.count||0)+(recentActivity.srcTotals?.lav?.count||0),
+                          recentActivity.totalDaysBooked||0]);
                         copyTable(losRows,"los");
                       }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="los"?C.sage:C.border}`,background:copiedTable==="los"?C.sage+"22":"transparent",color:copiedTable==="los"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
                         {copiedTable==="los"?"✓ Copied":"Copy"}
@@ -4652,27 +4699,35 @@ export default function Dashboard() {
                       <thead>
                         <tr style={{borderBottom:`1px solid ${C.border}44`}}>
                           <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
-                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Bookings</th>
+                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.sage,fontWeight:600}} title="Res Harmonics — long-stay">RH</th>
+                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.blue,fontWeight:600}} title="Lavanda — short-stay">Lav</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Total</th>
                           <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {[
-                          {l:"< 32 days",k:"<32d"},
-                          {l:"32 – 91 days",k:"32-91d"},
-                          {l:"92 – 181 days",k:"92-181d"},
-                          {l:"182 – 364 days",k:"182-364d"},
-                          {l:"365+ days",k:"365d+"},
-                        ].map(row=>(
-                          <tr key={row.k} style={{borderBottom:`1px solid ${C.border}22`}}>
-                            <td style={{padding:"5px 8px",color:C.muted}}>{row.l}</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:(recentActivity.losBuckets?.[row.k]||0)>0?C.text:C.muted}}>{recentActivity.losBuckets?.[row.k]||0}</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:(recentActivity.losDaysBuckets?.[row.k]||0)>0?C.muted:C.muted+"66"}}>{(recentActivity.losDaysBuckets?.[row.k]||0).toLocaleString()}</td>
-                          </tr>
-                        ))}
+                        {LOS_BANDS.map(band=>{
+                          const k = band.short;
+                          const rh = recentActivity.losBySource?.rh?.[k] || 0;
+                          const lav = recentActivity.losBySource?.lav?.[k] || 0;
+                          const tot = rh + lav;
+                          return (
+                          <tr key={k} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>
+                              {band.label}
+                              <span style={{fontSize:9,color:C.muted+"99",marginLeft:6}}>{band.note}</span>
+                            </td>
+                            <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,color:rh>0?C.sage:C.muted+"66"}}>{rh}</td>
+                            <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,color:lav>0?C.blue:C.muted+"66"}}>{lav}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:tot>0?C.text:C.muted}}>{tot}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:C.muted}}>{(recentActivity.losDaysBuckets?.[k]||0).toLocaleString()}</td>
+                          </tr>);
+                        })}
                         <tr style={{borderTop:`1px solid ${C.border}`}}>
-                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total New Bookings (Full)</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total New Bookings</td>
+                          <td style={{padding:"6px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.sage}}>{recentActivity.srcTotals?.rh?.count||0}</td>
+                          <td style={{padding:"6px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.blue}}>{recentActivity.srcTotals?.lav?.count||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.srcTotals?.rh?.count||0)+(recentActivity.srcTotals?.lav?.count||0)}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
                         </tr>
                       </tbody>
