@@ -109,7 +109,14 @@ export default async function handler(req, res) {
       const canceled = allBookings.filter(b => b.attributes.canceled || (b.attributes.status || "").toLowerCase() === "canceled");
       const inquiries = allBookings.filter(b => (b.attributes.status || "").toLowerCase() === "inquiry");
 
-      // Daily occupancy: count units with a confirmed booking each night
+      // Daily occupancy: count distinct SHORT-STAY UNITS occupied each night.
+      // Two corrections that materially change the number:
+      //  - only units belonging to the short-stay group count (a stay booked
+      //    into a 2-Bedroom is not Nomad occupancy)
+      //  - never fall back to the booking id as a pseudo-unit; two bookings on
+      //    the same room (an actual double-booking) is ONE occupied room, and
+      //    counting them separately overstates occupancy.
+      const ssUnitIds = new Set((ssGroup?.relationships?.properties?.data || []).map(x => x.id));
       const daily = [];
       const msDay = 86400000;
       const dStart = new Date(rangeStart + "T00:00:00Z");
@@ -120,7 +127,8 @@ export default async function handler(req, res) {
         confirmed.forEach(b => {
           const a = b.attributes;
           if (a.start_date <= date && a.end_date > date) {
-            unitsBooked.add(b?.relationships?.unit?.data?.id || b.id);
+            const uid = b?.relationships?.unit?.data?.id;
+            if (uid && (ssUnitIds.size === 0 || ssUnitIds.has(uid))) unitsBooked.add(uid);
           }
         });
         const cal = calById[date] || {};
@@ -251,6 +259,44 @@ export default async function handler(req, res) {
         bookedRoomNumbers: [...ssBookedRooms],
       };
 
+      // ── Double bookings WITHIN Lavanda ──
+      // Two confirmed stays on the same unit whose date ranges genuinely
+      // overlap (nights basis). Cross-system clashes with Res Harmonics
+      // long-stay tenants are detected on the frontend, where both data
+      // sets are available.
+      const byUnit = {};
+      confirmed.forEach(b => {
+        const uid = b.relationships?.unit?.data?.id;
+        if (!uid) return;
+        const a = b.attributes;
+        if (!a.start_date || !a.end_date || a.end_date < todayStr) return;
+        (byUnit[uid] = byUnit[uid] || []).push({
+          guest: `${a.lead_guest_first_name || ""} ${a.lead_guest_last_name || ""}`.trim(),
+          start: a.start_date, end: a.end_date,
+          code: a.confirmation_code || null, platform: a.platform || null,
+        });
+      });
+      const conflicts = [];
+      Object.entries(byUnit).forEach(([uid, list]) => {
+        for (let i = 0; i < list.length; i++) {
+          for (let j = i + 1; j < list.length; j++) {
+            const A = list[i], B = list[j];
+            // identical confirmation code = duplicate record, not a real clash
+            if (A.code && B.code && A.code === B.code) continue;
+            const os = A.start > B.start ? A.start : B.start;
+            const oe = A.end < B.end ? A.end : B.end;
+            const nights = Math.round((new Date(oe) - new Date(os)) / msDay);
+            if (nights > 0) {
+              conflicts.push({
+                room: unitRoomNo[uid] || uid, nights, from: os, to: oe,
+                a: A, b: B, kind: "short-stay vs short-stay",
+              });
+            }
+          }
+        }
+      });
+      conflicts.sort((x, y) => x.from.localeCompare(y.from));
+
       const adrFor = (v, n) => (n > 0 ? Math.round((v / n) * 100) / 100 : 0);
       const ssAdr = {
         inHouse: { adr: adrFor(ssInHouseValue, ssInHouseNights), count: los.inHouse.total },
@@ -305,6 +351,12 @@ export default async function handler(req, res) {
         los,
         ssAdr,
         ssUnitStatus,
+        conflicts,
+        // Individual forward short-stay stays keyed by room number, so the
+        // frontend can cross-check them against Res Harmonics long-stay tenants
+        ssStays: Object.entries(byUnit).flatMap(([uid, list]) =>
+          list.map(s => ({ room: unitRoomNo[uid] || null, ...s }))
+        ).filter(s => s.room),
         _debug: { bookingCount: allBookings.length, propGroupCount: propGroups.length, calSample: calRaw?.data?.slice ? calRaw.data.slice(0, 2) : calRaw },
       });
     }

@@ -7352,6 +7352,43 @@ export default function Dashboard() {
                         }
                         if (!isBusy) open[t] = (open[t] || 0) + 1;
                       });
+
+                      // ── Genuine cross-system double bookings ──
+                      // A room having stays in both systems is not itself a clash —
+                      // they're usually sequential. Only overlapping DATES matter.
+                      const crossClashes = [];
+                      if (lavandaConn && lavandaData?.ssStays) {
+                        const lavByRoom = {};
+                        (lavandaData.ssStays || []).forEach(s => {
+                          if (!s.room) return;
+                          (lavByRoom[s.room] = lavByRoom[s.room] || []).push(s);
+                        });
+                        bedrooms.filter(u => baseRoomType(u.unitTypeName) === SHORT_STAY_TYPE).forEach(u => {
+                          const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
+                          const lavStays = lavByRoom[roomNo];
+                          if (!lavStays || lavStays.length === 0) return;
+                          (rhAllBookings || []).forEach(b => {
+                            const id = b.unit?.id ?? b.unitId;
+                            if (id !== u.id) return;
+                            const st = (b.roomStayStatus || "").toUpperCase();
+                            if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(st)) return;
+                            const f = (b.startDate || "").slice(0, 10), t2 = (b.endDate || "").slice(0, 10);
+                            if (!f || !t2 || t2 < todayStr) return;
+                            lavStays.forEach(s => {
+                              const os = f > s.start ? f : s.start;
+                              const oe = t2 < s.end ? t2 : s.end;
+                              const nights = Math.round((new Date(oe) - new Date(os)) / 864e5);
+                              if (nights > 0) crossClashes.push({
+                                room: roomNo, nights, from: os, to: oe,
+                                longStay: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+                                longStayRef: b.bookingReference, longStayStatus: st,
+                                shortStay: s.guest, shortStayCode: s.code,
+                              });
+                            });
+                          });
+                        });
+                      }
+                      const lavClashes = (lavandaConn && lavandaData?.conflicts) ? lavandaData.conflicts : [];
                       const rows = Object.keys(totals)
                         .filter(t => t !== SHORT_STAY_TYPE)
                         .map(t => ({ type: t, total: totals[t], open: open[t] || 0, source: "rh" }))
@@ -7386,7 +7423,7 @@ export default function Dashboard() {
                         lsPct: lsTotal > 0 ? (lsOpen / lsTotal) * 100 : 0,
                         grandTotal, grandOpen,
                         pct: grandTotal > 0 ? (grandOpen / grandTotal) * 100 : 0,
-                        ss, hasSS,
+                        ss, hasSS, crossClashes, lavClashes,
                       };
                     })();
 
@@ -7450,7 +7487,7 @@ export default function Dashboard() {
                                   <p style={{fontSize:10,color:C.muted,marginTop:2}}>
                                     {openSummary.hasSS
                                       ? <>These rooms are let both ways — long-stay tenants in Res Harmonics and short-stay guests in Lavanda. A room counts as open only when <em>neither</em> system has it booked.
-                                          {openSummary.ss.bothSystems > 0 && <span style={{color:C.rose}}> {openSummary.ss.bothSystems} room{openSummary.ss.bothSystems!==1?"s have":" has"} a long-stay tenant AND a short-stay booking on the books — worth checking for clashes.</span>}</>
+                                          {openSummary.ss.bothSystems > 0 && <> {openSummary.ss.bothSystems} room{openSummary.ss.bothSystems!==1?"s have":" has"} stays in both systems (mostly sequential, not clashes).</>}</>
                                       : "Lavanda not connected — short-stay rooms excluded from the total above"}
                                   </p>
                                 </div>
@@ -7461,6 +7498,49 @@ export default function Dashboard() {
                                 </p>
                               </div>
                             )}
+
+                            {/* ── GENUINE DOUBLE BOOKINGS (real date overlaps) ── */}
+                            {(() => {
+                              const cross = openSummary.crossClashes || [];
+                              const lav = openSummary.lavClashes || [];
+                              const n = cross.length + lav.length;
+                              if (n === 0) return (
+                                <p style={{fontSize:10,color:C.sage,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                                  ✓ No overlapping bookings detected across Res Harmonics and Lavanda.
+                                </p>
+                              );
+                              return (
+                                <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.rose}44`}}>
+                                  <p style={{fontSize:11,color:C.rose,fontWeight:700,marginBottom:8}}>
+                                    ⚠ {n} double booking{n!==1?"s":""} — same room, overlapping dates
+                                  </p>
+                                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                                    {cross.map((c,i) => (
+                                      <div key={"x"+i} style={{background:C.rose+"11",border:`1px solid ${C.rose}44`,borderRadius:8,padding:"8px 10px"}}>
+                                        <p style={{fontSize:11,color:C.text,fontWeight:600}}>
+                                          Room {c.room} · {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                                          <span style={{fontSize:9,color:C.rose,marginLeft:6}}>LONG-STAY vs SHORT-STAY</span>
+                                        </p>
+                                        <p style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:"DM Mono,monospace"}}>
+                                          {c.longStay} ({c.longStayRef}, {c.longStayStatus}) ↔ {c.shortStay} ({c.shortStayCode})
+                                        </p>
+                                      </div>
+                                    ))}
+                                    {lav.map((c,i) => (
+                                      <div key={"l"+i} style={{background:C.gold+"11",border:`1px solid ${C.gold}44`,borderRadius:8,padding:"8px 10px"}}>
+                                        <p style={{fontSize:11,color:C.text,fontWeight:600}}>
+                                          Room {c.room} · {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                                          <span style={{fontSize:9,color:C.gold,marginLeft:6}}>BOTH SHORT-STAY</span>
+                                        </p>
+                                        <p style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:"DM Mono,monospace"}}>
+                                          {c.a.guest} {c.a.start}→{c.a.end} ({c.a.platform||"—"}) ↔ {c.b.guest} {c.b.start}→{c.b.end} ({c.b.platform||"—"})
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
 
