@@ -27,28 +27,38 @@ export default async function handler(req, res) {
       } catch (e) { errors.push(`account: ${e.message}`); }
 
       // 2. All property groups
-      let propGroups = [];
-      try {
-        const pRes = await fetch(`${BASE}/properties?perPage=100`, { headers });
-        if (pRes.ok) {
-          const p = await pRes.json();
-          propGroups = p?.data || [];
-        } else errors.push(`properties: ${pRes.status}`);
-      } catch (e) { errors.push(`properties: ${e.message}`); }
-
-      // 3. All bookings (paginate)
-      let allBookings = [];
-      try {
-        for (let page = 1; page <= 10; page++) {
-          const bRes = await fetch(`${BASE}/bookings?perPage=100&page[number]=${page}`, { headers });
-          if (!bRes.ok) { if (page === 1) errors.push(`bookings: ${bRes.status}`); break; }
-          const b = await bRes.json();
-          const rows = b?.data || [];
-          allBookings = allBookings.concat(rows);
-          const totalPages = Math.ceil((b?.meta?.page?.total || 0) / 100);
-          if (page >= totalPages) break;
+      // Lavanda uses CURSOR pagination. `page[number]` is silently ignored — it
+      // returns page 1 every time — and the page size is capped at 50 regardless
+      // of perPage. The cursor comes back as meta.page.next and must be passed as
+      // page[after]. Getting this wrong previously truncated bookings to the
+      // first 50 of 97, understating confirmed bookings, revenue, ADR and
+      // occupancy across the whole short-stay side.
+      const lavFetchAll = async (path, label, maxPages = 25) => {
+        let all = [], cursor = null;
+        for (let i = 0; i < maxPages; i++) {
+          const sep = path.includes("?") ? "&" : "?";
+          const url = `${BASE}${path}${sep}perPage=100${cursor ? `&page[after]=${encodeURIComponent(cursor)}` : ""}`;
+          const r = await fetch(url, { headers });
+          if (!r.ok) { if (i === 0) errors.push(`${label}: ${r.status}`); break; }
+          const j = await r.json();
+          const rows = j?.data || [];
+          all = all.concat(rows);
+          cursor = j?.meta?.page?.next;
+          const total = j?.meta?.records?.total;
+          if (!cursor || rows.length === 0) break;
+          if (total && all.length >= total) break;
         }
-      } catch (e) { errors.push(`bookings: ${e.message}`); }
+        return all;
+      };
+
+      let propGroups = [];
+      try { propGroups = await lavFetchAll("/properties", "properties"); }
+      catch (e) { errors.push(`properties: ${e.message}`); }
+
+      // 3. All bookings
+      let allBookings = [];
+      try { allBookings = await lavFetchAll("/bookings", "bookings"); }
+      catch (e) { errors.push(`bookings: ${e.message}`); }
 
       // 4. Calendar for the short-stay property group (rates + blocked)
       const todayStr = new Date().toISOString().slice(0, 10);
@@ -208,7 +218,16 @@ export default async function handler(req, res) {
       // availability summary can count Nomad stock properly instead of
       // treating every Lavanda-managed room as empty.
       const ssChildIds = new Set((ssGroup?.relationships?.properties?.data || []).map(x => x.id));
-      const ssBusyUnits = new Set();
+      // Map each short-stay unit to its ROOM NUMBER so the frontend can match
+      // these against Res Harmonics rooms — Nomad rooms host long-stay tenants
+      // too, and a room is only genuinely open if neither system has it booked.
+      const unitRoomNo = {};
+      propGroups.forEach(p => {
+        if (!ssChildIds.has(p.id)) return;
+        const m = (p?.attributes?.name || "").match(/(\d{3,4})\s*$/);
+        if (m) unitRoomNo[p.id] = m[1];
+      });
+      const ssBusyUnits = new Set(), ssBookedRooms = new Set();
       let ssForwardBookings = 0, ssForwardOutsideGroup = 0;
       confirmed.forEach(b => {
         const end = b.attributes.end_date;
@@ -216,8 +235,10 @@ export default async function handler(req, res) {
         ssForwardBookings++;
         const uid = b.relationships?.unit?.data?.id;
         if (!uid) return;
-        if (ssChildIds.has(uid)) ssBusyUnits.add(uid);
-        else ssForwardOutsideGroup++; // e.g. a short stay booked into a 2-Bedroom
+        if (ssChildIds.has(uid)) {
+          ssBusyUnits.add(uid);
+          if (unitRoomNo[uid]) ssBookedRooms.add(unitRoomNo[uid]);
+        } else ssForwardOutsideGroup++; // e.g. a short stay booked into a 2-Bedroom
       });
       const ssUnitTotal = ssChildIds.size || ssUnits;
       const ssUnitStatus = {
@@ -227,6 +248,7 @@ export default async function handler(req, res) {
         blockedTonight: tonight.blocked,
         forwardBookings: ssForwardBookings,
         forwardBookingsOutsideGroup: ssForwardOutsideGroup,
+        bookedRoomNumbers: [...ssBookedRooms],
       };
 
       const adrFor = (v, n) => (n > 0 ? Math.round((v / n) * 100) / 100 : 0);

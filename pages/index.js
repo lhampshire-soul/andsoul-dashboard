@@ -7328,14 +7328,30 @@ export default function Dashboard() {
                         const id = b.unit?.id ?? b.unitId;
                         if (id) busy.add(id);
                       });
+                      const SHORT_STAY_TYPE = "Ensuite";
+                      // Nomad/Ensuite rooms are let BOTH ways: long-stay tenants sit in
+                      // Res Harmonics and short-stay guests in Lavanda. A room is only
+                      // genuinely open when NEITHER system has it booked, so the two
+                      // sets are unioned by room number here.
+                      const ssBookedRooms = new Set(
+                        (lavandaConn && lavandaData?.ssUnitStatus?.bookedRoomNumbers) || []
+                      );
                       const totals = {}, open = {};
+                      let ssBothCount = 0;
                       bedrooms.forEach(u => {
                         const t = baseRoomType(u.unitTypeName);
                         if (!t) return;
                         totals[t] = (totals[t] || 0) + 1;
-                        if (!busy.has(u.id)) open[t] = (open[t] || 0) + 1;
+                        const rhBusy = busy.has(u.id);
+                        let isBusy = rhBusy;
+                        if (t === SHORT_STAY_TYPE && ssBookedRooms.size > 0) {
+                          const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
+                          const lavBusy = ssBookedRooms.has(roomNo);
+                          if (rhBusy && lavBusy) ssBothCount++;
+                          isBusy = rhBusy || lavBusy;
+                        }
+                        if (!isBusy) open[t] = (open[t] || 0) + 1;
                       });
-                      const SHORT_STAY_TYPE = "Ensuite";
                       const rows = Object.keys(totals)
                         .filter(t => t !== SHORT_STAY_TYPE)
                         .map(t => ({ type: t, total: totals[t], open: open[t] || 0, source: "rh" }))
@@ -7347,11 +7363,14 @@ export default function Dashboard() {
                       // bookings live in Lavanda. Use Lavanda's per-unit forward-booking data
                       // so they can be counted alongside the long-stay stock.
                       const su = (lavandaConn && lavandaData?.ssUnitStatus) ? lavandaData.ssUnitStatus : null;
-                      const ss = totals[SHORT_STAY_TYPE] ? {
+                      const ssTotal = totals[SHORT_STAY_TYPE] || 0;
+                      const ssOpen = open[SHORT_STAY_TYPE] || 0;
+                      const ss = ssTotal ? {
                         type: SHORT_STAY_TYPE,
-                        total: totals[SHORT_STAY_TYPE],
-                        open: su ? su.fullyOpen : null,
-                        booked: su ? su.withForwardBooking : null,
+                        total: ssTotal,
+                        open: su ? ssOpen : null,          // union of RH + Lavanda
+                        shortStayBooked: su ? su.withForwardBooking : null,
+                        bothSystems: ssBothCount,          // long-stay tenant AND a short-stay booking
                         blocked: su ? su.blockedTonight : null,
                         source: "lavanda",
                       } : null;
@@ -7430,13 +7449,14 @@ export default function Dashboard() {
                                   <p style={{fontSize:11,color:C.blue,fontWeight:700}}>Ensuite (Nomad) · {openSummary.ss.total} rooms · short-stay via Booking.com</p>
                                   <p style={{fontSize:10,color:C.muted,marginTop:2}}>
                                     {openSummary.hasSS
-                                      ? <>Forward bookings come from Lavanda (Res Harmonics shows these rooms empty), so they are counted in the total above. <span style={{color:C.gold}}>{openSummary.ss.blocked} of the {openSummary.ss.open} open are blocked in the calendar tonight</span> — not currently sellable without unblocking.</>
+                                      ? <>These rooms are let both ways — long-stay tenants in Res Harmonics and short-stay guests in Lavanda. A room counts as open only when <em>neither</em> system has it booked.
+                                          {openSummary.ss.bothSystems > 0 && <span style={{color:C.rose}}> {openSummary.ss.bothSystems} room{openSummary.ss.bothSystems!==1?"s have":" has"} a long-stay tenant AND a short-stay booking on the books — worth checking for clashes.</span>}</>
                                       : "Lavanda not connected — short-stay rooms excluded from the total above"}
                                   </p>
                                 </div>
                                 <p style={{fontSize:12,color:C.muted,fontFamily:"DM Mono,monospace",whiteSpace:"nowrap"}}>
                                   {openSummary.hasSS
-                                    ? <><span style={{color:C.blue,fontWeight:700}}>{openSummary.ss.booked}</span> booked ahead · <span style={{color:C.rose,fontWeight:700}}>{openSummary.ss.open}</span> nothing booked</>
+                                    ? <><span style={{color:C.blue,fontWeight:700}}>{openSummary.ss.shortStayBooked}</span> short-stay booked · <span style={{color:C.rose,fontWeight:700}}>{openSummary.ss.open}</span> fully open</>
                                     : "—"}
                                 </p>
                               </div>
