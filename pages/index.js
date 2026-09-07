@@ -3030,8 +3030,21 @@ export default function Dashboard() {
     } finally { setSmsSending(false); }
   }, [smsModal, smsText, emailBody, emailSubject, msgChannel]);
 
-  const occupied  = pmsConn&&pmsData ? pmsData.occupied : Math.round(BEDS*mOcc/100);
-  const occPct    = pmsConn&&pmsData ? pmsData.occupancyPct : mOcc;
+  // Combined occupancy — RH rooms plus Lavanda short-stay rooms, de-duplicated
+  // (a room booked in both systems is one occupied room), measured against
+  // USABLE rooms so this ties out with the Summary tab.
+  const occupied = (() => {
+    if (!(pmsConn && pmsData)) return Math.round(BEDS * mOcc / 100);
+    const rhRooms = new Set(pmsData.occupiedRoomNumbers || []);
+    const d = new Date().toISOString().slice(0, 10);
+    const ssRooms = (lavandaConn && lavandaData?.ssStays)
+      ? [...new Set(lavandaData.ssStays.filter(s => s.start <= d && s.end > d).map(s => s.room))]
+      : [];
+    const extra = ssRooms.filter(r => !rhRooms.has(r)).length;
+    return pmsData.occupied + extra;
+  })();
+  const usableRooms = Math.max(1, BEDS - offlineRooms);
+  const occPct = pmsConn && pmsData ? Math.round(occupied / usableRooms * 100) : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
   const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
   const renewRate = (mRen+mChurn)>0 ? Math.round(mRen/(mRen+mChurn)*100) : 0;
@@ -4864,7 +4877,7 @@ export default function Dashboard() {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                 <div>
                   <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Today · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</p>
-                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Current in-house occupancy (checked-in guests only)</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Rooms occupied tonight — long-stay (RH){lavandaConn?" + short-stay (Lavanda)":""}, against usable rooms</p>
                 </div>
                 {pmsConn&&<span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>}
               </div>
@@ -4872,7 +4885,7 @@ export default function Dashboard() {
                 <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:16}}>
                   <OccRing pct={occPct}/>
                   <div>
-                    <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {BEDS}</span></p>
+                    <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {usableRooms}</span></p>
                     <p style={{fontSize:12,color:C.muted}}>rooms occupied today{pmsData?.inHouseGuests > occupied ? ` (${pmsData.inHouseGuests} guests)` : ""}</p>
                   </div>
                 </div>
@@ -4905,7 +4918,7 @@ export default function Dashboard() {
               </div>)}
               <div style={{display:"flex",justifyContent:"space-between",marginTop:12,marginBottom:4}}>
                 <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
-                <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.round(BEDS*.95)-occupied} to go`}</span>
+                <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.max(0,Math.ceil(usableRooms*.95)-occupied)} to go`}</span>
               </div>
               <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
                 <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
@@ -4922,7 +4935,7 @@ export default function Dashboard() {
                 return (
                   <div style={{flex:"1 1 320px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
                     <p style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{title}</p>
-                    <p style={{fontSize:11,color:C.muted,marginBottom:14}}>{group.total} bookings · {subtitle}</p>
+                    <p style={{fontSize:11,color:C.muted,marginBottom:14}}>{group.total} stays · {subtitle}</p>
                     {/* Stacked bar */}
                     <div style={{display:"flex",height:18,borderRadius:6,overflow:"hidden",marginBottom:14}}>
                       {bands.map((b, i) => {
@@ -4977,7 +4990,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",gap:14}}>
-                    {renderGroup(inHouse, "Checked In · Long-Stay", "currently in the building")}
+                    {renderGroup(inHouse, "Checked In · Long-Stay", "stay records in the building — a room move counts twice")}
                     {renderGroup(upcoming, "Confirmed & Pending · Long-Stay", "future bookings")}
                     {ssCombined && ssCombined.total > 0 && renderGroup(ssCombined, "Short-Stay · Booking.com", `${ssLos.inHouse.total} in-house + ${ssLos.upcoming.total} upcoming`)}
                     {renderGroup(combined, "All Bookings", `${inHouse.total + upcoming.total} long-stay${ssCombined ? ` + ${ssCombined.total} short-stay` : ""}`)}
