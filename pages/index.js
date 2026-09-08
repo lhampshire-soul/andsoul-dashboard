@@ -7511,22 +7511,33 @@ export default function Dashboard() {
                       const ssBookedRooms = new Set(
                         (lavandaConn && lavandaData?.ssUnitStatus?.bookedRoomNumbers) || []
                       );
-                      const totals = {}, open = {};
+                      const totals = {}, open = {}, openRooms = {};
                       let ssBothCount = 0;
                       bedrooms.forEach(u => {
                         const t = baseRoomType(u.unitTypeName);
                         if (!t) return;
                         totals[t] = (totals[t] || 0) + 1;
+                        const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
                         const rhBusy = busy.has(u.id);
                         let isBusy = rhBusy;
                         if (t === SHORT_STAY_TYPE && ssBookedRooms.size > 0) {
-                          const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
                           const lavBusy = ssBookedRooms.has(roomNo);
                           if (rhBusy && lavBusy) ssBothCount++;
                           isBusy = rhBusy || lavBusy;
                         }
-                        if (!isBusy) open[t] = (open[t] || 0) + 1;
+                        if (!isBusy) {
+                          open[t] = (open[t] || 0) + 1;
+                          // Carry the room number and whether RH has it marked
+                          // unbookable, so genuinely sellable rooms can be told
+                          // apart from maintenance stock at a glance.
+                          (openRooms[t] = openRooms[t] || []).push({
+                            room: roomNo,
+                            offline: u.bookable === false,
+                          });
+                        }
                       });
+                      Object.values(openRooms).forEach(list =>
+                        list.sort((a, b) => (parseInt(a.room, 10) || 0) - (parseInt(b.room, 10) || 0)));
 
                       // ── Genuine cross-system double bookings ──
                       // A room having stays in both systems is not itself a clash —
@@ -7588,9 +7599,10 @@ export default function Dashboard() {
                       } : null;
 
                       const hasSS = !!(ss && ss.open != null);
-                      const allRows = hasSS ? [...rows, { type: ss.type, total: ss.total, open: ss.open, source: "lavanda" }]
-                                              .sort((a, b) => b.open - a.open || b.total - a.total)
-                                            : rows;
+                      const allRows = (hasSS ? [...rows, { type: ss.type, total: ss.total, open: ss.open, source: "lavanda" }] : rows)
+                        .map(r => ({ ...r, rooms: openRooms[r.type] || [] }))
+                        .sort((a, b) => b.open - a.open || b.total - a.total);
+                      const offlineOpen = Object.values(openRooms).flat().filter(r => r.offline).length;
                       const grandTotal = lsTotal + (hasSS ? ss.total : 0);
                       const grandOpen = lsOpen + (hasSS ? ss.open : 0);
                       return {
@@ -7598,7 +7610,7 @@ export default function Dashboard() {
                         lsPct: lsTotal > 0 ? (lsOpen / lsTotal) * 100 : 0,
                         grandTotal, grandOpen,
                         pct: grandTotal > 0 ? (grandOpen / grandTotal) * 100 : 0,
-                        ss, hasSS, crossClashes, lavClashes,
+                        ss, hasSS, crossClashes, lavClashes, openRooms, offlineOpen,
                       };
                     })();
 
@@ -7619,6 +7631,19 @@ export default function Dashboard() {
                               <div>
                                 <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Fully Open by Room Type</p>
                                 <p style={{fontSize:12,color:C.muted,marginTop:2}}>Bedrooms with no current guest and nothing booked ahead — completely empty stock</p>
+                                <div style={{display:"flex",gap:14,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap",alignItems:"center"}}>
+                                  <span style={{display:"flex",alignItems:"center",gap:5}}>
+                                    <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.sage+"18",color:C.sage,border:`1px solid ${C.sage}33`}}>000</span>
+                                    bookable — sell this now
+                                  </span>
+                                  <span style={{display:"flex",alignItems:"center",gap:5}}>
+                                    <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.rose+"22",color:C.rose,border:`1px solid ${C.rose}55`}}>000 ⚠</span>
+                                    unbookable in RH — maintenance/offline
+                                  </span>
+                                  {openSummary.offlineOpen > 0 && (
+                                    <span style={{color:C.rose}}>{openSummary.offlineOpen} of the empty rooms {openSummary.offlineOpen===1?"is":"are"} flagged offline</span>
+                                  )}
+                                </div>
                               </div>
                               <div style={{textAlign:"right"}}>
                                 <p style={{fontSize:28,fontWeight:800,color:openSummary.pct>=15?C.rose:openSummary.pct>=8?C.gold:C.sage,fontFamily:"DM Mono,monospace",lineHeight:1}}>
@@ -7651,6 +7676,23 @@ export default function Dashboard() {
                                       <div style={{width:`${p}%`,height:"100%",background:col,transition:"width 0.4s"}}/>
                                     </div>
                                     <p style={{fontSize:10,color:C.muted,marginTop:4}}>{p.toFixed(0)}% open</p>
+                                    {r.rooms && r.rooms.length > 0 && (
+                                      <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                                        {r.rooms.map(rm => (
+                                          <span key={rm.room}
+                                            title={rm.offline ? `Room ${rm.room} — marked UNBOOKABLE in Res Harmonics (maintenance/offline)` : `Room ${rm.room} — bookable, nothing booked`}
+                                            style={{
+                                              fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,
+                                              padding:"2px 6px",borderRadius:5,
+                                              background: rm.offline ? C.rose+"22" : C.sage+"18",
+                                              color: rm.offline ? C.rose : C.sage,
+                                              border:`1px solid ${rm.offline ? C.rose+"55" : C.sage+"33"}`,
+                                            }}>
+                                            {rm.room}{rm.offline && " ⚠"}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
