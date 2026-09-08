@@ -2381,9 +2381,23 @@ export default function Dashboard() {
   const [losOverride, setLosOverride] = useState(null);
   const [rateAdjustments, setRateAdjustments] = useState({});
   const [forecastAwrOverride, setForecastAwrOverride] = useState(null); // null = use live AWR from RH
-  const [offlineRooms, setOfflineRoomsRaw] = useState(10);
-  const setOfflineRooms = (v) => { setOfflineRoomsRaw(v); try { localStorage.setItem("southall_offline_rooms", String(v)); } catch {} };
-  useEffect(() => { try { const v = localStorage.getItem("southall_offline_rooms"); if (v != null && !isNaN(+v)) setOfflineRoomsRaw(+v); } catch {} }, []);
+  // Offline rooms now default to the ops register rather than a manual guess.
+  // Still overridable, but the register is the starting point so usable-room
+  // maths matches what's actually held. (v2 key so the old manual value doesn't
+  // stick and silently understate the holds.)
+  const REGISTER_OFFLINE = Object.keys(offlineRoomMap).length;
+  const [offlineRooms, setOfflineRoomsRaw] = useState(REGISTER_OFFLINE);
+  const [offlineIsManual, setOfflineIsManual] = useState(false);
+  const setOfflineRooms = (v) => {
+    setOfflineRoomsRaw(v); setOfflineIsManual(true);
+    try { localStorage.setItem("southall_offline_rooms_v2", String(v)); } catch {}
+  };
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("southall_offline_rooms_v2");
+      if (v != null && !isNaN(+v)) { setOfflineRoomsRaw(+v); setOfflineIsManual(true); }
+    } catch {}
+  }, []);
   const [occupancyOverrides, setOccupancyOverrides] = useState({}); // monthIdx → occupancy % (0-100)
 
   // ── Lavanda Short-Stay Data ──
@@ -3124,7 +3138,13 @@ export default function Dashboard() {
     const extra = ssRooms.filter(r => !rhRooms.has(r)).length;
     return pmsData.occupied + extra;
   })();
-  const usableRooms = Math.max(1, BEDS - offlineRooms);
+  // Real bedroom count from Res Harmonics (302) rather than the legacy 300
+  // constant, so "usable" ties to the room list the tiles are built from.
+  const totalBedrooms = (() => {
+    const n = (rhAllUnits || []).filter(u => /^Room:/i.test((u.unitName || "").trim())).length;
+    return n > 0 ? n : BEDS;
+  })();
+  const usableRooms = Math.max(1, totalBedrooms - offlineRooms);
   const occPct = pmsConn && pmsData ? Math.round(occupied / usableRooms * 100) : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
   const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
@@ -3605,7 +3625,7 @@ export default function Dashboard() {
             {/* ── Hero KPI row ── */}
             {(() => {
               const lsOcc = pmsConn && pmsData ? pmsData.occupied : 0;
-              const lsTotal = BEDS;
+              const lsTotal = totalBedrooms;
               const ssOccRaw = lavandaConn && lavandaData ? lavandaData.kpis.occ_tonight : 0;
               // A room double-booked across both systems is ONE occupied room.
               // Subtract any Nomad room that Res Harmonics also shows occupied.
@@ -3619,7 +3639,7 @@ export default function Dashboard() {
               const ssBlocked = lavandaConn && lavandaData ? lavandaData.kpis.blocked_tonight : 0;
               const ssUnits = lavandaConn && lavandaData ? lavandaData.kpis.units : 0;
               const totalOcc = lsOcc + ssOcc;
-              const usable = lsTotal - offlineRooms; // manual maintenance entry (synced with forecast model)
+              const usable = Math.max(1, lsTotal - offlineRooms); // rooms held per the offline register
               const totalPct = usable > 0 ? Math.round(totalOcc / usable * 100) : 0;
               const lsPct = usable > 0 ? Math.round(lsOcc / usable * 100) : 0;
               const vacancy = Math.max(0, usable - totalOcc);
@@ -3778,9 +3798,14 @@ export default function Dashboard() {
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))",gap:10,marginTop:14}}>
                     <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
-                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Manual entry (all Southall)</p>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Rooms held offline</p>
                       <p style={{fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{offlineRooms}</p>
-                      <p style={{fontSize:10,color:C.muted}}>Usable: {lsTotal - offlineRooms} / {lsTotal}</p>
+                      <p style={{fontSize:10,color:C.muted}}>Usable: {usable} / {lsTotal} bedrooms</p>
+                      <p style={{fontSize:9,color:offlineIsManual?C.gold:C.sage,marginTop:3}}>
+                        {offlineIsManual
+                          ? `Manual override — register has ${REGISTER_OFFLINE}`
+                          : `From the offline register (${REGISTER_OFFLINE} rooms)`}
+                      </p>
                     </div>
                     <div style={{background:C.bg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"10px 14px"}}>
                       <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Offline register (ops)</p>
@@ -5346,7 +5371,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <input type="range" min={0} max={50} value={offlineRooms} onChange={e=>setOfflineRooms(+e.target.value)} style={{width:"100%",accentColor:C.rose}}/>
-                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Usable: {BEDS - offlineRooms} rooms · 95% target: {Math.ceil((BEDS - offlineRooms) * 0.95)} rooms</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Usable: {Math.max(1,totalBedrooms - offlineRooms)} rooms · 95% target: {Math.ceil(Math.max(1,totalBedrooms - offlineRooms) * 0.95)} rooms</p>
                   </div>
                 </div>
 
@@ -5482,7 +5507,7 @@ export default function Dashboard() {
                   }
 
                   // ── 95% Occupancy Target Date — derived from predRows (single source of truth) ──
-                  const USABLE_T = BEDS - offlineRooms; // dynamically adjustable
+                  const USABLE_T = Math.max(1, totalBedrooms - offlineRooms); // real bedrooms less held rooms
                   const TARGET_95 = Math.ceil(USABLE_T * 0.95);
                   // Find which month in predRows first hits TARGET_95
                   let targetHitMonth = null;
