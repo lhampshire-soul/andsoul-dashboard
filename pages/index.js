@@ -218,6 +218,49 @@ const baseRoomType = (typeName) => {
 
 const MIN_STAY_DAYS = 28; // Only count bookings >= 28 days for occupancy & AWR
 
+// ─── OFFLINE / NON-SELLABLE ROOMS REGISTER ───────────────────────────────────
+// Res Harmonics only has ONE of these flagged bookable=false (room 12), so the
+// PMS on its own makes empty maintenance stock look sellable. This register is
+// the operational source of truth. Rooms drop off automatically once `until`
+// passes, so seasonal holds (showflat, summer contingency) self-expire.
+// Keep in sync with the ops offline-rooms tracker.
+const OFFLINE_ROOMS = [
+  { room: "7",    category: "Showflat",    reason: "Show flat / summer contingency", from: "2026-03-02", until: "2026-10-01", note: "Heatwave over — back to showflat, sell as needed" },
+  { room: "12",   category: "Structural",  reason: "Lift motor in room",             from: "2026-01-01", until: "2026-12-31", note: "Permanently offline — 24/7 access needed. Agreed to remove from total available rooms" },
+  { room: "208",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-10-05", note: "" },
+  { room: "308",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-12-31", note: "" },
+  { room: "325",  category: "Refurb",      reason: "Deluxe Duo summer plan",         from: "2026-06-22", until: "2026-10-15", note: "03/09 custom bed lead times may delay return" },
+  { room: "327",  category: "Linen room",  reason: "Linen room — lift contingency",  from: "2025-10-13", until: "2026-12-31", note: "Release to sales when needed. Approved by leadership" },
+  { room: "404",  category: "Maintenance", reason: "AC fault — now linen room",      from: "2026-04-22", until: "2026-12-31", note: "17/08 refrigerant part needs replacing; whole-floor shutdown ~3 days. On hold" },
+  { room: "405",  category: "Legal",       reason: "Ongoing legal case (occupant)",  from: "2025-12-19", until: "2026-12-31", note: "" },
+  { room: "506",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-12-31", note: "" },
+  { room: "507",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-12-31", note: "" },
+  { room: "627",  category: "Linen room",  reason: "Linen room — lift contingency",  from: "2025-10-13", until: "2026-12-31", note: "Release to sales when needed. Approved by leadership" },
+  { room: "727",  category: "Linen room",  reason: "Linen room — lift contingency",  from: "2026-07-31", until: "2026-12-31", note: "Unfavourable layout; lift outages increased housekeeping traffic" },
+  { room: "927",  category: "Linen room",  reason: "Linen room — lift contingency",  from: "2025-10-05", until: "2026-12-31", note: "Frees 1027 for market. Soundproofing not feasible per JPS" },
+  { room: "1104", category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-12-31", note: "" },
+];
+// Room labels vary ("07", "7", "212 - Bar", "325 Duo") — match on the leading number
+const roomKey = (name) => {
+  const m = String(name ?? "").replace(/^Room:\s*/i, "").trim().match(/^(\d+)/);
+  return m ? String(parseInt(m[1], 10)) : null;
+};
+const offlineRoomMap = (() => {
+  const today = new Date().toISOString().slice(0, 10);
+  const m = {};
+  OFFLINE_ROOMS.forEach(r => {
+    if (r.until && r.until < today) return;   // hold has expired
+    if (r.from && r.from > today) return;     // not started yet
+    m[String(parseInt(r.room, 10))] = r;
+  });
+  return m;
+})();
+const offlineInfoFor = (unitName) => offlineRoomMap[roomKey(unitName)] || null;
+const OFFLINE_CAT_COLORS = {
+  "Structural": "#c95c54", "Legal": "#c95c54", "Maintenance": "#d4a843",
+  "Linen room": "#9b72cf", "Staff room": "#3d82c4", "Showflat": "#3d9e75", "Refurb": "#d4a843",
+};
+
 // ─── Length-of-stay bands — single source of truth ───────────────────────────
 // Aligned to the 28-night boundary that actually matters commercially: under 28
 // nights is a short break (and attracts full VAT), 28+ is a tenancy. The old
@@ -3739,10 +3782,19 @@ export default function Dashboard() {
                       <p style={{fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{offlineRooms}</p>
                       <p style={{fontSize:10,color:C.muted}}>Usable: {lsTotal - offlineRooms} / {lsTotal}</p>
                     </div>
+                    <div style={{background:C.bg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"10px 14px"}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Offline register (ops)</p>
+                      <p style={{fontSize:18,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{Object.keys(offlineRoomMap).length}</p>
+                      <p style={{fontSize:10,color:C.muted}} title={Object.values(offlineRoomMap).map(r=>`${r.room}: ${r.reason}`).join("\n")}>
+                        Linen, staff, maintenance & holds — hover for list
+                      </p>
+                    </div>
                     <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
-                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>RH officially unbookable</p>
-                      <p style={{fontSize:18,fontWeight:700,color:pmsConn&&pmsData?C.gold:C.muted,fontFamily:"DM Mono,monospace"}}>{pmsConn&&pmsData?(pmsData.rhOfflineUnits??"—"):"—"}</p>
-                      <p style={{fontSize:10,color:C.muted}} title={pmsConn&&pmsData&&pmsData.rhOfflineList?pmsData.rhOfflineList.join(", "):""}>{pmsConn&&pmsData&&pmsData.rhOfflineList&&pmsData.rhOfflineList.length>0?pmsData.rhOfflineList.slice(0,2).join(", ")+(pmsData.rhOfflineList.length>2?` +${pmsData.rhOfflineList.length-2} more`:""):"bookable=false in Res Harmonics"}</p>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>RH flagged unbookable</p>
+                      <p style={{fontSize:18,fontWeight:700,color:pmsConn&&pmsData?C.rose:C.muted,fontFamily:"DM Mono,monospace"}}>{pmsConn&&pmsData?(pmsData.rhOfflineUnits??"—"):"—"}</p>
+                      <p style={{fontSize:10,color:C.rose}}>
+                        {pmsConn&&pmsData ? `${Math.max(0,Object.keys(offlineRoomMap).length-(pmsData.rhOfflineUnits||0))} held rooms NOT blocked in the PMS` : "bookable=false in Res Harmonics"}
+                      </p>
                     </div>
                     <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
                       <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Lavanda blocked tonight (Nomad)</p>
@@ -7530,9 +7582,12 @@ export default function Dashboard() {
                           // Carry the room number and whether RH has it marked
                           // unbookable, so genuinely sellable rooms can be told
                           // apart from maintenance stock at a glance.
+                          const reg = offlineInfoFor(u.unitName);
                           (openRooms[t] = openRooms[t] || []).push({
                             room: roomNo,
-                            offline: u.bookable === false,
+                            offline: u.bookable === false || !!reg,
+                            reg,                          // ops register entry, if any
+                            rhFlagged: u.bookable === false,
                           });
                         }
                       });
@@ -7602,7 +7657,11 @@ export default function Dashboard() {
                       const allRows = (hasSS ? [...rows, { type: ss.type, total: ss.total, open: ss.open, source: "lavanda" }] : rows)
                         .map(r => ({ ...r, rooms: openRooms[r.type] || [] }))
                         .sort((a, b) => b.open - a.open || b.total - a.total);
-                      const offlineOpen = Object.values(openRooms).flat().filter(r => r.offline).length;
+                      const allOpenRooms = Object.values(openRooms).flat();
+                      const offlineOpen = allOpenRooms.filter(r => r.offline).length;
+                      const sellableOpen = allOpenRooms.length - offlineOpen;
+                      // Every register room that is currently held, whether empty or occupied
+                      const registerHeld = Object.keys(offlineRoomMap).length;
                       const grandTotal = lsTotal + (hasSS ? ss.total : 0);
                       const grandOpen = lsOpen + (hasSS ? ss.open : 0);
                       return {
@@ -7611,6 +7670,7 @@ export default function Dashboard() {
                         grandTotal, grandOpen,
                         pct: grandTotal > 0 ? (grandOpen / grandTotal) * 100 : 0,
                         ss, hasSS, crossClashes, lavClashes, openRooms, offlineOpen,
+                        sellableOpen, registerHeld,
                       };
                     })();
 
@@ -7634,27 +7694,27 @@ export default function Dashboard() {
                                 <div style={{display:"flex",gap:14,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap",alignItems:"center"}}>
                                   <span style={{display:"flex",alignItems:"center",gap:5}}>
                                     <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.sage+"18",color:C.sage,border:`1px solid ${C.sage}33`}}>000</span>
-                                    bookable — sell this now
+                                    sellable now
                                   </span>
                                   <span style={{display:"flex",alignItems:"center",gap:5}}>
                                     <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.rose+"22",color:C.rose,border:`1px solid ${C.rose}55`}}>000 ⚠</span>
-                                    unbookable in RH — maintenance/offline
+                                    held offline — hover for reason
                                   </span>
-                                  {openSummary.offlineOpen > 0 && (
-                                    <span style={{color:C.rose}}>{openSummary.offlineOpen} of the empty rooms {openSummary.offlineOpen===1?"is":"are"} flagged offline</span>
-                                  )}
+                                  <span style={{color:C.muted}}>{openSummary.registerHeld} rooms on the offline register</span>
                                 </div>
                               </div>
                               <div style={{textAlign:"right"}}>
-                                <p style={{fontSize:28,fontWeight:800,color:openSummary.pct>=15?C.rose:openSummary.pct>=8?C.gold:C.sage,fontFamily:"DM Mono,monospace",lineHeight:1}}>
-                                  {openSummary.pct.toFixed(1)}%
+                                <p style={{fontSize:28,fontWeight:800,color:C.sage,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                                  {openSummary.sellableOpen}
                                 </p>
-                                <p style={{fontSize:11,color:C.muted,marginTop:2}}>
-                                  <strong style={{color:C.text}}>{openSummary.grandOpen}</strong> of {openSummary.grandTotal} rooms fully open
+                                <p style={{fontSize:11,color:C.text,marginTop:2,fontWeight:600}}>sellable right now</p>
+                                <p style={{fontSize:10,color:C.muted,marginTop:3}}>
+                                  {openSummary.grandOpen} empty ({openSummary.pct.toFixed(1)}% of {openSummary.grandTotal})
+                                  {openSummary.offlineOpen > 0 && <> · <span style={{color:C.rose}}>{openSummary.offlineOpen} held offline</span></>}
                                 </p>
                                 {openSummary.hasSS && (
                                   <p style={{fontSize:10,color:C.muted,marginTop:2}}>
-                                    {openSummary.lsOpen} long-stay ({openSummary.lsPct.toFixed(1)}%) + {openSummary.ss.open} short-stay
+                                    {openSummary.lsOpen} long-stay + {openSummary.ss.open} short-stay empty
                                   </p>
                                 )}
                               </div>
@@ -7678,25 +7738,87 @@ export default function Dashboard() {
                                     <p style={{fontSize:10,color:C.muted,marginTop:4}}>{p.toFixed(0)}% open</p>
                                     {r.rooms && r.rooms.length > 0 && (
                                       <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
-                                        {r.rooms.map(rm => (
-                                          <span key={rm.room}
-                                            title={rm.offline ? `Room ${rm.room} — marked UNBOOKABLE in Res Harmonics (maintenance/offline)` : `Room ${rm.room} — bookable, nothing booked`}
-                                            style={{
-                                              fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,
-                                              padding:"2px 6px",borderRadius:5,
-                                              background: rm.offline ? C.rose+"22" : C.sage+"18",
-                                              color: rm.offline ? C.rose : C.sage,
-                                              border:`1px solid ${rm.offline ? C.rose+"55" : C.sage+"33"}`,
-                                            }}>
-                                            {rm.room}{rm.offline && " ⚠"}
-                                          </span>
-                                        ))}
+                                        {r.rooms.map(rm => {
+                                          const cat = rm.reg?.category || null;
+                                          const col = cat ? (OFFLINE_CAT_COLORS[cat] || C.rose) : (rm.offline ? C.rose : C.sage);
+                                          const tip = rm.reg
+                                            ? `Room ${rm.room} — ${rm.reg.category}: ${rm.reg.reason}` +
+                                              (rm.reg.until ? ` · held until ${rm.reg.until}` : "") +
+                                              (rm.reg.note ? `\n${rm.reg.note}` : "") +
+                                              (rm.rhFlagged ? "\n(also flagged unbookable in Res Harmonics)" : "\n(NOT flagged in Res Harmonics — still sellable in the PMS)")
+                                            : rm.offline
+                                              ? `Room ${rm.room} — flagged unbookable in Res Harmonics`
+                                              : `Room ${rm.room} — sellable, nothing booked`;
+                                          return (
+                                            <span key={rm.room} title={tip}
+                                              style={{
+                                                fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,
+                                                padding:"2px 6px",borderRadius:5,cursor:"help",
+                                                background: col+"22", color: col, border:`1px solid ${col}55`,
+                                              }}>
+                                              {rm.room}{rm.offline && " ⚠"}
+                                            </span>
+                                          );
+                                        })}
                                       </div>
                                     )}
                                   </div>
                                 );
                               })}
                             </div>
+                            {/* ── OFFLINE REGISTER ── */}
+                            {(() => {
+                              const held = Object.values(offlineRoomMap);
+                              if (held.length === 0) return null;
+                              const openSet = new Set(Object.values(openSummary.openRooms||{}).flat().map(r => String(parseInt(r.room,10))));
+                              const byCat = {};
+                              held.forEach(h => { (byCat[h.category] = byCat[h.category] || []).push(h); });
+                              const notFlagged = held.filter(h => {
+                                const u = (rhAllUnits||[]).find(x => roomKey(x.unitName) === String(parseInt(h.room,10)));
+                                return u && u.bookable !== false;
+                              }).length;
+                              return (
+                                <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:8}}>
+                                    <p style={{fontSize:11,color:C.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>Offline Register · {held.length} rooms held</p>
+                                    {notFlagged > 0 && (
+                                      <p style={{fontSize:10,color:C.rose}}>
+                                        ⚠ {notFlagged} of these are still marked bookable in Res Harmonics — sellable by mistake
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                                    {Object.entries(byCat).sort((a,b)=>b[1].length-a[1].length).map(([cat,list]) => {
+                                      const col = OFFLINE_CAT_COLORS[cat] || C.muted;
+                                      return (
+                                        <div key={cat} style={{background:C.bg,border:`1px solid ${col}44`,borderRadius:9,padding:"8px 11px",minWidth:150}}>
+                                          <p style={{fontSize:10,color:col,fontWeight:700,marginBottom:4}}>{cat} · {list.length}</p>
+                                          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                            {list.map(h => {
+                                              const k = String(parseInt(h.room,10));
+                                              const isEmpty = openSet.has(k);
+                                              return (
+                                                <span key={h.room}
+                                                  title={`Room ${h.room} — ${h.reason}${h.until?` · until ${h.until}`:""}${h.note?`\n${h.note}`:""}\n${isEmpty?"Currently EMPTY":"Currently occupied"}`}
+                                                  style={{fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,cursor:"help",
+                                                    background:isEmpty?col+"22":"transparent",color:isEmpty?col:C.muted,
+                                                    border:`1px solid ${isEmpty?col+"55":C.border}`}}>
+                                                  {h.room}
+                                                </span>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <p style={{fontSize:9,color:C.muted,marginTop:8}}>
+                                    Solid = room is empty right now · outline = currently occupied despite the hold. Holds expire automatically on their end date.
+                                  </p>
+                                </div>
+                              );
+                            })()}
+
                             {openSummary.ss && (
                               <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                                 <div>
