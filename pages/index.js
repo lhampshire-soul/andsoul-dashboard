@@ -3145,6 +3145,72 @@ export default function Dashboard() {
     return n > 0 ? n : BEDS;
   })();
   const usableRooms = Math.max(1, totalBedrooms - offlineRooms);
+
+  // ─── DOUBLE BOOKINGS ─────────────────────────────────────────────────────────
+  // Same room, genuinely overlapping dates. Two sources:
+  //   cross  = Res Harmonics long-stay tenant vs a Lavanda short-stay guest
+  //            (neither system can see the other, so neither flags it)
+  //   lav    = two short-stay bookings clashing inside Lavanda
+  // Consecutive stay records for the same guest pair are merged, so a tenant
+  // with back-to-back contracts reads as one clash rather than several.
+  const doubleBookings = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const raw = [];
+    if (lavandaConn && lavandaData?.ssStays && pmsConn && rhAllUnits?.length && rhAllBookings?.length) {
+      const lavByRoom = {};
+      lavandaData.ssStays.forEach(s => { if (s.room) (lavByRoom[s.room] = lavByRoom[s.room] || []).push(s); });
+      const bookingsByUnit = {};
+      rhAllBookings.forEach(b => {
+        const id = b.unit?.id ?? b.unitId;
+        if (id) (bookingsByUnit[id] = bookingsByUnit[id] || []).push(b);
+      });
+      rhAllUnits.filter(u => /^Room:/i.test((u.unitName || "").trim())).forEach(u => {
+        const no = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
+        const stays = lavByRoom[no];
+        if (!stays) return;
+        (bookingsByUnit[u.id] || []).forEach(b => {
+          const st = (b.roomStayStatus || "").toUpperCase();
+          if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(st)) return;
+          const f = (b.startDate || "").slice(0, 10), t = (b.endDate || "").slice(0, 10);
+          if (!f || !t || t < today) return;
+          stays.forEach(s => {
+            const os = f > s.start ? f : s.start, oe = t < s.end ? t : s.end;
+            if (Math.round((new Date(oe) - new Date(os)) / 864e5) <= 0) return;
+            raw.push({
+              kind: "cross", room: no, from: os, to: oe,
+              aLabel: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim() || "—",
+              aMeta: `${b.bookingReference || "—"} · long-stay`,
+              bLabel: s.guest || "—",
+              bMeta: `${s.code || "—"} · ${s.platform || "short-stay"}`,
+            });
+          });
+        });
+      });
+    }
+    (lavandaData?.conflicts || []).forEach(c => raw.push({
+      kind: "lav", room: c.room, from: c.from, to: c.to,
+      aLabel: c.a.guest || "—", aMeta: `${c.a.code || "—"} · ${c.a.platform || "short-stay"}`,
+      bLabel: c.b.guest || "—", bMeta: `${c.b.code || "—"} · ${c.b.platform || "short-stay"}`,
+    }));
+    // Merge touching/overlapping windows for the same room + guest pair
+    const groups = {};
+    raw.forEach(x => {
+      const k = `${x.room}|${x.kind}|${x.aLabel}|${x.bLabel}`;
+      (groups[k] = groups[k] || []).push(x);
+    });
+    const merged = [];
+    Object.values(groups).forEach(list => {
+      list.sort((p, q) => p.from.localeCompare(q.from));
+      let cur = null;
+      list.forEach(x => {
+        if (cur && x.from <= cur.to) { if (x.to > cur.to) cur.to = x.to; }
+        else { if (cur) merged.push(cur); cur = { ...x }; }
+      });
+      if (cur) merged.push(cur);
+    });
+    merged.forEach(m => { m.nights = Math.round((new Date(m.to) - new Date(m.from)) / 864e5); });
+    return merged.sort((a, b) => a.from.localeCompare(b.from));
+  }, [lavandaConn, lavandaData, pmsConn, rhAllUnits, rhAllBookings]);
   const occPct = pmsConn && pmsData ? Math.round(occupied / usableRooms * 100) : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
   const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
@@ -3621,6 +3687,41 @@ export default function Dashboard() {
                 {!pmsConn && !lavandaConn && <span style={{fontSize:10,color:C.muted}}>○ Not connected</span>}
               </div>
             </div>
+
+            {/* ── DOUBLE BOOKING ALERT ── */}
+            {doubleBookings.length > 0 && (
+              <div style={{background:C.rose+"12",border:`1px solid ${C.rose}66`,borderRadius:14,padding:16,margin:"16px 0 0"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:10}}>
+                  <p style={{fontSize:13,color:C.rose,fontWeight:700}}>
+                    ⚠ {doubleBookings.length} double booking{doubleBookings.length!==1?"s":""} — same room, overlapping dates
+                  </p>
+                  <p style={{fontSize:10,color:C.muted}}>Res Harmonics ↔ Lavanda · needs resolving before arrival</p>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(330px,1fr))",gap:8}}>
+                  {doubleBookings.map((c,i) => {
+                    const live = c.from <= new Date().toISOString().slice(0,10);
+                    return (
+                      <div key={i} style={{background:C.bg,border:`1px solid ${c.kind==="cross"?C.rose+"55":C.gold+"55"}`,borderRadius:10,padding:"10px 12px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:5}}>
+                          <p style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>Room {c.room}</p>
+                          <span style={{fontSize:9,fontWeight:700,color:c.kind==="cross"?C.rose:C.gold}}>
+                            {c.kind==="cross" ? "LONG-STAY vs SHORT-STAY" : "TWO SHORT-STAYS"}
+                          </span>
+                        </div>
+                        <p style={{fontSize:11,color:live?C.rose:C.muted,fontWeight:live?700:400,marginBottom:6}}>
+                          {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                          {live && " · LIVE NOW"}
+                        </p>
+                        <p style={{fontSize:11,color:C.text}}>{c.aLabel}</p>
+                        <p style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace",marginBottom:4}}>{c.aMeta}</p>
+                        <p style={{fontSize:11,color:C.text}}>{c.bLabel}</p>
+                        <p style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>{c.bMeta}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* ── Hero KPI row ── */}
             {(() => {
@@ -7864,47 +7965,30 @@ export default function Dashboard() {
                             )}
 
                             {/* ── GENUINE DOUBLE BOOKINGS (real date overlaps) ── */}
-                            {(() => {
-                              const cross = openSummary.crossClashes || [];
-                              const lav = openSummary.lavClashes || [];
-                              const n = cross.length + lav.length;
-                              if (n === 0) return (
-                                <p style={{fontSize:10,color:C.sage,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                                  ✓ No overlapping bookings detected across Res Harmonics and Lavanda.
+                            {doubleBookings.length === 0 ? (
+                              <p style={{fontSize:10,color:C.sage,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                                ✓ No overlapping bookings detected across Res Harmonics and Lavanda.
+                              </p>
+                            ) : (
+                              <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.rose}44`}}>
+                                <p style={{fontSize:11,color:C.rose,fontWeight:700,marginBottom:8}}>
+                                  ⚠ {doubleBookings.length} double booking{doubleBookings.length!==1?"s":""} — same room, overlapping dates
                                 </p>
-                              );
-                              return (
-                                <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.rose}44`}}>
-                                  <p style={{fontSize:11,color:C.rose,fontWeight:700,marginBottom:8}}>
-                                    ⚠ {n} double booking{n!==1?"s":""} — same room, overlapping dates
-                                  </p>
-                                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                                    {cross.map((c,i) => (
-                                      <div key={"x"+i} style={{background:C.rose+"11",border:`1px solid ${C.rose}44`,borderRadius:8,padding:"8px 10px"}}>
-                                        <p style={{fontSize:11,color:C.text,fontWeight:600}}>
-                                          Room {c.room} · {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
-                                          <span style={{fontSize:9,color:C.rose,marginLeft:6}}>LONG-STAY vs SHORT-STAY</span>
-                                        </p>
-                                        <p style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:"DM Mono,monospace"}}>
-                                          {c.longStay} ({c.longStayRef}, {c.longStayStatus}) ↔ {c.shortStay} ({c.shortStayCode})
-                                        </p>
-                                      </div>
-                                    ))}
-                                    {lav.map((c,i) => (
-                                      <div key={"l"+i} style={{background:C.gold+"11",border:`1px solid ${C.gold}44`,borderRadius:8,padding:"8px 10px"}}>
-                                        <p style={{fontSize:11,color:C.text,fontWeight:600}}>
-                                          Room {c.room} · {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
-                                          <span style={{fontSize:9,color:C.gold,marginLeft:6}}>BOTH SHORT-STAY</span>
-                                        </p>
-                                        <p style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:"DM Mono,monospace"}}>
-                                          {c.a.guest} {c.a.start}→{c.a.end} ({c.a.platform||"—"}) ↔ {c.b.guest} {c.b.start}→{c.b.end} ({c.b.platform||"—"})
-                                        </p>
-                                      </div>
-                                    ))}
-                                  </div>
+                                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                                  {doubleBookings.map((c,i) => (
+                                    <div key={i} style={{background:(c.kind==="cross"?C.rose:C.gold)+"11",border:`1px solid ${(c.kind==="cross"?C.rose:C.gold)}44`,borderRadius:8,padding:"8px 10px"}}>
+                                      <p style={{fontSize:11,color:C.text,fontWeight:600}}>
+                                        Room {c.room} · {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                                        <span style={{fontSize:9,color:c.kind==="cross"?C.rose:C.gold,marginLeft:6}}>{c.kind==="cross"?"LONG-STAY vs SHORT-STAY":"BOTH SHORT-STAY"}</span>
+                                      </p>
+                                      <p style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:"DM Mono,monospace"}}>
+                                        {c.aLabel} ({c.aMeta}) ↔ {c.bLabel} ({c.bMeta})
+                                      </p>
+                                    </div>
+                                  ))}
                                 </div>
-                              );
-                            })()}
+                              </div>
+                            )}
                           </div>
                         )}
 
