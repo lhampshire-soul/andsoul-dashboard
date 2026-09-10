@@ -2258,15 +2258,11 @@ export default function Dashboard() {
       if (!ref || ref.length < 8) return null;
       return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
     };
-    // LoS bands per user spec: 28–92 / 93–182 / 183–360 / 361+
-    const banding = (d) => {
-      if (d == null || d < 0) return null;
-      if (d <= 92) return "1m";
-      if (d <= 182) return "3m";
-      if (d <= 360) return "6m";
-      return "12m";
-    };
-    const bandLabel = { "1m":"1m (≤92d)", "3m":"3m (93–182d)", "6m":"6m (183–360d)", "12m":"12m+ (361d+)" };
+    // Uses the shared LOS_BANDS (28-night boundary) so CAC by length of stay
+    // reconciles with the LoS breakdowns everywhere else on the dashboard.
+    const banding = (d) => (d == null || d < 0) ? null : losBandFor(d).key;
+    const bandLabel = LOS_BANDS.reduce((o, b) => { o[b.key] = `${b.note} (${b.label})`; return o; }, {});
+    const BAND_KEYS = LOS_BANDS.map(b => b.key);
 
     const rows = [];
     const lags = [];
@@ -2308,9 +2304,9 @@ export default function Dashboard() {
 
     const counts = { meta:0, google:0, other:0, total: rows.length };
     const valueByChannel = { meta:0, google:0, other:0 };
-    const losBandCounts = { "1m":0, "3m":0, "6m":0, "12m":0 };
-    const losBandValue  = { "1m":0, "3m":0, "6m":0, "12m":0 };
-    const losBandChannel = { "1m":{meta:0,google:0,other:0}, "3m":{meta:0,google:0,other:0}, "6m":{meta:0,google:0,other:0}, "12m":{meta:0,google:0,other:0} };
+    const losBandCounts = BAND_KEYS.reduce((o,k)=>{o[k]=0;return o;},{});
+    const losBandValue  = BAND_KEYS.reduce((o,k)=>{o[k]=0;return o;},{});
+    const losBandChannel = BAND_KEYS.reduce((o,k)=>{o[k]={meta:0,google:0,other:0};return o;},{});
     for (const r of rows) {
       counts[r.channel]++;
       valueByChannel[r.channel] += r.value;
@@ -2323,7 +2319,7 @@ export default function Dashboard() {
     const googleCAC  = counts.google> 0 ? gSpend      / counts.google: 0;
 
     const bandCAC = {}, bandAvgValue = {}, bandCacPctValue = {};
-    for (const band of ["1m","3m","6m","12m"]) {
+    for (const band of BAND_KEYS) {
       const c = losBandChannel[band], total = losBandCounts[band];
       if (total > 0) {
         const costAttributed = (c.meta * metaCAC) + (c.google * googleCAC) + (c.other * blendedCAC);
@@ -2535,28 +2531,9 @@ export default function Dashboard() {
     try { return JSON.parse(localStorage.getItem("renewal_customer_refs_v1") || "{}"); } catch { return {}; }
   });
 
-  // ─── Lead Source Data ──────────────────────────────────────────────────────────
-  const [leadsData, setLeadsData] = useState([]);
-  const [leadsUpdatedAt, setLeadsUpdatedAt] = useState(null);
-  useEffect(() => {
-    fetch("/api/leads").then(r => r.json()).then(d => {
-      if (d.leads && d.leads.length) { setLeadsData(d.leads); setLeadsUpdatedAt(d.updatedAt); }
-    }).catch(() => {});
-  }, []);
-
-  const leadsFiltered = useMemo(() => {
-    if (!leadsData.length) return { bySource: {}, byChannel: {}, byDay: {}, total: 0, dateRange: "" };
-    const filtered = leadsData.filter(l => l.date >= from && l.date <= to);
-    const bySource = {};
-    const byChannel = {};
-    const byDay = {};
-    for (const l of filtered) {
-      bySource[l.source] = (bySource[l.source] || 0) + 1;
-      byChannel[l.channel] = (byChannel[l.channel] || 0) + 1;
-      byDay[l.date] = (byDay[l.date] || 0) + 1;
-    }
-    return { bySource, byChannel, byDay, total: filtered.length, dateRange: `${from} → ${to}` };
-  }, [leadsData, from, to]);
+  // Lead Source CSV upload removed — the Marketing "Lead Source Breakdown" it fed
+  // was a manual CSV last refreshed 26 May and duplicated the LIVE GHL-attributed
+  // breakdown shown under Recent Booking Activity (Occupancy tab).
 
   // Save customer ref locally (and to RH API if connected)
   const saveCustomerRef = useCallback((roomStayId, bookingId, value) => {
@@ -4474,125 +4451,23 @@ export default function Dashboard() {
               </table>
             </div>
 
-            {/* ── LEAD SOURCE BREAKDOWN ── */}
-            <div style={{marginTop:24}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:2}}>
-                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Southall · {rangeLabel} · CSV Upload Data</p>
-                {leadsUpdatedAt && <p style={{fontSize:10,color:C.muted}}>Last updated: {new Date(leadsUpdatedAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</p>}
-              </div>
-              <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Lead Source Breakdown</h2>
-
-              {leadsData.length === 0 ? (
-                <div style={{padding:"16px 18px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,color:C.muted,fontSize:13}}>
-                  No lead data uploaded yet. Upload your weekly CSV in the chat to populate this section.
-                </div>
-              ) : (
-                <>
-                  {/* Summary KPIs */}
-                  <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
-                    <KPI label="Total Leads" value={leadsFiltered.total} sub={`In selected period`} accent={C.gold}/>
-                    <KPI label="Website Form" value={Object.entries(leadsFiltered.byChannel).filter(([k])=>k==="Organic").reduce((s,[,v])=>s+v,0)} sub="Direct / organic" accent={C.sage}/>
-                    <KPI label="Google Ads" value={leadsFiltered.bySource["Google Ads"]||0} sub="Paid search leads" accent={C.blue}/>
-                    <KPI label="Meta Ads" value={(leadsFiltered.bySource["Instagram Ad"]||0)+(leadsFiltered.bySource["Facebook Ad"]||0)+(leadsFiltered.bySource["Meta Ad"]||0)} sub="FB + IG paid leads" accent={C.purple}/>
-                    <KPI label="Instagram (Organic)" value={leadsFiltered.bySource["Instagram"]||0} sub="Non-paid IG" accent={C.rose}/>
-                  </div>
-
-                  <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
-                    {/* Source breakdown table */}
-                    <div style={{flex:"1 1 400px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Leads by Source</p>
-                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                        <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
-                          <th style={{padding:"5px 10px",textAlign:"left",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase"}}>Source</th>
-                          <th style={{padding:"5px 10px",textAlign:"right",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase"}}>Leads</th>
-                          <th style={{padding:"5px 10px",textAlign:"right",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase"}}>%</th>
-                          <th style={{padding:"5px 10px",textAlign:"left",color:C.muted,fontWeight:500,fontSize:10,width:"40%"}}></th>
-                        </tr></thead>
-                        <tbody>
-                          {Object.entries(leadsFiltered.bySource).sort((a,b)=>b[1]-a[1]).map(([src, count], i) => {
-                            const pct = leadsFiltered.total > 0 ? (count / leadsFiltered.total * 100) : 0;
-                            const maxCount = Math.max(...Object.values(leadsFiltered.bySource));
-                            const barPct = maxCount > 0 ? (count / maxCount * 100) : 0;
-                            const srcColors = {"Google Ads":C.blue,"Google Search":C.blue,"Instagram Ad":"#E1306C","Instagram":"#E1306C","Facebook Ad":"#4267B2","Meta Ad":"#4267B2","LinkedIn":"#0A66C2","Word of Mouth":C.sage,"Online Ad":C.gold,"TikTok":"#69C9D0"};
-                            const barColor = srcColors[src] || C.muted;
-                            return (
-                              <tr key={src} style={{borderBottom:`1px solid ${C.border}22`}}>
-                                <td style={{padding:"7px 10px",color:C.text,fontSize:12}}>
-                                  <span style={{display:"inline-block",width:8,height:8,borderRadius:4,background:barColor,marginRight:6,verticalAlign:"middle"}}/>
-                                  {src}
-                                </td>
-                                <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{count}</td>
-                                <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted,fontSize:11}}>{pct.toFixed(1)}%</td>
-                                <td style={{padding:"7px 10px"}}>
-                                  <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden"}}>
-                                    <div style={{height:6,background:barColor,borderRadius:3,width:`${barPct}%`,opacity:0.7,transition:"width 0.3s ease"}}/>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                        <tfoot><tr style={{borderTop:`1px solid ${C.border}`}}>
-                          <td style={{padding:"7px 10px",color:C.muted,fontSize:11,fontWeight:600}}>Total</td>
-                          <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{leadsFiltered.total}</td>
-                          <td colSpan={2}/>
-                        </tr></tfoot>
-                      </table>
-                    </div>
-
-                    {/* Channel breakdown */}
-                    <div style={{flex:"1 1 250px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>By Channel</p>
-                      {Object.entries(leadsFiltered.byChannel).sort((a,b)=>b[1]-a[1]).map(([ch, count]) => {
-                        const pct = leadsFiltered.total > 0 ? (count / leadsFiltered.total * 100) : 0;
-                        const chColors = {"Google Ads":C.blue,"Meta Ads":"#4267B2","Organic":C.sage,"Paid":C.gold};
-                        const cc = chColors[ch] || C.muted;
-                        return (
-                          <div key={ch} style={{marginBottom:12}}>
-                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                              <span style={{fontSize:12,color:C.text}}>{ch}</span>
-                              <span style={{fontSize:12,fontFamily:"DM Mono,monospace",color:cc,fontWeight:600}}>{count} <span style={{color:C.muted,fontWeight:400}}>({pct.toFixed(0)}%)</span></span>
-                            </div>
-                            <div style={{height:8,background:C.border,borderRadius:4,overflow:"hidden"}}>
-                              <div style={{height:8,background:cc,borderRadius:4,width:`${pct}%`,opacity:0.7,transition:"width 0.3s ease"}}/>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {/* Daily lead volume sparkline */}
-                      <div style={{marginTop:20}}>
-                        <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Daily Volume</p>
-                        {(() => {
-                          const days = Object.entries(leadsFiltered.byDay).sort((a,b)=>a[0].localeCompare(b[0]));
-                          if (!days.length) return <p style={{fontSize:11,color:C.muted}}>No data</p>;
-                          const maxD = Math.max(...days.map(d=>d[1]));
-                          return (
-                            <div style={{display:"flex",alignItems:"flex-end",gap:2,height:50}}>
-                              {days.map(([day, cnt]) => (
-                                <div key={day} title={`${day}: ${cnt} leads`} style={{flex:1,background:C.gold,borderRadius:"2px 2px 0 0",height:`${maxD>0?(cnt/maxD*100):0}%`,minHeight:2,opacity:0.65,cursor:"default",transition:"height 0.3s ease"}}/>
-                              ))}
-                            </div>
-                          );
-                        })()}
-                        <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-                          {(() => {
-                            const days = Object.keys(leadsFiltered.byDay).sort();
-                            if (days.length < 2) return null;
-                            return <><span style={{fontSize:9,color:C.muted}}>{days[0].slice(5)}</span><span style={{fontSize:9,color:C.muted}}>{days[days.length-1].slice(5)}</span></>;
-                          })()}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
 
             {/* ── COST PER BOOKING ── */}
             <div style={{marginTop:24}}>
               <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall · {rangeLabel} · GHL × RH × Ad spend</p>
-              <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Cost Per Booking</h2>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:18}}>
+                <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Cost Per Booking</h2>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,color:ghlConn?C.sage:C.muted,fontWeight:600}}>{ghlConn?"● GHL live":"○ GHL"}</span>
+                  <span style={{fontSize:10,color:pmsConn?C.sage:C.muted,fontWeight:600}}>{pmsConn?"● RH live":"○ RH"}</span>
+                  <span style={{fontSize:10,color:metaIsLive?C.sage:C.muted,fontWeight:600}}>{metaIsLive?"● Meta spend live":"○ Meta static"}</span>
+                  <span style={{fontSize:10,color:googleIsLive?C.sage:C.muted,fontWeight:600}}>{googleIsLive?"● Google spend live":"○ Google static"}</span>
+                </div>
+              </div>
+              <p style={{fontSize:11,color:C.muted,marginTop:-10,marginBottom:16}}>
+                Bookings counted by creation date inside the selected range; ad spend for the same range.
+                Blended CAC divides <em>all</em> spend by <em>all</em> bookings — including the {cacStats?.counts?.other ?? 0} with no paid touch — so it reads lower than the per-channel figures.
+              </p>
 
               {!cacStats && (
                 <div style={{padding:"16px 18px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,color:C.muted,fontSize:13}}>
@@ -4615,7 +4490,7 @@ export default function Dashboard() {
                   {/* LoS band cards */}
                   <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Cost Per Booking · by length of stay</p>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12,marginBottom:18}}>
-                    {["1m","3m","6m","12m"].map(band => {
+                    {LOS_BANDS.map(b => b.key).map(band => {
                       const n = cacStats.losBandCounts[band];
                       const cac = cacStats.bandCAC[band];
                       const avgV = cacStats.bandAvgValue[band];
