@@ -104,8 +104,16 @@ export default async function handler(req, res) {
       const ssUnits = ssGroup?.attributes?.total_units || 30;
       const totalInventory = parentGroups.reduce((s, g) => s + (g?.attributes?.total_units || 0), 0);
 
-      // Only status === "confirmed" counts — inquiries have null cost and aren't real bookings
-      const confirmed = allBookings.filter(b => (b.attributes.status || "").toLowerCase() === "confirmed");
+      // Only status === "confirmed" counts — inquiries have null cost and aren't real bookings.
+      // ALSO drop anything not assigned to a real unit: Lavanda/dev test bookings
+      // ("lavanda testing", £10,000/night, no room) were found in the feed and
+      // would otherwise inflate revenue, ADR and occupancy.
+      const knownUnitIds = new Set();
+      propGroups.forEach(g => (g?.relationships?.properties?.data || []).forEach(c => knownUnitIds.add(c.id)));
+      const rawConfirmed = allBookings.filter(b => (b.attributes.status || "").toLowerCase() === "confirmed");
+      const confirmed = rawConfirmed.filter(b => { const uid = b.relationships?.unit?.data?.id; return uid && (knownUnitIds.size === 0 || knownUnitIds.has(uid)); });
+      const excludedUnassigned = rawConfirmed.length - confirmed.length;
+      const excludedValue = rawConfirmed.filter(b => !confirmed.includes(b)).reduce((s,b)=>s+(Number(b.attributes.total_cost)||0),0);
       const canceled = allBookings.filter(b => b.attributes.canceled || (b.attributes.status || "").toLowerCase() === "canceled");
       const inquiries = allBookings.filter(b => (b.attributes.status || "").toLowerCase() === "inquiry");
 
@@ -151,12 +159,17 @@ export default async function handler(req, res) {
       const departures7 = confirmed.filter(b => b.attributes.end_date >= todayStr && b.attributes.end_date < in7).length;
       const inHouse = confirmed.filter(b => b.attributes.start_date <= todayStr && b.attributes.end_date > todayStr).length;
 
-      // Revenue
+      // Revenue — same population as occupancy (short-stay group units only) so
+      // ADR = revenue ÷ occupied nights is internally consistent. Stays booked
+      // into other groups (e.g. a 2-Bedroom) are reported separately.
       let totalConfValue = 0, totalNights = 0, futureRev = 0;
+      let otherGroupStays = 0, otherGroupValue = 0;
       const monthlyMap = {};
       const dailyRevMap = {};
       confirmed.forEach(b => {
         const a = b.attributes;
+        const uidR = b.relationships?.unit?.data?.id;
+        if (ssUnitIds.size > 0 && !ssUnitIds.has(uidR)) { otherGroupStays++; otherGroupValue += Number(a.total_cost) || 0; return; }
         const cost = Number(a.total_cost) || 0;
         const nights = Number(a.total_days) || Math.max(1, Math.round((new Date(a.end_date) - new Date(a.start_date)) / msDay));
         totalConfValue += cost;
@@ -342,6 +355,10 @@ export default async function handler(req, res) {
           confirmed: confirmed.length,
           canceled: canceled.length,
           inquiries: inquiries.length,
+          excluded_unassigned: excludedUnassigned,
+          excluded_value: Math.round(excludedValue * 100) / 100,
+          other_group_stays: otherGroupStays,
+          other_group_value: Math.round(otherGroupValue * 100) / 100,
           total_inventory: totalInventory,
         },
         daily,

@@ -3407,9 +3407,10 @@ export default function Dashboard() {
     const sum = (arr, a, b) => { const [lo,hi] = rangeIdx(a,b); let s=0; for (let i=lo;i<=hi;i++) s += (arr[i]||0); return s; };
     const avg = (arr, a, b) => { const [lo,hi] = rangeIdx(a,b); let s=0,n=0; for (let i=lo;i<=hi;i++) { if (arr[i]!=null && !isNaN(arr[i])) { s+=arr[i]; n++; } } return n ? s/n : null; };
     const at  = (arr, dStr) => { const i2 = idx[dStr]; return i2 == null ? null : arr[i2]; };
+    const ratio = (num, den, a, b) => { const n = sum(num, a, b), d = sum(den, a, b); return d > 0 ? n / d : null; };
     const last30 = (arr) => arr.slice(DAYS-30).map(v => v == null ? 0 : v);
     const daysAgo = (n) => dates[Math.max(0, DAYS-1-n)];
-    return { ...S, sum, avg, at, last30, daysAgo, today: last };
+    return { ...S, sum, avg, at, ratio, last30, daysAgo, today: last };
   }, [rhAllBookings, rhAllUnits, lavandaConn, lavandaData]);
 
   // Convenience: current-vs-prior over the range picker window
@@ -3417,6 +3418,7 @@ export default function Dashboard() {
     sum: (arr) => mkDelta(history.sum(arr, from, to), history.sum(arr, prior.from, prior.to), { label: prior.label }),
     avg: (arr, invert=false) => mkDelta(history.avg(arr, from, to), history.avg(arr, prior.from, prior.to), { label: prior.label, invert }),
     point30: (arr, invert=false) => mkDelta(history.at(arr, history.today), history.at(arr, history.daysAgo(30)), { label: "30 days ago", invert }),
+    ratio: (num, den, invert=false) => mkDelta(history.ratio(num, den, from, to), history.ratio(num, den, prior.from, prior.to), { label: prior.label, invert }),
   }), [history, from, to, prior]);
   // Short-stay arrivals/departures: next 7 days vs the 7 before today
   const ssMove = useMemo(() => {
@@ -3444,7 +3446,7 @@ export default function Dashboard() {
     const revCur = history.sum(history.revGross, from, to) + history.sum(history.ssRev, from, to);
     const revPrev = history.sum(history.revGross, prior.from, prior.to) + history.sum(history.ssRev, prior.from, prior.to);
     const awrNow = history.at(history.awr, today), awr30 = history.at(history.awr, d30);
-    const adrCur = history.avg(history.ssAdr, from, to), adrPrev = history.avg(history.ssAdr, prior.from, prior.to);
+    const adrCur = history.ratio(history.ssRev, history.ssOcc, from, to), adrPrev = history.ratio(history.ssRev, history.ssOcc, prior.from, prior.to);
     const newBkCur = history.sum(history.newBk, from, to) + history.sum(history.ssBooked, from, to);
     const newBkPrev = history.sum(history.newBk, prior.from, prior.to) + history.sum(history.ssBooked, prior.from, prior.to);
     // sellable-now rooms: bedrooms with no forward booking in RH (or Lavanda for Nomad) and not on the register
@@ -4310,7 +4312,7 @@ export default function Dashboard() {
                       {ssADR > 0 && <div>
                         <div style={{display:"flex",alignItems:"baseline",gap:8}}>
                           <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{ssADR.toFixed(0)}</p>
-                          <DeltaChip delta={pp.avg(history.ssAdr)}/>
+                          <DeltaChip delta={pp.ratio(history.ssRev, history.ssOcc)}/>
                         </div>
                         <Spark data={history.last30(history.ssAdr)} color={C.blue} width={90} height={22}/>
                         <p style={{fontSize:10,color:C.muted}}>ADR gross (SS)</p>
@@ -4361,7 +4363,7 @@ export default function Dashboard() {
                   const T = pacingTargets;
                   const revMtd = history.sum(history.revGross, mStart, history.today) + history.sum(history.ssRev, mStart, history.today);
                   const bkMtd  = history.sum(history.newBk, mStart, history.today) + history.sum(history.ssBooked, mStart, history.today);
-                  const adrMtd = history.avg(history.ssAdr, mStart, history.today);
+                  const adrMtd = history.ratio(history.ssRev, history.ssOcc, mStart, history.today);
                   const occTargetRooms = Math.ceil(usable * (T.occPct / 100));
                   const rows = [
                     { key:"rev", label:"Revenue", actual:revMtd, target:T.revenue, fmtV:v=>fmt(v), color:C.gold, kind:"cumulative" },
@@ -6843,7 +6845,7 @@ export default function Dashboard() {
               <KPI label="Arrivals (7d)" value={String(lavandaData.kpis.arrivals7)} sub="Check-ins from today" accent={C.gold} delta={mkDelta(ssMove.arrNext7, ssMove.arrPrev7, {label:"prev 7d"})}/>
               <KPI label="Departures (7d)" value={String(lavandaData.kpis.departures7)} sub="Check-outs from today" accent={C.muted} delta={mkDelta(ssMove.depNext7, ssMove.depPrev7, {label:"prev 7d", invert:true})}/>
               <KPI label="Revenue Still to Come" value={fmt(lavandaData.kpis.future_rev)} sub="Confirmed future nights" accent={C.gold} spark={history.last30(history.ssRev)}/>
-              <KPI label="Avg Nightly Rate" value={`£${lavandaData.kpis.adr.toFixed(2)}`} sub={`${lavandaData.kpis.confirmed} confirmed · ${lavandaData.kpis.canceled} cancelled${lavandaData.kpis.inquiries?` · ${lavandaData.kpis.inquiries} inquiries`:""}`} accent={C.blue} delta={pp.avg(history.ssAdr)} spark={history.last30(history.ssAdr)}/>
+              <KPI label="Avg Nightly Rate" value={`£${lavandaData.kpis.adr.toFixed(2)}`} sub={`${lavandaData.kpis.confirmed} confirmed · ${lavandaData.kpis.canceled} cancelled${lavandaData.kpis.inquiries?` · ${lavandaData.kpis.inquiries} inquiries`:""}`} accent={C.blue} delta={pp.ratio(history.ssRev, history.ssOcc)} spark={history.last30(history.ssAdr)}/>
               <KPI label="Total Confirmed Value" value={fmt(lavandaData.kpis.total_conf_value)} sub="All confirmed bookings" accent={C.sage} delta={pp.sum(history.ssRev)}/>
             </div>
 
