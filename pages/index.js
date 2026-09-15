@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
-  Line, Bar, XAxis, YAxis, BarChart,
+  Line, Bar, XAxis, YAxis, BarChart, ReferenceLine,
   CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart
 } from "recharts";
 
@@ -2508,6 +2508,28 @@ export default function Dashboard() {
   const [pacingEdit, setPacingEdit] = useState(false);
   const setPacingTargets = (fn) => setPacingTargetsRaw(prev => { const next = typeof fn === "function" ? fn(prev) : fn; try { localStorage.setItem("southall_pacing_targets_v1", JSON.stringify(next)); } catch {} return next; });
   useEffect(() => { try { const v = JSON.parse(localStorage.getItem("southall_pacing_targets_v1") || "null"); if (v && typeof v === "object") setPacingTargetsRaw(p => ({ ...p, ...v })); } catch {} }, []);
+  // ─── CHART ANNOTATIONS ──────────────────────────────────────────────────────
+  // Manual markers ("lift 2 out of service", "Nomad rates +10%") drawn as
+  // vertical lines on every date-based chart, so a dip or spike carries its
+  // explanation with it. Persisted per browser; exportable as JSON.
+  const [annotations, setAnnotationsRaw] = useState([]);
+  const setAnnotations = (fn) => setAnnotationsRaw(prev => { const next = typeof fn === "function" ? fn(prev) : fn; try { localStorage.setItem("southall_annotations_v1", JSON.stringify(next)); } catch {} return next; });
+  useEffect(() => { try { const v = JSON.parse(localStorage.getItem("southall_annotations_v1") || "[]"); if (Array.isArray(v)) setAnnotationsRaw(v); } catch {} }, []);
+  const [annoDraft, setAnnoDraft] = useState({ date: new Date().toISOString().slice(0,10), label: "", color: "#d4a843" });
+  const ANNO_COLORS = ["#d4a843","#c95c54","#3d82c4","#3d9e75","#9b72cf"];
+  // Map annotations onto a chart's x-axis given the chart's label formatter
+  const annosFor = useCallback((fmtDate) => {
+    const seen = new Set();
+    return annotations.map(a => ({ ...a, x: fmtDate(a.date) })).filter(a => a.x && !seen.has(a.x) && seen.add(a.x));
+  }, [annotations]);
+  const annoDayLabel = (iso) => { const d = new Date(iso + "T00:00:00"); return `${d.getDate()}/${d.getMonth()+1}`; };
+  const annoMonthLabel = (iso) => { const d = new Date(iso + "T00:00:00"); return d.getFullYear() === new Date().getFullYear() ? d.toLocaleDateString("en-GB",{month:"short"}) : null; };
+  const annoLongDayLabel = (iso) => new Date(iso + "T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  const annoLine = (a, i) => (
+    <ReferenceLine key={"anno"+i} x={a.x} stroke={a.color || C.gold} strokeDasharray="4 3" strokeWidth={1.5}
+      label={{ value: a.label, position: "insideTopRight", fill: a.color || C.gold, fontSize: 9, fontWeight: 700 }} />
+  );
+
   const REGISTER_OFFLINE = Object.keys(offlineRoomMap).length;
   const [offlineRooms, setOfflineRoomsRaw] = useState(REGISTER_OFFLINE);
   const [offlineIsManual, setOfflineIsManual] = useState(false);
@@ -3409,6 +3431,132 @@ export default function Dashboard() {
       depPrev7: bl.filter(b => inWin(b.end, plus(-7), d0)).length,
     };
   }, [lavandaData, history]);
+
+  // ─── FACTS (shared by Needs Attention + weekly narrative) ────────────────────
+  const facts = useMemo(() => {
+    const today = history.today;
+    const d30 = history.daysAgo(30);
+    const occNow = (pmsData?.occupied || 0);
+    const ssRoomsNow = lavandaData?.kpis?.occ_tonight || 0;
+    const occ30 = (history.at(history.occ, d30) || 0) + (history.at(history.ssOcc, d30) || 0);
+    const totalOccNow = occNow + ssRoomsNow;
+    const usable = Math.max(1, totalBedrooms - offlineRooms);
+    const revCur = history.sum(history.revGross, from, to) + history.sum(history.ssRev, from, to);
+    const revPrev = history.sum(history.revGross, prior.from, prior.to) + history.sum(history.ssRev, prior.from, prior.to);
+    const awrNow = history.at(history.awr, today), awr30 = history.at(history.awr, d30);
+    const adrCur = history.avg(history.ssAdr, from, to), adrPrev = history.avg(history.ssAdr, prior.from, prior.to);
+    const newBkCur = history.sum(history.newBk, from, to) + history.sum(history.ssBooked, from, to);
+    const newBkPrev = history.sum(history.newBk, prior.from, prior.to) + history.sum(history.ssBooked, prior.from, prior.to);
+    // sellable-now rooms: bedrooms with no forward booking in RH (or Lavanda for Nomad) and not on the register
+    const busy = new Set();
+    (rhAllBookings||[]).forEach(b => { const st=(b.roomStayStatus||"").toUpperCase(); if(!["CHECKED_IN","CONFIRMED","PENDING"].includes(st)) return; const e=(b.endDate||"").slice(0,10); if(!e||e<today) return; const id=b.unit?.id??b.unitId; if(id) busy.add(id); });
+    const ssBooked = new Set(lavandaData?.ssUnitStatus?.bookedRoomNumbers || []);
+    let emptyRooms = 0, sellableRooms = 0, heldEmpty = 0, heldStillBookable = 0;
+    const heldExpiring = [];
+    const in7 = new Date(new Date(today+"T00:00:00Z").getTime()+7*864e5).toISOString().slice(0,10);
+    (rhAllUnits||[]).filter(u=>/^Room:/i.test((u.unitName||"").trim())).forEach(u => {
+      const t = baseRoomType(u.unitTypeName); if (!t) return;
+      const no = (u.unitName||"").replace(/^Room:\s*/i,"").trim();
+      const reg = offlineInfoFor(u.unitName);
+      if (reg && u.bookable !== false) heldStillBookable++;
+      if (reg && reg.until && reg.until >= today && reg.until <= in7) heldExpiring.push({ room: no, until: reg.until, reason: reg.reason });
+      const isBusy = busy.has(u.id) || (t === "Ensuite" && ssBooked.has(no));
+      if (isBusy) return;
+      emptyRooms++;
+      if (reg || u.bookable === false) heldEmpty++; else sellableRooms++;
+    });
+    return { today, occNow, ssRoomsNow, totalOccNow, occ30, usable, occPct: Math.round(totalOccNow/usable*100),
+             revCur, revPrev, awrNow, awr30, adrCur, adrPrev, newBkCur, newBkPrev,
+             emptyRooms, sellableRooms, heldEmpty, heldStillBookable, heldExpiring,
+             cac: cacStats?.blendedCAC ?? null, cacPrev: prevCacStats?.blendedCAC ?? null,
+             metaCpl, metaCplPrev: pm.mCpl, spend: metaSpend + gSpend, spendPrev: pm.total,
+             leads: metaLeads + gConvs, leadsPrev: (pm.ml!=null||pm.gc!=null) ? (pm.ml||0)+(pm.gc||0) : null,
+             doubleBookings, rangeDays: prior.days, priorLabel: prior.label };
+  }, [history, pmsData, lavandaData, totalBedrooms, offlineRooms, from, to, prior, rhAllBookings, rhAllUnits, cacStats, prevCacStats, metaCpl, pm, metaSpend, gSpend, metaLeads, gConvs, doubleBookings]);
+
+  // ─── NEEDS ATTENTION ────────────────────────────────────────────────────────
+  // One feed for everything that needs a human, ranked by severity.
+  const attention = useMemo(() => {
+    const items = [];
+    const F = facts;
+    const pct = (a,b) => (a!=null && b!=null && b!==0) ? ((a-b)/Math.abs(b))*100 : null;
+    // 1. Double bookings
+    F.doubleBookings.forEach(c => items.push({
+      sev: 3, kind: "Double booking", title: `Room ${c.room} · ${c.nights} night${c.nights!==1?"s":""} · ${c.from} → ${c.to}`,
+      detail: `${c.aLabel} ↔ ${c.bLabel}${c.from <= F.today ? " · LIVE NOW" : ""}`, tab: "renewals",
+    }));
+    // 2. Held rooms still bookable in the PMS
+    if (F.heldStillBookable > 0) items.push({
+      sev: 2, kind: "PMS mismatch", title: `${F.heldStillBookable} held room${F.heldStillBookable!==1?"s":""} still marked bookable in Res Harmonics`,
+      detail: "Sales can sell a linen/staff/maintenance room without anything stopping them. Block them in RH.", tab: "renewals",
+    });
+    // 3. Holds expiring this week
+    F.heldExpiring.forEach(h => items.push({
+      sev: 1, kind: "Hold expiring", title: `Room ${h.room} returns to stock on ${h.until}`,
+      detail: h.reason, tab: "renewals",
+    }));
+    // 4. Stale / disconnected sources
+    [["rh","Res Harmonics",pmsConn],["lavanda","Lavanda",lavandaConn],["ghl","GHL CRM",ghlConn],["meta","Meta",metaIsLive],["google","Google Ads",googleIsLive]].forEach(([k,name,on]) => {
+      const f = freshness(k);
+      if (!on) items.push({ sev: 2, kind: "Source down", title: `${name} not connected`, detail: "Figures depending on it are stale or missing.", tab: null });
+      else if (f.stale) items.push({ sev: 1, kind: "Stale data", title: `${name} last refreshed ${f.label} (${f.ageMin} min ago)`, detail: "Feed hasn't updated in over an hour.", tab: null });
+    });
+    // 5. Cost spikes
+    const cacD = pct(F.cac, F.cacPrev);
+    if (cacD != null && cacD > 25 && F.cacPrev > 0) items.push({ sev: 2, kind: "Cost spike", title: `Blended CAC up ${Math.round(cacD)}% vs ${F.priorLabel} (£${Math.round(F.cac)} vs £${Math.round(F.cacPrev)})`, detail: "Check attribution volume and channel mix before reacting — small booking counts swing this hard.", tab: "marketing" });
+    const cplD = pct(F.metaCpl, F.metaCplPrev);
+    if (cplD != null && cplD > 30 && F.metaCplPrev > 0) items.push({ sev: 1, kind: "Cost spike", title: `Meta CPL up ${Math.round(cplD)}% vs ${F.priorLabel}`, detail: `£${F.metaCpl.toFixed(2)} vs £${F.metaCplPrev.toFixed(2)} per lead.`, tab: "marketing" });
+    // 6. Occupancy drop
+    const occD = pct(F.totalOccNow, F.occ30);
+    if (occD != null && occD < -3) items.push({ sev: 2, kind: "Occupancy", title: `Occupancy down ${Math.abs(occD).toFixed(1)}% vs 30 days ago (${F.totalOccNow} vs ${F.occ30} rooms)`, detail: `${F.sellableRooms} rooms sellable now.`, tab: "bookings" });
+    // 7. Pacing behind
+    const now = new Date(); const elapsed = now.getDate() / new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    const mS = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
+    const revMtd = history.sum(history.revGross, mS, F.today) + history.sum(history.ssRev, mS, F.today);
+    if (pacingTargets.revenue > 0 && revMtd < pacingTargets.revenue * elapsed * 0.85) items.push({ sev: 1, kind: "Pacing", title: `Revenue behind pace — ${fmt(revMtd)} MTD vs ${fmt(Math.round(pacingTargets.revenue*elapsed))} expected by today`, detail: `Projecting ${fmt(Math.round(revMtd/Math.max(elapsed,0.01)))} for the month against ${fmt(pacingTargets.revenue)}.`, tab: "summary" });
+    // 8. Empty sellable stock (info)
+    if (F.sellableRooms > 0) items.push({ sev: 0, kind: "Stock", title: `${F.sellableRooms} room${F.sellableRooms!==1?"s":""} empty and sellable right now`, detail: `${F.emptyRooms} empty in total, ${F.heldEmpty} of them held offline.`, tab: "renewals" });
+    return items.sort((a,b) => b.sev - a.sev);
+  }, [facts, pmsConn, lavandaConn, ghlConn, metaIsLive, googleIsLive, freshness, history, pacingTargets]);
+
+  // ─── WEEKLY NARRATIVE ────────────────────────────────────────────────────────
+  // Deterministic three-paragraph read of the numbers. If ANTHROPIC_API_KEY is
+  // set on Vercel, /api/narrative rewrites it with a model; otherwise this text
+  // is shown as-is.
+  const narrativeLocal = useMemo(() => {
+    const F = facts;
+    const pctStr = (a,b) => { if (a==null||b==null||b===0) return null; const d=(a-b)/Math.abs(b)*100; return `${d>=0?"up":"down"} ${Math.abs(d).toFixed(Math.abs(d)<10?1:0)}%`; };
+    const money = (v) => v==null?"—":fmt(Math.round(v));
+    const occLine = (() => {
+      const d = pctStr(F.totalOccNow, F.occ30);
+      return `Southall is at ${F.totalOccNow} of ${F.usable} usable rooms tonight (${F.occPct}%), ${d ? d + " on 30 days ago" : "with no 30-day comparison yet"} — ${F.occNow} long-stay${F.ssRoomsNow?` and ${F.ssRoomsNow} short-stay`:""}.`;
+    })();
+    const stockLine = F.emptyRooms === 0 ? "There is no empty stock." :
+      `${F.emptyRooms} rooms are empty, but only ${F.sellableRooms} can actually be sold — the other ${F.heldEmpty} are held on the offline register${F.heldStillBookable?` (${F.heldStillBookable} of the held rooms are still marked bookable in Res Harmonics, which is a risk)`:""}.`;
+    const dbLine = F.doubleBookings.length ? ` ${F.doubleBookings.length} double booking${F.doubleBookings.length!==1?"s":""} need${F.doubleBookings.length===1?"s":""} resolving: ${F.doubleBookings.map(c=>`room ${c.room} (${c.from}→${c.to})`).join(", ")}.` : " No double bookings are open.";
+    const p1 = `${occLine} ${stockLine}${dbLine}`;
+    const revD = pctStr(F.revCur, F.revPrev), awrD = pctStr(F.awrNow, F.awr30), adrD = pctStr(F.adrCur, F.adrPrev);
+    const p2 = `Revenue for the selected ${F.rangeDays}-day window is ${money(F.revCur)} gross, ${revD ? revD + " on the " + F.priorLabel : "with no prior window to compare"}${F.revPrev?` (${money(F.revPrev)})`:""}. ` +
+      `Long-stay AWR is ${F.awrNow?`£${Math.round(F.awrNow)} gross`:"unavailable"}${awrD?`, ${awrD} on 30 days ago`:""}${F.awrNow && F.awrNow < TARGET_RATE ? `, still £${Math.round(TARGET_RATE-F.awrNow)} under the £${TARGET_RATE} target` : F.awrNow ? `, above the £${TARGET_RATE} target` : ""}. ` +
+      (F.adrCur!=null ? `Short-stay ADR averaged £${F.adrCur.toFixed(0)} a night${adrD?`, ${adrD} on the prior window`:""}.` : "Short-stay ADR has no data for this window.");
+    const spD = pctStr(F.spend, F.spendPrev), ldD = pctStr(F.leads, F.leadsPrev), cacD = pctStr(F.cac, F.cacPrev), bkD = pctStr(F.newBkCur, F.newBkPrev);
+    const top = attention.find(a => a.sev >= 2);
+    const p3 = `Marketing spent ${money(F.spend)}${spD?` (${spD})`:""} for ${F.leads} leads${ldD?` (${ldD})`:""}, a Meta CPL of £${F.metaCpl.toFixed(2)}. ` +
+      `${F.newBkCur} bookings were created in the window${bkD?`, ${bkD} on the ${F.priorLabel}`:""}${F.cac!=null?`, giving a blended CAC of £${Math.round(F.cac)}${cacD?` (${cacD})`:""}`:""}. ` +
+      (top ? `The one thing to act on first: ${top.title.toLowerCase()}.` : "Nothing on the attention feed is above informational.");
+    return [p1, p2, p3];
+  }, [facts, attention]);
+  const [narrativeAI, setNarrativeAI] = useState(null);
+  const [narrativeBusy, setNarrativeBusy] = useState(false);
+  const fetchNarrative = useCallback(async () => {
+    setNarrativeBusy(true);
+    try {
+      const r = await fetch("/api/narrative", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ facts, draft: narrativeLocal, attention: attention.slice(0,6) }) });
+      const j = await r.json();
+      setNarrativeAI(j?.paragraphs?.length ? j.paragraphs : null);
+    } catch { setNarrativeAI(null); }
+    finally { setNarrativeBusy(false); }
+  }, [facts, narrativeLocal, attention]);
   const occPct = pmsConn && pmsData ? Math.round(occupied / usableRooms * 100) : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
   const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
@@ -3906,6 +4054,95 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* ── NEEDS ATTENTION ── */}
+            {(() => {
+              const sevCol = { 3: C.rose, 2: C.rose, 1: C.gold, 0: C.blue };
+              const sevName = { 3: "URGENT", 2: "HIGH", 1: "WATCH", 0: "INFO" };
+              const urgent = attention.filter(a => a.sev >= 2).length;
+              return (
+                <div style={{background:C.card,border:`1px solid ${urgent?C.rose+"66":C.border}`,borderRadius:14,padding:18,margin:"16px 0 0"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:12}}>
+                    <div>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Needs Attention</h3>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>Everything that needs a human, from every source, ranked by severity</p>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      {[3,2,1,0].map(sv => { const n = attention.filter(a=>a.sev===sv).length; if (!n) return null;
+                        return <span key={sv} style={{fontSize:10,fontWeight:700,color:sevCol[sv],background:sevCol[sv]+"1a",border:`1px solid ${sevCol[sv]}44`,padding:"2px 8px",borderRadius:20}}>{n} {sevName[sv]}</span>; })}
+                      {attention.length === 0 && <span style={{fontSize:10,fontWeight:700,color:C.sage}}>✓ ALL CLEAR</span>}
+                    </div>
+                  </div>
+                  {attention.length > 0 && (
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:8}}>
+                      {attention.map((a,i) => (
+                        <div key={i} onClick={()=>a.tab&&setTab(a.tab)} title={a.tab?`Open ${a.tab}`:""}
+                          style={{background:C.bg,border:`1px solid ${sevCol[a.sev]}44`,borderLeft:`3px solid ${sevCol[a.sev]}`,borderRadius:10,padding:"10px 12px",cursor:a.tab?"pointer":"default"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:3}}>
+                            <span style={{fontSize:9,fontWeight:700,color:sevCol[a.sev],letterSpacing:"0.06em",textTransform:"uppercase"}}>{a.kind}</span>
+                            <span style={{fontSize:9,color:C.muted}}>{sevName[a.sev]}</span>
+                          </div>
+                          <p style={{fontSize:12,color:C.text,fontWeight:600,lineHeight:1.35}}>{a.title}</p>
+                          {a.detail && <p style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>{a.detail}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── WEEKLY NARRATIVE ── */}
+            <div style={{background:`linear-gradient(135deg, ${C.card}, ${C.bg})`,border:`1px solid ${C.gold}33`,borderRadius:14,padding:18,margin:"16px 0 0"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:10}}>
+                <div>
+                  <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>This Week, In Plain English</h3>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Reads the numbers above and says what moved · {rangeLabel} vs {prior.label}</p>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:9,color:narrativeAI?C.sage:C.muted}}>{narrativeAI ? "● model-written" : "○ generated from data"}</span>
+                  <button onClick={fetchNarrative} disabled={narrativeBusy} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>{narrativeBusy?"Writing…":"Rewrite with AI"}</button>
+                  <button onClick={()=>{ try { navigator.clipboard.writeText((narrativeAI||narrativeLocal).join("\n\n")); } catch {} }} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Copy</button>
+                </div>
+              </div>
+              {(narrativeAI || narrativeLocal).map((p,i) => (
+                <p key={i} style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:i<2?10:0}}>{p}</p>
+              ))}
+            </div>
+
+            {/* ── ANNOTATIONS ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:14,margin:"16px 0 0"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <div>
+                  <p style={{fontSize:12,fontWeight:700,color:C.text}}>Chart annotations</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>Drop a marker on every date chart — so a dip carries its explanation. Saved in this browser.</p>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <input type="date" value={annoDraft.date} onChange={e=>setAnnoDraft(d=>({...d,date:e.target.value}))}
+                    style={{fontSize:11,fontFamily:"DM Mono,monospace",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 8px",color:C.text,outline:"none"}}/>
+                  <input type="text" placeholder="e.g. Lift 2 out of service" value={annoDraft.label} onChange={e=>setAnnoDraft(d=>({...d,label:e.target.value}))}
+                    onKeyDown={e=>{ if(e.key==="Enter" && annoDraft.label.trim()) { setAnnotations(a=>[...a,{id:Date.now(),...annoDraft,label:annoDraft.label.trim()}]); setAnnoDraft(d=>({...d,label:""})); } }}
+                    style={{fontSize:11,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,outline:"none",width:220}}/>
+                  <div style={{display:"flex",gap:4}}>
+                    {ANNO_COLORS.map(c => <span key={c} onClick={()=>setAnnoDraft(d=>({...d,color:c}))} style={{width:14,height:14,borderRadius:7,background:c,cursor:"pointer",outline:annoDraft.color===c?`2px solid ${C.text}`:"none",outlineOffset:1}}/>)}
+                  </div>
+                  <button onClick={()=>{ if(!annoDraft.label.trim()) return; setAnnotations(a=>[...a,{id:Date.now(),...annoDraft,label:annoDraft.label.trim()}]); setAnnoDraft(d=>({...d,label:""})); }}
+                    style={{fontSize:10,padding:"5px 12px",borderRadius:6,border:`1px solid ${C.gold}66`,background:C.gold+"22",color:C.gold,cursor:"pointer",fontWeight:700}}>Add</button>
+                </div>
+              </div>
+              {annotations.length > 0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+                  {[...annotations].sort((a,b)=>b.date.localeCompare(a.date)).map(a => (
+                    <span key={a.id} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:10,background:C.bg,border:`1px solid ${a.color}55`,borderRadius:20,padding:"3px 8px 3px 6px"}}>
+                      <span style={{width:8,height:8,borderRadius:4,background:a.color}}/>
+                      <span style={{fontFamily:"DM Mono,monospace",color:C.muted}}>{a.date}</span>
+                      <span style={{color:C.text}}>{a.label}</span>
+                      <span onClick={()=>setAnnotations(list=>list.filter(x=>x.id!==a.id))} title="Remove" style={{color:C.muted,cursor:"pointer",marginLeft:2}}>×</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* ── DOUBLE BOOKING ALERT ── */}
             {doubleBookings.length > 0 && (
               <div style={{background:C.rose+"12",border:`1px solid ${C.rose}66`,borderRadius:14,padding:16,margin:"16px 0 0"}}>
@@ -4318,6 +4555,7 @@ export default function Dashboard() {
                             <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
                             <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false}/>
                             <Tooltip content={<OccTip/>}/>
+                            {annosFor(annoMonthLabel).map(annoLine)}
                             <Bar dataKey="ls" name="Long-stay" stackId="a" fill={C.sage} radius={[0,0,0,0]}/>
                             <Bar dataKey="ss" name="Short-stay" stackId="a" fill={C.blue} radius={[4,4,0,0]}/>
                             <Line type="monotone" dataKey="total" name="Combined" stroke={C.gold} strokeWidth={2} dot={false}/>
@@ -4340,6 +4578,7 @@ export default function Dashboard() {
                           <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
                           <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>v>=1000?`£${Math.round(v/1000)}k`:`£${v}`}/>
                           <Tooltip content={<Tip/>}/>
+                          {annosFor(annoMonthLabel).map(annoLine)}
                           <Bar dataKey="rev" name="LS Revenue" fill={C.sage} radius={[4,4,0,0]}/>
                         </BarChart>
                       </ResponsiveContainer>
@@ -4546,6 +4785,7 @@ export default function Dashboard() {
                     <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
                     <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
                     <Tooltip content={<Tip/>}/>
+                    {annosFor(annoDayLabel).map(annoLine)}
                     <Area type="monotone" dataKey="meta"   name="Meta"   stroke={C.gold} fill="url(#gM)" strokeWidth={2} dot={false}/>
                     <Area type="monotone" dataKey="google" name="Google" stroke={C.blue} fill="url(#gG)" strokeWidth={2} dot={false}/>
                   </AreaChart>
@@ -4560,6 +4800,7 @@ export default function Dashboard() {
                     <YAxis yAxisId="l" tick={{fill:C.sage,fontSize:9}}  tickLine={false} axisLine={false}/>
                     <YAxis yAxisId="c" orientation="right" tick={{fill:C.gold,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
                     <Tooltip content={<Tip/>}/>
+                    {annosFor(annoDayLabel).map(annoLine)}
                     <Bar  yAxisId="l" dataKey="leads" name="leads" fill={C.sage}   radius={[2,2,0,0]} opacity={0.85}/>
                     <Line yAxisId="c" type="monotone" dataKey="cpl" name="cpl" stroke={C.gold} strokeWidth={2} dot={false}/>
                   </ComposedChart>
@@ -4675,6 +4916,7 @@ export default function Dashboard() {
                         <YAxis yAxisId="l" tick={{fill:C.blue,fontSize:9}} tickLine={false} axisLine={false}/>
                         <YAxis yAxisId="r" orientation="right" tick={{fill:C.sage,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`${v}%`}/>
                         <Tooltip content={({active,payload,label})=>{
+                        {annosFor(annoDayLabel).map(annoLine)}
                           if(!active||!payload?.length) return null;
                           return <div style={{background:"#13161b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12}}>
                             <p style={{color:C.muted,marginBottom:6,fontFamily:"monospace"}}>{label}</p>
@@ -6663,6 +6905,7 @@ export default function Dashboard() {
                     <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
                     <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
                     <Tooltip content={<Tip/>}/>
+                    {annosFor(annoLongDayLabel).map(annoLine)}
                     <Area type="monotone" dataKey="rate" name="rate" stroke={C.blue} fill="url(#gLavRate)" strokeWidth={2} dot={false}/>
                   </AreaChart>
                 </ResponsiveContainer>
