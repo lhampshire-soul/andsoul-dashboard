@@ -3420,6 +3420,42 @@ export default function Dashboard() {
     point30: (arr, invert=false) => mkDelta(history.at(arr, history.today), history.at(arr, history.daysAgo(30)), { label: "30 days ago", invert }),
     ratio: (num, den, invert=false) => mkDelta(history.ratio(num, den, from, to), history.ratio(num, den, prior.from, prior.to), { label: prior.label, invert }),
   }), [history, from, to, prior]);
+  // ─── RANGE REVENUE (single source of truth) ──────────────────────────────────
+  // Used by the Summary revenue card, the narrative and the attention feed so
+  // they can never disagree. Nights basis: value × (nights in range ÷ nights).
+  const rangeRevenueFor = useCallback((rFrom, rTo) => {
+    let lsRev = 0, lsRevGross = 0, shortBreakRev = 0;
+    if (pmsConn && rhAllBookings && rhAllBookings.length > 0) {
+      rhAllBookings.forEach(b => {
+        const st = (b.roomStayStatus ?? "").toUpperCase();
+        if (!["CHECKED_IN","CONFIRMED","CHECKED_OUT"].includes(st)) return;
+        const f = (b.startDate ?? "").slice(0,10), t = (b.endDate ?? "").slice(0,10);
+        if (!f || !t) return;
+        const totalDays = Math.max(1, (new Date(t) - new Date(f)) / 864e5);
+        const net = parseFloat(b.netAmount ?? 0), vat = parseFloat(b.vatAmount ?? 0);
+        if (isNaN(net) || net <= 0) return;
+        const lastNight = new Date(new Date(t).getTime() - 864e5).toISOString().slice(0,10);
+        if (f > rTo || lastNight < rFrom) return;
+        const oS = f > rFrom ? f : rFrom, oE = lastNight < rTo ? lastNight : rTo;
+        const days = Math.max(0, (new Date(oE) - new Date(oS)) / 864e5 + 1);
+        const gross = net + (isNaN(vat) ? 0 : vat);
+        if (totalDays >= 28) { lsRev += (net / totalDays) * days; lsRevGross += (gross / totalDays) * days; }
+        else { shortBreakRev += (gross / totalDays) * days; }
+      });
+      lsRev = Math.round(lsRev); lsRevGross = Math.round(lsRevGross); shortBreakRev = Math.round(shortBreakRev);
+    } else if (pmsConn && pmsData) { lsRev = pmsData.revenue; lsRevGross = pmsData.revenue; }
+    let ssRev = 0, ssRevCovered = true;
+    if (lavandaConn && lavandaData && lavandaData.daily) {
+      lavandaData.daily.forEach(d => { if (d.date >= rFrom && d.date <= rTo && d.rev != null) ssRev += d.rev; });
+      ssRev = Math.round(ssRev);
+      const firstDay = lavandaData.daily[0]?.date;
+      if (firstDay && rFrom < firstDay) ssRevCovered = false;
+    }
+    return { lsRev, lsRevGross, shortBreakRev, ssRev, ssRevCovered, total: lsRevGross + shortBreakRev + ssRev };
+  }, [pmsConn, rhAllBookings, pmsData, lavandaConn, lavandaData]);
+  const rangeRevenue = useMemo(() => rangeRevenueFor(from, to), [rangeRevenueFor, from, to]);
+  const rangeRevenuePrev = useMemo(() => rangeRevenueFor(prior.from, prior.to), [rangeRevenueFor, prior]);
+
   // Short-stay arrivals/departures: next 7 days vs the 7 before today
   const ssMove = useMemo(() => {
     const bl = lavandaData?.bookingsLite || [];
@@ -3443,8 +3479,8 @@ export default function Dashboard() {
     const occ30 = (history.at(history.occ, d30) || 0) + (history.at(history.ssOcc, d30) || 0);
     const totalOccNow = occNow + ssRoomsNow;
     const usable = Math.max(1, totalBedrooms - offlineRooms);
-    const revCur = history.sum(history.revGross, from, to) + history.sum(history.ssRev, from, to);
-    const revPrev = history.sum(history.revGross, prior.from, prior.to) + history.sum(history.ssRev, prior.from, prior.to);
+    const revCur = rangeRevenue.total;
+    const revPrev = rangeRevenuePrev.total;
     const awrNow = history.at(history.awr, today), awr30 = history.at(history.awr, d30);
     const adrCur = history.ratio(history.ssRev, history.ssOcc, from, to), adrPrev = history.ratio(history.ssRev, history.ssOcc, prior.from, prior.to);
     const newBkCur = history.sum(history.newBk, from, to) + history.sum(history.ssBooked, from, to);
@@ -3474,7 +3510,7 @@ export default function Dashboard() {
              metaCpl, metaCplPrev: pm.mCpl, spend: metaSpend + gSpend, spendPrev: pm.total,
              leads: metaLeads + gConvs, leadsPrev: (pm.ml!=null||pm.gc!=null) ? (pm.ml||0)+(pm.gc||0) : null,
              doubleBookings, rangeDays: prior.days, priorLabel: prior.label };
-  }, [history, pmsData, lavandaData, totalBedrooms, offlineRooms, from, to, prior, rhAllBookings, rhAllUnits, cacStats, prevCacStats, metaCpl, pm, metaSpend, gSpend, metaLeads, gConvs, doubleBookings]);
+  }, [history, pmsData, lavandaData, totalBedrooms, offlineRooms, from, to, prior, rhAllBookings, rhAllUnits, cacStats, prevCacStats, metaCpl, pm, metaSpend, gSpend, metaLeads, gConvs, doubleBookings, rangeRevenue, rangeRevenuePrev]);
 
   // ─── NEEDS ATTENTION ────────────────────────────────────────────────────────
   // One feed for everything that needs a human, ranked by severity.
@@ -4202,43 +4238,9 @@ export default function Dashboard() {
               const lsPct = usable > 0 ? Math.round(lsOcc / usable * 100) : 0;
               const vacancy = Math.max(0, usable - totalOcc);
 
-              // ── Revenue for the SELECTED DATE RANGE (driven by the range picker) ──
-              // Nights basis: booking value × (range nights ÷ total booking nights)
-              let lsRev = 0, lsRevGross = 0, shortBreakRev = 0;
-              if (pmsConn && rhAllBookings && rhAllBookings.length > 0) {
-                rhAllBookings.forEach(b => {
-                  const st = (b.roomStayStatus ?? "").toUpperCase();
-                  if (!["CHECKED_IN","CONFIRMED","CHECKED_OUT"].includes(st)) return;
-                  const f = (b.startDate ?? "").slice(0,10), t = (b.endDate ?? "").slice(0,10);
-                  if (!f || !t) return;
-                  const totalDays = Math.max(1, (new Date(t) - new Date(f)) / 864e5);
-                  const net = parseFloat(b.netAmount ?? 0), vat = parseFloat(b.vatAmount ?? 0);
-                  if (isNaN(net) || net <= 0) return;
-                  const lastNight = new Date(new Date(t).getTime() - 864e5).toISOString().slice(0,10);
-                  if (f > to || lastNight < from) return;
-                  const oS = f > from ? f : from, oE = lastNight < to ? lastNight : to;
-                  const days = Math.max(0, (new Date(oE) - new Date(oS)) / 864e5 + 1);
-                  if (totalDays >= 28) {
-                    lsRev += (net / totalDays) * days;
-                    lsRevGross += ((net + (isNaN(vat) ? 0 : vat)) / totalDays) * days;
-                  } else {
-                    // RH bookings under 28 nights (day lets / short breaks) — kept separate so
-                    // the card ties out with the monthly finance export
-                    shortBreakRev += ((net + (isNaN(vat) ? 0 : vat)) / totalDays) * days;
-                  }
-                });
-                lsRev = Math.round(lsRev); lsRevGross = Math.round(lsRevGross); shortBreakRev = Math.round(shortBreakRev);
-              } else if (pmsConn && pmsData) {
-                lsRev = pmsData.revenue; lsRevGross = pmsData.revenue;
-              }
-              let ssRev = 0, ssRevCovered = true;
-              if (lavandaConn && lavandaData && lavandaData.daily) {
-                lavandaData.daily.forEach(d => { if (d.date >= from && d.date <= to && d.rev != null) ssRev += d.rev; });
-                ssRev = Math.round(ssRev);
-                const firstDay = lavandaData.daily[0]?.date;
-                if (firstDay && from < firstDay) ssRevCovered = false; // range predates Lavanda data window
-              }
-              const totalRev = lsRevGross + shortBreakRev + ssRev;
+              // ── Revenue for the SELECTED DATE RANGE — from the shared rangeRevenue memo ──
+              const { lsRev, lsRevGross, shortBreakRev, ssRev, ssRevCovered } = rangeRevenue;
+              const totalRev = rangeRevenue.total;
               const rangeDays = Math.round((new Date(to) - new Date(from)) / 864e5) + 1;
 
               const lsAWR = pmsConn && pmsData ? (pmsData.globalAwrGross || pmsData.globalAwr || 0) : 0;
@@ -4285,7 +4287,7 @@ export default function Dashboard() {
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:10}}>
                       <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
                         <p style={{fontSize:28,fontWeight:800,color:C.text,fontFamily:"DM Mono,monospace",lineHeight:1}}>{fmt(totalRev)}</p>
-                        <DeltaChip delta={mkDelta(totalRev, history.sum(history.revGross, prior.from, prior.to) + history.sum(history.ssRev, prior.from, prior.to), {label: prior.label})} size={11}/>
+                        <DeltaChip delta={mkDelta(totalRev, rangeRevenuePrev.total, {label: prior.label})} size={11}/>
                       </div>
                       <Spark data={history.last30(history.revGross).map((v,i)=>v + history.last30(history.ssRev)[i])} color={C.text} width={110} height={30}/>
                     </div>
