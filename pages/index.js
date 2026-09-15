@@ -2249,6 +2249,26 @@ export default function Dashboard() {
   const gConvs    = googleIsLive && liveGoogleData ? liveGoogleData.totalConversions : GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0);
   const googleCostPerSubmit = gConvs>0 ? gSpend/gConvs : 0;
   const blendedAvgCPL = (metaLeads+gConvs)>0 ? (metaSpend+gSpend)/(metaLeads+gConvs) : 0;
+
+  // Prior-window marketing metrics (from the second Meta/Google/GA4 fetch)
+  const pm = useMemo(() => {
+    const ms = prevMetaData?.totalSpend ?? null, ml = prevMetaData?.totalLeads ?? null;
+    const gs = prevGoogleData?.totalSpend ?? null, gc = prevGoogleData?.totalConversions ?? null;
+    const mCpl = (ms!=null && ml>0) ? ms/ml : null;
+    const gCps = (gs!=null && gc>0) ? gs/gc : null;
+    const blended = (ms!=null && gs!=null && (ml+gc)>0) ? (ms+gs)/(ml+gc) : null;
+    const total = (ms!=null || gs!=null) ? (ms||0)+(gs||0) : null;
+    return { ms, ml, gs, gc, mCpl, gCps, blended, total };
+  }, [prevMetaData, prevGoogleData]);
+  // Daily sparkline series for the current window (live only)
+  const mSpark = useMemo(() => ({
+    metaSpend: liveMetaData?.daily?.map(d=>d.spend) || null,
+    metaLeads: liveMetaData?.daily?.map(d=>d.leads) || null,
+    metaCpl:   liveMetaData?.daily?.map(d=>d.leads>0?d.spend/d.leads:0) || null,
+    gSpend:    liveGoogleData?.daily?.map(d=>d.spend) || null,
+    gConv:     liveGoogleData?.daily?.map(d=>d.conversions ?? d.convs ?? 0) || null,
+    total:     (liveMetaData?.daily && liveGoogleData?.daily) ? liveMetaData.daily.map(d=>{const g=liveGoogleData.daily.find(x=>x.date===d.date); return d.spend+(g?g.spend:0);}) : null,
+  }), [liveMetaData, liveGoogleData]);
   const liveCampaigns = googleIsLive && liveGoogleData?.campaigns ? liveGoogleData.campaigns : GOOGLE_CAMPAIGNS;
 
   // ─── COST PER BOOKING (Southall) ──────────────────────────────────────────
@@ -2261,7 +2281,7 @@ export default function Dashboard() {
   const [rhAllUnits, setRhAllUnits] = useState([]);
   const [ghlData, setGhlData] = useState(null);
   const [cpbExpanded, setCpbExpanded] = useState(false);
-  const cacStats = useMemo(() => {
+  const buildCac = useCallback((from, to, metaSpend, gSpend) => {
     const opps = ghlData?.allOpps || [];
     // Wide lookback pool for email→channel attribution: catches Meta leads
     // captured 40–180d before dateFrom who book inside the current window.
@@ -2435,7 +2455,9 @@ export default function Dashboard() {
       medianLag, lagSampleSize: lags.length,
       rows: rows.sort((a,b) => (b.refIso || "").localeCompare(a.refIso || "")),
     };
-  }, [ghlData, rhAllBookings, from, to, metaSpend, gSpend]);
+  }, [ghlData, rhAllBookings]);
+  const cacStats = useMemo(() => buildCac(from, to, metaSpend, gSpend), [buildCac, from, to, metaSpend, gSpend]);
+  const prevCacStats = useMemo(() => (pm.ms != null || pm.gs != null) ? buildCac(prior.from, prior.to, pm.ms || 0, pm.gs || 0) : null, [buildCac, prior, pm]);
 
   // GHL
   const [ghlLoading, setGhlLoad] = useState(false);
@@ -2444,11 +2466,19 @@ export default function Dashboard() {
   const [manualBookings, setManualBookings] = useState(0);
   const [manualValue, setManualValue] = useState(0);
 
+  const [prevGhlData, setPrevGhlData] = useState(null);
   const runGHL = useCallback(async(f,t)=>{
     setGhlLoad(true); setGhlErr("");
     try { setGhlData(await loadGHL(f,t)); setGhlConn(true); stamp("ghl"); }
     catch(e) { setGhlErr(e.message); console.log("GHL Error:", e.message); }
     finally { setGhlLoad(false); }
+    // prior window, non-blocking — powers the pipeline delta chips
+    try {
+      const fd = new Date(f+"T00:00:00Z"), td = new Date(t+"T00:00:00Z");
+      const days = Math.round((td-fd)/864e5)+1;
+      const pt = new Date(fd.getTime()-864e5), pf = new Date(pt.getTime()-(days-1)*864e5);
+      loadGHL(pf.toISOString().slice(0,10), pt.toISOString().slice(0,10)).then(setPrevGhlData).catch(()=>setPrevGhlData(null));
+    } catch {}
   },[]);
 
   useEffect(()=>{ runGHL(from,to); }, []);
@@ -2841,7 +2871,7 @@ export default function Dashboard() {
   const [activityTo, setActivityTo] = useState(() => new Date().toISOString().slice(0,10));
   const [activityPreset, setActivityPreset] = useState("7d");
 
-  const recentActivity = useMemo(() => {
+  const buildActivity = useCallback((activityFrom, activityTo) => {
     if (!rhAllBookings || !rhAllBookings.length) return { newBookings:[], renewals:[], pending:[], all:[], losBuckets:{"<32d":0,"32-91d":0,"92-181d":0,"182-364d":0,"365d+":0}, roomBuckets:{}, stats:{newCount:0,renewalCount:0,pendingCount:0,totalActivity:0} };
 
     const bookings = rhAllBookings;
@@ -3050,7 +3080,15 @@ export default function Dashboard() {
         totalActivity: newBookings.length + renewalBookings.length,
       }
     };
-  }, [rhAllBookings, rhAllUnits, activityFrom, activityTo, lavandaConn, lavandaData]);
+  }, [rhAllBookings, rhAllUnits, lavandaConn, lavandaData]);
+  const recentActivity = useMemo(() => buildActivity(activityFrom, activityTo), [buildActivity, activityFrom, activityTo]);
+  const prevActivityWindow = useMemo(() => {
+    const f = new Date(activityFrom + 'T00:00:00Z'), t = new Date(activityTo + 'T00:00:00Z');
+    const days = Math.round((t - f) / 864e5) + 1;
+    const pt = new Date(f.getTime() - 864e5), pf = new Date(pt.getTime() - (days - 1) * 864e5);
+    return { from: pf.toISOString().slice(0,10), to: pt.toISOString().slice(0,10), label: `prev ${days}d` };
+  }, [activityFrom, activityTo]);
+  const prevActivity = useMemo(() => buildActivity(prevActivityWindow.from, prevActivityWindow.to), [buildActivity, prevActivityWindow]);
 
   // ── Lead source attribution (async GHL lookup) ──
   const [leadSources, setLeadSources] = useState({});
@@ -3358,6 +3396,19 @@ export default function Dashboard() {
     avg: (arr, invert=false) => mkDelta(history.avg(arr, from, to), history.avg(arr, prior.from, prior.to), { label: prior.label, invert }),
     point30: (arr, invert=false) => mkDelta(history.at(arr, history.today), history.at(arr, history.daysAgo(30)), { label: "30 days ago", invert }),
   }), [history, from, to, prior]);
+  // Short-stay arrivals/departures: next 7 days vs the 7 before today
+  const ssMove = useMemo(() => {
+    const bl = lavandaData?.bookingsLite || [];
+    const d0 = history.today;
+    const plus = (n) => new Date(new Date(d0+"T00:00:00Z").getTime() + n*864e5).toISOString().slice(0,10);
+    const inWin = (x, a, b) => x >= a && x < b;
+    return {
+      arrNext7: bl.filter(b => inWin(b.start, d0, plus(7))).length,
+      arrPrev7: bl.filter(b => inWin(b.start, plus(-7), d0)).length,
+      depNext7: bl.filter(b => inWin(b.end, d0, plus(7))).length,
+      depPrev7: bl.filter(b => inWin(b.end, plus(-7), d0)).length,
+    };
+  }, [lavandaData, history]);
   const occPct = pmsConn && pmsData ? Math.round(occupied / usableRooms * 100) : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
   const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
@@ -4473,13 +4524,13 @@ export default function Dashboard() {
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
 
             <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
-              <KPI label="Total Spend"         value={fmt(metaSpend+gSpend)}  sub="Meta + Google · Southall"         accent={C.gold}/>
-              <KPI label="Meta Spend"          value={fmt(metaSpend)}          sub={`${metaLeads} lead form submits`} accent={C.gold}/>
-              <KPI label="Meta Avg CPL"        value={fmt(metaCpl,"£",2)}      sub="Per lead form submit"             accent={C.sage}/>
-              <KPI label="Google Spend"        value={fmt(gSpend)}             sub="Filtered period"                  accent={C.blue}/>
-              <KPI label="Google Form Submits" value={gConvs}                  sub="GTM tag · 30d fixed"              accent={C.blue}/>
-              <KPI label="Google Cost/Submit"  value={fmt(googleCostPerSubmit,"£",2)} sub="Spend ÷ form submits"        accent={C.blue}/>
-              <KPI label="Blended Avg CPL"     value={fmt(blendedAvgCPL,"£",2)} sub="All channels weighted"           accent={C.rose}/>
+              <KPI label="Total Spend"         value={fmt(metaSpend+gSpend)}  sub="Meta + Google · Southall"         accent={C.gold} delta={mkDelta(metaSpend+gSpend, pm.total, {label:prior.label})} spark={mSpark.total}/>
+              <KPI label="Meta Spend"          value={fmt(metaSpend)}          sub={`${metaLeads} lead form submits`} accent={C.gold} delta={mkDelta(metaSpend, pm.ms, {label:prior.label})} spark={mSpark.metaSpend}/>
+              <KPI label="Meta Avg CPL"        value={fmt(metaCpl,"£",2)}      sub="Per lead form submit"             accent={C.sage} delta={mkDelta(metaCpl, pm.mCpl, {label:prior.label, invert:true})} spark={mSpark.metaCpl}/>
+              <KPI label="Google Spend"        value={fmt(gSpend)}             sub="Filtered period"                  accent={C.blue} delta={mkDelta(gSpend, pm.gs, {label:prior.label})} spark={mSpark.gSpend}/>
+              <KPI label="Google Form Submits" value={gConvs}                  sub="GTM tag · 30d fixed"              accent={C.blue} delta={mkDelta(gConvs, pm.gc, {label:prior.label})} spark={mSpark.gConv}/>
+              <KPI label="Google Cost/Submit"  value={fmt(googleCostPerSubmit,"£",2)} sub="Spend ÷ form submits"        accent={C.blue} delta={mkDelta(googleCostPerSubmit, pm.gCps, {label:prior.label, invert:true})}/>
+              <KPI label="Blended Avg CPL"     value={fmt(blendedAvgCPL,"£",2)} sub="All channels weighted"           accent={C.rose} delta={mkDelta(blendedAvgCPL, pm.blended, {label:prior.label, invert:true})}/>
             </div>
 
             <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
@@ -4586,30 +4637,30 @@ export default function Dashboard() {
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:10,marginBottom:16}}>
                   <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.blue}`}}>
                     <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Sessions</p>
-                    <p style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.totalSessions.toLocaleString()}</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.totalSessions.toLocaleString()}</p><DeltaChip delta={mkDelta(analyticsData.summary.totalSessions, prevAnalyticsData?.summary?.totalSessions, {label:prior.label})}/></div>
                     <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.avgDailySessions.toFixed(0)}/day avg</p>
                   </div>
                   <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.avgBounceRate>0.4?C.rose:analyticsData.summary.avgBounceRate>0.3?C.gold:C.sage}`}}>
                     <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Bounce Rate</p>
-                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.avgBounceRate>0.4?C.rose:analyticsData.summary.avgBounceRate>0.3?C.gold:C.sage,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.avgBounceRate*100).toFixed(1)}%</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.avgBounceRate>0.4?C.rose:analyticsData.summary.avgBounceRate>0.3?C.gold:C.sage,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.avgBounceRate*100).toFixed(1)}%</p><DeltaChip delta={mkDelta(analyticsData.summary.avgBounceRate, prevAnalyticsData?.summary?.avgBounceRate, {label:prior.label, invert:true})}/></div>
                   </div>
                   <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.avgEngagementRate>=0.7?C.sage:analyticsData.summary.avgEngagementRate>=0.6?C.gold:C.rose}`}}>
                     <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Engagement Rate</p>
-                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.avgEngagementRate>=0.7?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.avgEngagementRate*100).toFixed(1)}%</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.avgEngagementRate>=0.7?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.avgEngagementRate*100).toFixed(1)}%</p><DeltaChip delta={mkDelta(analyticsData.summary.avgEngagementRate, prevAnalyticsData?.summary?.avgEngagementRate, {label:prior.label})}/></div>
                   </div>
                   <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.overallConversionRate>=0.1?C.sage:analyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose}`}}>
                     <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Conversion Rate</p>
-                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.overallConversionRate>=0.1?C.sage:analyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.overallConversionRate*100).toFixed(1)}%</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.overallConversionRate>=0.1?C.sage:analyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.overallConversionRate*100).toFixed(1)}%</p><DeltaChip delta={mkDelta(analyticsData.summary.overallConversionRate, prevAnalyticsData?.summary?.overallConversionRate, {label:prior.label})}/></div>
                     <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.totalConfirmations} applications</p>
                   </div>
                   <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.purple}`}}>
                     <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Unique Visitors</p>
-                    <p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.totalUsers.toLocaleString()}</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.totalUsers.toLocaleString()}</p><DeltaChip delta={mkDelta(analyticsData.summary.totalUsers, prevAnalyticsData?.summary?.totalUsers, {label:prior.label})}/></div>
                     <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.sessionsPerUser?.toFixed(1)} sessions/user</p>
                   </div>
                   <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.applicationsPerUser>=0.08?C.sage:analyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose}`}}>
                     <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Applications/Visitor</p>
-                    <p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.applicationsPerUser>=0.08?C.sage:analyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.applicationsPerUser*100).toFixed(1)}%</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.applicationsPerUser>=0.08?C.sage:analyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.applicationsPerUser*100).toFixed(1)}%</p><DeltaChip delta={mkDelta(analyticsData.summary.applicationsPerUser, prevAnalyticsData?.summary?.applicationsPerUser, {label:prior.label})}/></div>
                     <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.totalConfirmations} from {analyticsData.summary.totalUsers.toLocaleString()} visitors</p>
                   </div>
                 </div>
@@ -4786,11 +4837,11 @@ export default function Dashboard() {
                 <>
                   {/* Core CAC cards */}
                   <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
-                    <KPI label="Total Bookings" value={cacStats.counts.total} sub={`${cacStats.counts.meta} Meta · ${cacStats.counts.google} Google · ${cacStats.counts.other} Other`} accent={C.text}/>
-                    <KPI label="Blended CAC" value={fmt(cacStats.blendedCAC,"£",0)} sub={`${fmt(cacStats.totalSpend)} spend ÷ ${cacStats.counts.total} bookings`} accent={C.rose}/>
-                    <KPI label="Meta CAC" value={cacStats.counts.meta>0?fmt(cacStats.metaCAC,"£",0):"—"} sub={`${cacStats.counts.meta} Meta-attributed bookings`} accent={C.gold}/>
-                    <KPI label="Google CAC" value={cacStats.counts.google>0?fmt(cacStats.googleCAC,"£",0):"—"} sub={`${cacStats.counts.google} Google-attributed bookings`} accent={C.blue}/>
-                    <KPI label="Median Lead→Booking" value={cacStats.medianLag!=null?`${cacStats.medianLag}d`:"—"} sub={`Actual attribution window · n=${cacStats.lagSampleSize}`} accent={C.purple}/>
+                    <KPI label="Total Bookings" value={cacStats.counts.total} sub={`${cacStats.counts.meta} Meta · ${cacStats.counts.google} Google · ${cacStats.counts.other} Other`} accent={C.text} delta={mkDelta(cacStats.counts.total, prevCacStats?.counts.total, {label:prior.label})} spark={history.last30(history.newBk)}/>
+                    <KPI label="Blended CAC" value={fmt(cacStats.blendedCAC,"£",0)} sub={`${fmt(cacStats.totalSpend)} spend ÷ ${cacStats.counts.total} bookings`} accent={C.rose} delta={mkDelta(cacStats.blendedCAC, prevCacStats?.blendedCAC, {label:prior.label, invert:true})}/>
+                    <KPI label="Meta CAC" value={cacStats.counts.meta>0?fmt(cacStats.metaCAC,"£",0):"—"} sub={`${cacStats.counts.meta} Meta-attributed bookings`} accent={C.gold} delta={cacStats.counts.meta>0&&prevCacStats?.counts.meta>0?mkDelta(cacStats.metaCAC, prevCacStats.metaCAC, {label:prior.label, invert:true}):null}/>
+                    <KPI label="Google CAC" value={cacStats.counts.google>0?fmt(cacStats.googleCAC,"£",0):"—"} sub={`${cacStats.counts.google} Google-attributed bookings`} accent={C.blue} delta={cacStats.counts.google>0&&prevCacStats?.counts.google>0?mkDelta(cacStats.googleCAC, prevCacStats.googleCAC, {label:prior.label, invert:true}):null}/>
+                    <KPI label="Median Lead→Booking" value={cacStats.medianLag!=null?`${cacStats.medianLag}d`:"—"} sub={`Actual attribution window · n=${cacStats.lagSampleSize}`} accent={C.purple} delta={mkDelta(cacStats.medianLag, prevCacStats?.medianLag, {label:prior.label, invert:true})}/>
                   </div>
 
                   {/* LoS band cards */}
@@ -4932,10 +4983,10 @@ export default function Dashboard() {
                 {ghlError&&<p style={{color:C.rose,fontSize:12,marginBottom:12}}>⚠ {ghlError}</p>}
 
                 <div style={{display:"flex",gap:14,marginBottom:20,flexWrap:"wrap"}}>
-                  <KPI label="Tours Booked"             value={ghlData.toursBooked}   sub={`Stage: "${ghlData.tourStageName??TAG_TOUR}"`}                                       accent={C.purple} badge={rangeLabel}/>
-                  <KPI label="Bookings Confirmed"       value={adjConfirmed}      sub={`Won · Stage: "${ghlData.bookedStageName??STAGE_BOOKED}"`} accent={C.sage}   badge={rangeLabel}/>
-                  <KPI label="Confirmed Pipeline Value" value={adjConfirmedValue>0?fmt(adjConfirmedValue):"£0"} sub="Total value of Won + Booking Confirmed" accent={C.gold}/>
-                  <KPI label="Tour → Booking Rate"      value={adjConvRate!=null?`${adjConvRate}%`:"—"} sub="Confirmed ÷ Tours booked"       accent={adjConvRate==null?C.muted:adjConvRate>=30?C.sage:adjConvRate>=15?C.gold:C.rose}/>
+                  <KPI label="Tours Booked"             value={ghlData.toursBooked}   sub={`Stage: "${ghlData.tourStageName??TAG_TOUR}"`}                                       accent={C.purple} badge={rangeLabel} delta={mkDelta(ghlData.toursBooked, prevGhlData?.toursBooked, {label:prior.label})}/>
+                  <KPI label="Bookings Confirmed"       value={adjConfirmed}      sub={`Won · Stage: "${ghlData.bookedStageName??STAGE_BOOKED}"`} accent={C.sage}   badge={rangeLabel} delta={mkDelta(adjConfirmed, prevGhlData?.confirmed, {label:prior.label})}/>
+                  <KPI label="Confirmed Pipeline Value" value={adjConfirmedValue>0?fmt(adjConfirmedValue):"£0"} sub="Total value of Won + Booking Confirmed" accent={C.gold} delta={mkDelta(adjConfirmedValue, prevGhlData?.confirmedValue, {label:prior.label})}/>
+                  <KPI label="Tour → Booking Rate"      value={adjConvRate!=null?`${adjConvRate}%`:"—"} sub="Confirmed ÷ Tours booked"       accent={adjConvRate==null?C.muted:adjConvRate>=30?C.sage:adjConvRate>=15?C.gold:C.rose} delta={mkDelta(adjConvRate, prevGhlData?.convRate, {label:prior.label})}/>
                 </div>
 
                 {/* Manual Adjustments */}
@@ -5021,10 +5072,10 @@ export default function Dashboard() {
 
               {/* KPI cards */}
               <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-                <KPI label="New Bookings" value={recentActivity.stats.newCount} sub="First-time tenants" accent={C.blue}/>
-                <KPI label="Returning" value={recentActivity.stats.renewalCount} sub="Returning residents" accent={C.sage}/>
-                <KPI label="Moved to Pending" value={recentActivity.stats.pendingCount} sub="Status: PENDING" accent={C.gold}/>
-                <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Returning" accent={C.text}/>
+                <KPI label="New Bookings" value={recentActivity.stats.newCount} sub="First-time tenants" accent={C.blue} delta={mkDelta(recentActivity.stats.newCount, prevActivity?.stats?.newCount, {label:prevActivityWindow.label})} spark={history.last30(history.newBk)}/>
+                <KPI label="Returning" value={recentActivity.stats.renewalCount} sub="Returning residents" accent={C.sage} delta={mkDelta(recentActivity.stats.renewalCount, prevActivity?.stats?.renewalCount, {label:prevActivityWindow.label})}/>
+                <KPI label="Moved to Pending" value={recentActivity.stats.pendingCount} sub="Status: PENDING" accent={C.gold} delta={mkDelta(recentActivity.stats.pendingCount, prevActivity?.stats?.pendingCount, {label:prevActivityWindow.label})}/>
+                <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Returning" accent={C.text} delta={mkDelta(recentActivity.stats.totalActivity, prevActivity?.stats?.totalActivity, {label:prevActivityWindow.label})}/>
               </div>
 
               {/* LoS & Room Type breakdown */}
@@ -5299,23 +5350,35 @@ export default function Dashboard() {
                 <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:16}}>
                   <OccRing pct={occPct}/>
                   <div>
-                    <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {usableRooms}</span></p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+                      <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {usableRooms}</span></p>
+                      <DeltaChip delta={mkDelta(occupied, (history.at(history.occ, history.daysAgo(30))||0) + (history.at(history.ssOcc, history.daysAgo(30))||0), {label:"30 days ago"})}/>
+                    </div>
+                    <Spark data={history.last30(history.occ).map((v,i)=>v + history.last30(history.ssOcc)[i])} color={C.gold} width={120} height={24}/>
                     <p style={{fontSize:12,color:C.muted}}>rooms occupied today{pmsData?.inHouseGuests > occupied ? ` (${pmsData.inHouseGuests} guests)` : ""}</p>
                   </div>
                 </div>
                 <div style={{flex:"1 1 200px",display:"flex",flexDirection:"column",gap:8}}>
-                  {(pmsConn&&pmsData?[
-                    {label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage},
-                    {label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose},
-                    {label:"Revenue this month",value:fmt(monthRev),color:C.gold},
-                    {label:"Revenue this week",value:fmt(weekRev),color:C.text},
-                  ]:[
+                  {(pmsConn&&pmsData?(() => {
+                    const t7=history.today, a7=history.daysAgo(6), b7=history.daysAgo(13), c7=history.daysAgo(7);
+                    const mS = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-01`;
+                    const pmS = (()=>{const d=new Date(); d.setMonth(d.getMonth()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;})();
+                    const pmE = (()=>{const d=new Date(); d.setMonth(d.getMonth()-1); const dom=Math.min(new Date().getDate(), new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(dom).padStart(2,"0")}`;})();
+                    return [
+                    {label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage, delta:mkDelta(history.sum(history.arrivals,a7,t7), history.sum(history.arrivals,b7,c7), {label:"prev 7d"})},
+                    {label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose, delta:mkDelta(history.sum(history.departures,a7,t7), history.sum(history.departures,b7,c7), {label:"prev 7d", invert:true})},
+                    {label:"Revenue this month",value:fmt(monthRev),color:C.gold, delta:mkDelta(history.sum(history.rev,mS,t7), history.sum(history.rev,pmS,pmE), {label:"same point last month"})},
+                    {label:"Revenue this week",value:fmt(weekRev),color:C.text, delta:mkDelta(history.sum(history.rev,a7,t7), history.sum(history.rev,b7,c7), {label:"prev 7d"})},
+                  ];})():[
                     {label:"Occupancy %",value:`${mOcc}%`,color:C.gold},
                     {label:"Est. monthly revenue",value:fmt(monthRev),color:C.gold},
                   ]).map(x=>(
                     <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
                       <span style={{fontSize:12,color:C.muted}}>{x.label}</span>
-                      <span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:8}}>
+                        {x.delta && <DeltaChip delta={x.delta} size={9}/>}
+                        <span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -5451,9 +5514,13 @@ export default function Dashboard() {
                                 </div>
                                 <div>
                                   <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
-                                  <p style={{fontSize:24,fontWeight:700,color:c.awrGross>=TARGET_RATE?C.sage:c.awrGross>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
-                                    {c.awrGross>0?`£${c.awrGross.toLocaleString()}`:"—"}
-                                  </p>
+                                  <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                                    <p style={{fontSize:24,fontWeight:700,color:c.awrGross>=TARGET_RATE?C.sage:c.awrGross>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
+                                      {c.awrGross>0?`£${c.awrGross.toLocaleString()}`:"—"}
+                                    </p>
+                                    {c.title==="All Bookings" && <DeltaChip delta={pp.point30(history.awr)}/>}
+                                  </div>
+                                  {c.title==="All Bookings" && <Spark data={history.last30(history.awr)} color={C.gold} width={100} height={20}/>}
                                 </div>
                               </div>
                               <p style={{fontSize:10,color:c.awr>=TARGET_RATE?C.sage:C.rose,marginTop:4}}>
@@ -6529,13 +6596,13 @@ export default function Dashboard() {
 
             {/* ── KPI row ── */}
             <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
-              <KPI label="Occupancy Tonight" value={(() => { const eff = lavandaData.kpis.effective_tonight ?? Math.max(0, lavandaData.kpis.units - lavandaData.kpis.blocked_tonight); return `${lavandaData.kpis.occ_tonight} / ${eff}`; })()} sub={(() => { const eff = lavandaData.kpis.effective_tonight ?? Math.max(0, lavandaData.kpis.units - lavandaData.kpis.blocked_tonight); return `${eff>0?Math.round(lavandaData.kpis.occ_tonight/eff*100):0}% of ${eff} released · ${lavandaData.kpis.blocked_tonight} blocked · ${lavandaData.kpis.units} allocated`; })()} accent={C.blue}/>
-              <KPI label="In-House Tonight" value={String(lavandaData.kpis.in_house)} sub="Confirmed stays spanning tonight" accent={C.sage}/>
-              <KPI label="Arrivals (7d)" value={String(lavandaData.kpis.arrivals7)} sub="Check-ins from today" accent={C.gold}/>
-              <KPI label="Departures (7d)" value={String(lavandaData.kpis.departures7)} sub="Check-outs from today" accent={C.muted}/>
-              <KPI label="Revenue Still to Come" value={fmt(lavandaData.kpis.future_rev)} sub="Confirmed future nights" accent={C.gold}/>
-              <KPI label="Avg Nightly Rate" value={`£${lavandaData.kpis.adr.toFixed(2)}`} sub={`${lavandaData.kpis.confirmed} confirmed · ${lavandaData.kpis.canceled} cancelled${lavandaData.kpis.inquiries?` · ${lavandaData.kpis.inquiries} inquiries`:""}`} accent={C.blue}/>
-              <KPI label="Total Confirmed Value" value={fmt(lavandaData.kpis.total_conf_value)} sub="All confirmed bookings" accent={C.sage}/>
+              <KPI label="Occupancy Tonight" value={(() => { const eff = lavandaData.kpis.effective_tonight ?? Math.max(0, lavandaData.kpis.units - lavandaData.kpis.blocked_tonight); return `${lavandaData.kpis.occ_tonight} / ${eff}`; })()} sub={(() => { const eff = lavandaData.kpis.effective_tonight ?? Math.max(0, lavandaData.kpis.units - lavandaData.kpis.blocked_tonight); return `${eff>0?Math.round(lavandaData.kpis.occ_tonight/eff*100):0}% of ${eff} released · ${lavandaData.kpis.blocked_tonight} blocked · ${lavandaData.kpis.units} allocated`; })()} accent={C.blue} delta={pp.point30(history.ssOcc)} spark={history.last30(history.ssOcc)}/>
+              <KPI label="In-House Tonight" value={String(lavandaData.kpis.in_house)} sub="Confirmed stays spanning tonight" accent={C.sage} delta={pp.point30(history.ssOcc)}/>
+              <KPI label="Arrivals (7d)" value={String(lavandaData.kpis.arrivals7)} sub="Check-ins from today" accent={C.gold} delta={mkDelta(ssMove.arrNext7, ssMove.arrPrev7, {label:"prev 7d"})}/>
+              <KPI label="Departures (7d)" value={String(lavandaData.kpis.departures7)} sub="Check-outs from today" accent={C.muted} delta={mkDelta(ssMove.depNext7, ssMove.depPrev7, {label:"prev 7d", invert:true})}/>
+              <KPI label="Revenue Still to Come" value={fmt(lavandaData.kpis.future_rev)} sub="Confirmed future nights" accent={C.gold} spark={history.last30(history.ssRev)}/>
+              <KPI label="Avg Nightly Rate" value={`£${lavandaData.kpis.adr.toFixed(2)}`} sub={`${lavandaData.kpis.confirmed} confirmed · ${lavandaData.kpis.canceled} cancelled${lavandaData.kpis.inquiries?` · ${lavandaData.kpis.inquiries} inquiries`:""}`} accent={C.blue} delta={pp.avg(history.ssAdr)} spark={history.last30(history.ssAdr)}/>
+              <KPI label="Total Confirmed Value" value={fmt(lavandaData.kpis.total_conf_value)} sub="All confirmed bookings" accent={C.sage} delta={pp.sum(history.ssRev)}/>
             </div>
 
             {/* ── Occupancy Stacked Bar Chart ── */}
@@ -6838,21 +6905,27 @@ export default function Dashboard() {
 
                   // Departing: entries marked leaving whose expiry falls in the selected period
                   const allRenewalEntries = (pmsData.renewalMonths || []).flatMap(m => m.entries);
-                  const departingInPeriod = allRenewalEntries.filter(e => {
-                    const isLeaving = leavingSet.has(e.roomStayId);
-                    const isAutoLeft = e.expired && !e.isRenewed && !e.isPendingRenewal && !pendingSet.has(e.roomStayId);
-                    if (!isLeaving && !isAutoLeft) return false;
-                    return e.endDate >= renewalTrackerFrom && e.endDate <= renewalTrackerTo;
-                  });
+                  const isDeparting = (e) => leavingSet.has(e.roomStayId) || (e.expired && !e.isRenewed && !e.isPendingRenewal && !pendingSet.has(e.roomStayId));
+                  const departingInPeriod = allRenewalEntries.filter(e => isDeparting(e) && e.endDate >= renewalTrackerFrom && e.endDate <= renewalTrackerTo);
+
+                  // Prior period of equal length for delta chips
+                  const rpF = new Date(renewalTrackerFrom+"T00:00:00Z"), rpT = new Date(renewalTrackerTo+"T00:00:00Z");
+                  const rpDays = Math.round((rpT - rpF)/864e5) + 1;
+                  const rpPrevTo = new Date(rpF.getTime()-864e5).toISOString().slice(0,10);
+                  const rpPrevFrom = new Date(rpF.getTime()-rpDays*864e5).toISOString().slice(0,10);
+                  const rpLabel = `prev ${rpDays}d`;
+                  const prevConfirmedN = allConfirmedAll.filter(ev => { const d = ev.confirmedDate || ev.contractSignedDate || ev.conversionDate; return d && d >= rpPrevFrom && d <= rpPrevTo; }).length;
+                  const prevPendingN = allPendingAll.filter(ev => ev.conversionDate && ev.conversionDate >= rpPrevFrom && ev.conversionDate <= rpPrevTo).length;
+                  const prevDepartingN = allRenewalEntries.filter(e => isDeparting(e) && e.endDate >= rpPrevFrom && e.endDate <= rpPrevTo).length;
 
                   return (
                     <div>
                       {/* KPIs */}
                       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
-                        <KPI label="Renewed" value={filteredAll.length} sub="In selected period" accent={C.gold}/>
-                        <KPI label="Confirmed" value={filteredConfirmed.length} sub="Signed in period" accent={C.sage}/>
-                        <KPI label="Pending" value={filteredPending.length} sub="Contracts sent in period" accent={C.blue}/>
-                        <KPI label="Departing" value={departingInPeriod.length} sub="Leaving in period" accent={C.rose}/>
+                        <KPI label="Renewed" value={filteredAll.length} sub="In selected period" accent={C.gold} delta={mkDelta(filteredAll.length, prevConfirmedN+prevPendingN, {label:rpLabel})}/>
+                        <KPI label="Confirmed" value={filteredConfirmed.length} sub="Signed in period" accent={C.sage} delta={mkDelta(filteredConfirmed.length, prevConfirmedN, {label:rpLabel})}/>
+                        <KPI label="Pending" value={filteredPending.length} sub="Contracts sent in period" accent={C.blue} delta={mkDelta(filteredPending.length, prevPendingN, {label:rpLabel})}/>
+                        <KPI label="Departing" value={departingInPeriod.length} sub="Leaving in period" accent={C.rose} delta={mkDelta(departingInPeriod.length, prevDepartingN, {label:rpLabel, invert:true})}/>
                       </div>
 
                       {/* Totals context bar */}
@@ -8318,12 +8391,12 @@ export default function Dashboard() {
           <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
 
           <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
-            <KPI label="Total Spend" value={fmt(sdTotalSpend)} sub="Meta + Google" accent={C.gold}/>
-            <KPI label="Avg CPL (Blended)" value={fmt(sdBlendedCpl,"£",2)} sub={`${sdTotalLeads} total leads`} accent={C.sage} badge="KEY"/>
-            <KPI label="Google Spend" value={fmt(sdGSpend)} sub={`${sdGConvs} conversions`} accent={C.blue}/>
-            <KPI label="Google Cost/Conv" value={fmt(sdGCPC,"£",2)} sub="Per conversion" accent={C.blue}/>
-            <KPI label="Meta Spend" value={fmt(sdMetaSpend)} sub={`${sdMetaLeads} leads`} accent={C.gold}/>
-            <KPI label="Meta CPL" value={fmt(sdMetaCpl,"£",2)} sub="Per lead" accent={C.sage}/>
+            <KPI label="Total Spend" value={fmt(sdTotalSpend)} sub="Meta + Google" accent={C.gold} delta={sdMetaIsLive?mkDelta(sdTotalSpend, pm.total, {label:prior.label}):null} spark={sdMetaIsLive?mSpark.total:null}/>
+            <KPI label="Avg CPL (Blended)" value={fmt(sdBlendedCpl,"£",2)} sub={`${sdTotalLeads} total leads`} accent={C.sage} badge="KEY" delta={sdMetaIsLive?mkDelta(sdBlendedCpl, pm.blended, {label:prior.label, invert:true}):null}/>
+            <KPI label="Google Spend" value={fmt(sdGSpend)} sub={`${sdGConvs} conversions`} accent={C.blue} delta={sdMetaIsLive?mkDelta(sdGSpend, pm.gs, {label:prior.label}):null} spark={sdMetaIsLive?mSpark.gSpend:null}/>
+            <KPI label="Google Cost/Conv" value={fmt(sdGCPC,"£",2)} sub="Per conversion" accent={C.blue} delta={sdMetaIsLive?mkDelta(sdGCPC, pm.gCps, {label:prior.label, invert:true}):null}/>
+            <KPI label="Meta Spend" value={fmt(sdMetaSpend)} sub={`${sdMetaLeads} leads`} accent={C.gold} delta={sdMetaIsLive?mkDelta(sdMetaSpend, pm.ms, {label:prior.label}):null} spark={sdMetaIsLive?mSpark.metaSpend:null}/>
+            <KPI label="Meta CPL" value={fmt(sdMetaCpl,"£",2)} sub="Per lead" accent={C.sage} delta={sdMetaIsLive?mkDelta(sdMetaCpl, pm.mCpl, {label:prior.label, invert:true}):null} spark={sdMetaIsLive?mSpark.metaCpl:null}/>
           </div>
 
           <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
