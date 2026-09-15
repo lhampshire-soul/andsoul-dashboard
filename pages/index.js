@@ -1929,7 +1929,7 @@ const CalendarPicker = ({ value, onChange, style }) => {
 };
 
 // ─── PERFORMANCE INSIGHTS: period-over-period, source mix, device mix, expert playbook ───
-const PerformanceInsights = ({ analytics, propertyLabel }) => {
+const PerformanceInsights = ({ analytics, propertyLabel, hideAdvice = false }) => {
   if (!analytics?.data) return null;
   const { periodComparison: pc, trafficSources = [], devices = [], expertPlaybook = [] } = analytics.data;
   const fmtPct = (n) => (n >= 0 ? "+" : "") + n.toFixed(0) + "%";
@@ -2080,8 +2080,8 @@ const PerformanceInsights = ({ analytics, propertyLabel }) => {
         </div>
       )}
 
-      {/* Expert Playbook */}
-      {expertPlaybook.length > 0 && (
+      {/* Expert Playbook (advice — hidden in investor view) */}
+      {!hideAdvice && expertPlaybook.length > 0 && (
         <div style={{ background: C.card, border: `1px solid ${C.sage}44`, borderRadius: 12, padding: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 12 }}>
             <div>
@@ -2128,6 +2128,12 @@ const PerformanceInsights = ({ analytics, propertyLabel }) => {
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [tab, setTab] = useState("summary");
+  // Investor view: facts only. Hides internal tools (annotations, target editing,
+  // manual inputs, messaging), advice blocks and the Forecast tab. Activated by
+  // ?view=investor in the URL or the header switch; remembered per browser.
+  const [investor, setInvestorRaw] = useState(false);
+  const setInvestor = (v) => { setInvestorRaw(v); try { localStorage.setItem("southall_view_v1", v ? "investor" : "team"); } catch {} try { const u = new URL(window.location.href); if (v) u.searchParams.set("view","investor"); else u.searchParams.delete("view"); window.history.replaceState(null, "", u.toString()); } catch {} };
+  useEffect(() => { try { const q = new URLSearchParams(window.location.search).get("view"); const ls = localStorage.getItem("southall_view_v1"); const on = q ? q === "investor" : ls === "investor"; setInvestorRaw(on); if (on && (tab === "forecast")) setTab("summary"); } catch {} }, []);
   const [property, setProperty] = useState("southall");
   const [sdTab, setSdTab] = useState("marketing");
   const [preset, setPreset] = useState(30);
@@ -3342,9 +3348,18 @@ export default function Dashboard() {
       });
       if (cur) merged.push(cur);
     });
-    merged.forEach(m => { m.nights = Math.round((new Date(m.to) - new Date(m.from)) / 864e5); });
+    merged.forEach(m => {
+      m.nights = Math.round((new Date(m.to) - new Date(m.from)) / 864e5);
+      if (investor) {
+        // Investor view: no guest names or booking references — facts about the clash only.
+        m.aLabel = m.kind === "cross" ? "Long-stay tenant" : "Short-stay guest";
+        m.bLabel = "Short-stay guest";
+        m.aMeta = m.kind === "cross" ? "Res Harmonics · long-stay" : (m.aMeta.split(" · ")[1] || "short-stay");
+        m.bMeta = m.bMeta.split(" · ")[1] || "short-stay";
+      }
+    });
     return merged.sort((a, b) => a.from.localeCompare(b.from));
-  }, [lavandaConn, lavandaData, pmsConn, rhAllUnits, rhAllBookings]);
+  }, [lavandaConn, lavandaData, pmsConn, rhAllUnits, rhAllBookings, investor]);
 
   // Renewal month stats with manual leaving/pending markers applied — mirrors
   // the Renewals tab derivation so Room Availability (now on Occupancy) sees
@@ -3744,38 +3759,17 @@ export default function Dashboard() {
     finally{setPmsLoad(false);}
   },[cid,csec]);
 
-  // Reputation state
-  const [gmbRating, setGmbRating] = useState(4.4);
-  const [gmbCount, setGmbCount] = useState(42);
-  const [airbnbRating, setAirbnbRating] = useState(3.1);
-  const [airbnbCount, setAirbnbCount] = useState(156);
-  const [trustpilotRating, setTrustpilotRating] = useState(3.55);
-  const [trustpilotCount, setTrustpilotCount] = useState(28);
-  const [mentions, setMentions] = useState("");
-  const [repLive, setRepLive] = useState({ trustpilot: false, google: false, airbnb: false });
+  // Reputation — live only. No manual defaults: a platform is shown only when
+  // /api/reputation returns a real rating for it.
+  const [reputation, setReputation] = useState({ google: null, airbnb: null, trustpilot: null, fetchedAt: null });
   const [repLoading, setRepLoading] = useState(false);
-
-  // Fetch live reputation data on mount
   useEffect(() => {
     setRepLoading(true);
     fetch("/api/reputation")
       .then(r => r.json())
       .then(data => {
-        if (data.trustpilot && !data.trustpilot.error && data.trustpilot.rating != null) {
-          setTrustpilotRating(data.trustpilot.rating);
-          setTrustpilotCount(data.trustpilot.count || 0);
-          setRepLive(p => ({ ...p, trustpilot: true }));
-        }
-        if (data.google && !data.google.error && data.google.rating != null) {
-          setGmbRating(data.google.rating);
-          setGmbCount(data.google.count || 0);
-          setRepLive(p => ({ ...p, google: true }));
-        }
-        if (data.airbnb && !data.airbnb.error && data.airbnb.rating != null) {
-          setAirbnbRating(data.airbnb.rating);
-          setAirbnbCount(data.airbnb.count || 0);
-          setRepLive(p => ({ ...p, airbnb: true }));
-        }
+        const pick = k => (data?.[k] && !data[k].error && data[k].rating != null) ? { rating: +data[k].rating, count: +(data[k].count || 0), source: data[k].source || "" } : null;
+        setReputation({ google: pick("google"), airbnb: pick("airbnb"), trustpilot: pick("trustpilot"), fetchedAt: data?.fetchedAt || null });
       })
       .catch(e => console.log("Reputation fetch error:", e.message))
       .finally(() => setRepLoading(false));
@@ -4006,9 +4000,6 @@ export default function Dashboard() {
   useEffect(()=>{ runSDGHL(from,to); },[]);
   useEffect(()=>{ if(sdGhlConn) runSDGHL(from,to); },[from,to]);
 
-  const reputationScore = Math.round(((gmbRating + airbnbRating + trustpilotRating) / 3 / 5) * 100);
-  const reputationColor = reputationScore >= 80 ? C.sage : reputationScore >= 60 ? C.gold : C.rose;
-
   const tabBtn=(t,label,dot)=>(
     <button onClick={()=>setTab(t)} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,background:tab===t?C.gold:"transparent",color:tab===t?"#000":C.muted,whiteSpace:"nowrap"}}>
       {dot&&<span style={{width:6,height:6,borderRadius:"50%",background:dot,flexShrink:0}}/>}
@@ -4061,6 +4052,14 @@ export default function Dashboard() {
                 </span>
               );
             })}
+            <button onClick={()=>{ setInvestor(!investor); if(!investor && tab==="forecast") setTab("summary"); }}
+              title={investor ? "Investor view: facts only — internal tools, advice and forecasts hidden. Click for team view." : "Team view: all tools visible. Click for investor view (facts only)."}
+              style={{marginLeft:8,padding:"3px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",border:`1px solid ${investor?C.gold:C.border}`,background:investor?C.gold+"22":"transparent",color:investor?C.gold:C.muted,display:"inline-flex",alignItems:"center",gap:6}}>
+              <span style={{width:22,height:12,borderRadius:6,background:investor?C.gold:C.border,position:"relative",display:"inline-block"}}>
+                <span style={{position:"absolute",top:2,left:investor?12:2,width:8,height:8,borderRadius:4,background:investor?"#000":C.muted,transition:"left 0.15s"}}/>
+              </span>
+              {investor ? "INVESTOR VIEW" : "TEAM VIEW"}
+            </button>
           </div>
         </div>
 
@@ -4084,7 +4083,7 @@ export default function Dashboard() {
               <button key={p.k} onClick={()=>setProperty(p.k)} style={{padding:"7px 14px",border:`1px solid ${property===p.k?C.gold:C.border}`,cursor:"pointer",fontWeight:700,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",borderRadius:8,background:property===p.k?C.gold+"22":"transparent",color:property===p.k?C.gold:C.muted}}>{p.l}</button>
             ))}
           </div>
-          {property==="southall"&&<>{tabBtn("summary","Summary")}{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("forecast","Forecast",C.purple)}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation")}</>}
+          {property==="southall"&&<>{tabBtn("summary","Summary")}{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{!investor&&tabBtn("forecast","Forecast",C.purple)}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}</>}
           {property==="shoreditch"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setSdTab("marketing")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="marketing"?C.gold:"transparent",color:sdTab==="marketing"?"#000":C.muted}}>Marketing</button>
             <button onClick={()=>setSdTab("crm")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="crm"?C.gold:"transparent",color:sdTab==="crm"?"#000":C.muted}}>CRM</button>
@@ -4162,8 +4161,8 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* ── ANNOTATIONS ── */}
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:14,margin:"16px 0 0"}}>
+            {/* ── ANNOTATIONS (team only) ── */}
+            {!investor && <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:14,margin:"16px 0 0"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
                 <div>
                   <p style={{fontSize:12,fontWeight:700,color:C.text}}>Chart annotations</p>
@@ -4194,7 +4193,7 @@ export default function Dashboard() {
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* ── DOUBLE BOOKING ALERT ── */}
             {doubleBookings.length > 0 && (
@@ -4393,11 +4392,11 @@ export default function Dashboard() {
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:12}}>
                         <div>
                           <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Pacing — {mLabel}</h3>
-                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Day {dom} of {dim} · {Math.round(elapsed*100)}% of the month elapsed · targets editable, saved in this browser</p>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Day {dom} of {dim} · {Math.round(elapsed*100)}% of the month elapsed · month-to-date actuals vs management targets{investor?"":" · targets editable, saved in this browser"}</p>
                         </div>
-                        <button onClick={()=>setPacingEdit(v=>!v)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>{pacingEdit?"Done":"Edit targets"}</button>
+                        {!investor && <button onClick={()=>setPacingEdit(v=>!v)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>{pacingEdit?"Done":"Edit targets"}</button>}
                       </div>
-                      {pacingEdit && (
+                      {pacingEdit && !investor && (
                         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12,padding:"10px 12px",background:C.bg,borderRadius:10,border:`1px solid ${C.border}`}}>
                           {[["revenue","Monthly revenue £",1000],["bookings","New bookings / month",1],["occPct","Occupancy target %",1],["adr","Short-stay ADR £",1]].map(([k,l,step])=>(
                             <label key={k} style={{fontSize:10,color:C.muted,display:"flex",flexDirection:"column",gap:4}}>
@@ -4437,8 +4436,8 @@ export default function Dashboard() {
                                 {!hasData ? (r.sub || "Awaiting data")
                                  : r.kind === "cumulative"
                                    ? (ratio >= 0.97
-                                       ? `Ahead of pace · projecting ${r.fmtV(projected)} by month end`
-                                       : `${r.fmtV(Math.max(0, expected - r.actual))} behind today's pace · projecting ${r.fmtV(projected)}`)
+                                       ? (investor ? `Ahead of today's pace (${r.fmtV(expected)} expected by day ${dom})` : `Ahead of pace · projecting ${r.fmtV(projected)} by month end`)
+                                       : (investor ? `${r.fmtV(Math.max(0, expected - r.actual))} behind today's pace (${r.fmtV(expected)} expected by day ${dom})` : `${r.fmtV(Math.max(0, expected - r.actual))} behind today's pace · projecting ${r.fmtV(projected)}`))
                                    : (ratio >= 1 ? `Target met${r.sub?` · ${r.sub}`:""}` : `${r.fmtV(Math.max(0, r.target - r.actual))} short of target${r.sub?` · ${r.sub}`:""}`)}
                               </p>
                             </div>
@@ -4480,11 +4479,13 @@ export default function Dashboard() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
                     <div>
                       <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>Offline & Maintenance Rooms</h3>
-                      <p style={{fontSize:12,color:C.muted}}>Manual entry — RH doesn't track most maintenance blocks. Drives usable rooms & the 95% target model.</p>
+                      <p style={{fontSize:12,color:C.muted}}>{investor ? "From the operations offline register — these rooms are excluded from usable stock." : "Manual entry — RH doesn't track most maintenance blocks. Drives usable rooms & the 95% target model."}</p>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{fontSize:11,color:C.muted}}>Rooms offline:</span>
-                      <input type="number" min={0} max={50} value={offlineRooms} onChange={e=>{const v=Math.max(0,Math.min(50,+e.target.value||0));setOfflineRooms(v);}} style={{width:64,fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",textAlign:"right",outline:"none"}}/>
+                      {investor
+                        ? <span style={{fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{offlineRooms}</span>
+                        : <input type="number" min={0} max={50} value={offlineRooms} onChange={e=>{const v=Math.max(0,Math.min(50,+e.target.value||0));setOfflineRooms(v);}} style={{width:64,fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",textAlign:"right",outline:"none"}}/>}
                     </div>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))",gap:10,marginTop:14}}>
@@ -4518,7 +4519,7 @@ export default function Dashboard() {
                       <p style={{fontSize:10,color:C.muted}}>Incl. maintenance & unlisted nights on Booking.com</p>
                     </div>
                   </div>
-                  <p style={{fontSize:10,color:C.muted,marginTop:10}}>⚠ Some maintenance rooms are within the 30 Lavanda-allocated Nomad units — avoid double counting: the manual figure should cover all rooms genuinely out of service across the building.</p>
+                  {!investor && <p style={{fontSize:10,color:C.muted,marginTop:10}}>⚠ Some maintenance rooms are within the 30 Lavanda-allocated Nomad units — avoid double counting: the manual figure should cover all rooms genuinely out of service across the building.</p>}
                 </div>
 
                 {/* ── Monthly Occupancy Trend (stacked LS + SS) ── */}
@@ -4782,6 +4783,44 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+
+                {/* ── Guest Ratings (live only — no manual fallbacks) ── */}
+                {(() => {
+                  const plats = [
+                    { k:"google",     name:"Google",     color:C.blue },
+                    { k:"airbnb",     name:"Airbnb",     color:C.rose },
+                    { k:"trustpilot", name:"Trustpilot", color:C.sage },
+                  ];
+                  const liveN = plats.filter(p => reputation[p.k]).length;
+                  return (
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:12}}>
+                        <div>
+                          <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Guest Ratings</h3>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Public review platforms, fetched live on load. A platform only shows a score when its feed is reachable — nothing here is typed in by hand.</p>
+                        </div>
+                        <span style={{fontSize:10,color:liveN?C.sage:C.muted,fontWeight:600}}>{repLoading ? "○ checking…" : liveN ? `● ${liveN} of ${plats.length} live` : "○ no live feeds"}</span>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:10}}>
+                        {plats.map(p => {
+                          const r = reputation[p.k];
+                          return (
+                            <div key={p.k} style={{background:C.bg,border:`1px solid ${r?p.color+"44":C.border}`,borderRadius:10,padding:"12px 14px"}}>
+                              <p style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{p.name} <span style={{fontSize:9,color:r?C.sage:C.muted,marginLeft:4}}>{r?"● live":"○ not connected"}</span></p>
+                              {r ? (<>
+                                <p style={{fontSize:24,fontWeight:800,color:p.color,fontFamily:"DM Mono,monospace",lineHeight:1}}>{r.rating.toFixed(1)}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/5</span></p>
+                                <div style={{display:"flex",gap:2,margin:"6px 0 4px"}}>{[1,2,3,4,5].map(x=><span key={x} style={{fontSize:13,opacity:x<=Math.floor(r.rating)?1:x<=r.rating?0.6:0.2}}>★</span>)}</div>
+                                <p style={{fontSize:11,color:C.muted}}>{r.count ? `${r.count.toLocaleString()} reviews` : "review count unavailable"}</p>
+                              </>) : (
+                                <p style={{fontSize:11,color:C.muted,lineHeight:1.5}}>No live rating available — feed unreachable or not configured. Shown as blank rather than an estimate.</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </>);
             })()}
           </div>
@@ -4961,8 +5000,8 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {/* Recommendations */}
-                {analyticsData.recommendations && analyticsData.recommendations.length > 0 && (
+                {/* Recommendations (team only) */}
+                {!investor && analyticsData.recommendations && analyticsData.recommendations.length > 0 && (
                   <div>
                     <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Recommendations</p>
                     <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -4986,10 +5025,10 @@ export default function Dashboard() {
             )}
 
             {/* Performance Insights — Southall (period comparison, source mix, device split, expert playbook) */}
-            <PerformanceInsights analytics={analyticsData} propertyLabel="Southall" />
+            <PerformanceInsights analytics={analyticsData} propertyLabel="Southall" hideAdvice={investor} />
 
-            {/* Weekly Recommendations — Southall */}
-            {analyticsData?.weeklyInsights?.actions?.length > 0 && (
+            {/* Weekly Recommendations — Southall (team only) */}
+            {!investor && analyticsData?.weeklyInsights?.actions?.length > 0 && (
               <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:12,padding:16,marginBottom:14}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <div>
@@ -5262,8 +5301,11 @@ export default function Dashboard() {
                   <KPI label="Tour → Booking Rate"      value={adjConvRate!=null?`${adjConvRate}%`:"—"} sub="Confirmed ÷ Tours booked"       accent={adjConvRate==null?C.muted:adjConvRate>=30?C.sage:adjConvRate>=15?C.gold:C.rose} delta={mkDelta(adjConvRate, prevGhlData?.convRate, {label:prior.label})}/>
                 </div>
 
-                {/* Manual Adjustments */}
-                <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+                {/* Manual Adjustments (team only; disclosed in investor view when non-zero) */}
+                {investor && (manualBookings>0 || manualValue>0) && (
+                  <p style={{fontSize:10,color:C.gold,marginBottom:12}}>Includes {manualBookings} manually recorded booking{manualBookings===1?"":"s"}{manualValue>0?` and ${fmt(manualValue)} of manually recorded value`:""} not captured in the CRM.</p>
+                )}
+                {!investor && <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
                   <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Manual Adjustments</p>
                   <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
                     <div style={{flex:1,minWidth:150}}>
@@ -5275,7 +5317,7 @@ export default function Dashboard() {
                       <input type="number" value={manualValue} onChange={e=>setManualValue(Math.max(0,+e.target.value))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
                     </div>
                   </div>
-                </div>
+                </div>}
 
                 <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:14}}>
                   <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Sales Funnel</p>
@@ -6387,7 +6429,7 @@ export default function Dashboard() {
         )}
 
         {/* ════ FORECAST · INTERNAL ════ */}
-        {property==="southall"&&tab==="forecast"&&(
+        {property==="southall"&&tab==="forecast"&&!investor&&(
           <div style={{padding:"22px 26px"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8}}>
               <div>
@@ -7420,7 +7462,7 @@ export default function Dashboard() {
                       const isInHouse = b.start < todayStr && b.end > todayStr;
                       return (
                         <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                          <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>{b.guest}</td>
+                          <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>{investor ? (b.channel || "Guest") : b.guest}</td>
                           <td style={{padding:"8px 10px",color:C.text}}>{new Date(b.start+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
                           <td style={{padding:"8px 10px",color:C.text}}>{new Date(b.end+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{b.nights}</td>
@@ -7472,94 +7514,7 @@ export default function Dashboard() {
               <p style={{fontSize:11,color:C.muted,marginTop:8}}>Total inventory: {lavandaData.kpis.total_inventory} units. Membership tiers are managed outside this feed.</p>
             </div>
 
-            {/* ── Combined Long + Short Stay View ── */}
-            {pmsConn && pmsData && (
-              <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                  <div>
-                    <h3 style={{fontSize:14,fontWeight:700,color:C.gold,margin:0}}>Combined Occupancy — All Southall</h3>
-                    <p style={{fontSize:12,color:C.muted,marginTop:2}}>Long-stay (Res Harmonics) + Short-stay (Lavanda) combined picture</p>
-                  </div>
-                  <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:12,marginBottom:16}}>
-                  {(() => {
-                    const lsOccupied = pmsData.occupied || 0;
-                    const ssUnitsAlloc = lavandaData.kpis.units;               // 30 Nomad, inside the 300
-                    const lsBeds = BEDS - ssUnitsAlloc;                        // long-stay pool = 300 − Nomad
-                    const ssOccupied = lavandaData.kpis.occ_tonight;
-                    const ssEffective = lavandaData.kpis.effective_tonight ?? Math.max(0, ssUnitsAlloc - lavandaData.kpis.blocked_tonight);
-                    const totalOccupied = lsOccupied + ssOccupied;
-                    const totalBeds = BEDS - offlineRooms;                     // whole building, usable
-                    const totalPct = totalBeds > 0 ? Math.round(totalOccupied / totalBeds * 100) : 0;
-                    const lsAWR = pmsData.globalAwrGross || pmsData.globalAwr || 0;
-                    const ssADR = lavandaData.kpis.adr || 0;
-                    const ssWeeklyEquiv = Math.round(ssADR * 7);
-                    return (
-                      <>
-                        <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
-                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Long-Stay Occupancy</p>
-                          <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{lsOccupied}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{lsBeds}</span></p>
-                          <p style={{fontSize:10,color:C.muted}}>{lsBeds>0?Math.round(lsOccupied/lsBeds*100):0}% · via Res Harmonics</p>
-                        </div>
-                        <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
-                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Short-Stay Occupancy</p>
-                          <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{ssOccupied}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{ssEffective}</span></p>
-                          <p style={{fontSize:10,color:C.muted}}>{ssEffective>0?Math.round(ssOccupied/ssEffective*100):0}% of released · {ssUnitsAlloc} allocated · via Lavanda</p>
-                        </div>
-                        <div style={{background:C.bg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:14}}>
-                          <p style={{fontSize:10,color:C.gold,marginBottom:4,fontWeight:600}}>Total Combined</p>
-                          <p style={{fontSize:22,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{totalOccupied}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{totalBeds}</span></p>
-                          <p style={{fontSize:10,color:C.muted}}>{totalPct}% combined occupancy</p>
-                        </div>
-                        <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
-                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Rate Comparison</p>
-                          <p style={{fontSize:14,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>LS: £{lsAWR}/wk gross</p>
-                          <p style={{fontSize:14,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",marginTop:4}}>SS: £{ssADR}/night · £{ssWeeklyEquiv}/wk equiv</p>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {/* Combined occupancy bar - visual */}
-                <div style={{marginTop:8}}>
-                  <p style={{fontSize:11,color:C.muted,marginBottom:6}}>Bed utilisation breakdown (tonight)</p>
-                  {(() => {
-                    const total = BEDS; // whole building — Nomad units are inside the 300
-                    const lsOcc = pmsData.occupied || 0;
-                    const ssOcc = lavandaData.kpis.occ_tonight;
-                    const ssBlocked = lavandaData.kpis.blocked_tonight;
-                    const lsPct = (lsOcc/total)*100;
-                    const ssOccPct = (ssOcc/total)*100;
-                    const ssBlockPct = (ssBlocked/total)*100;
-                    const emptyPct = 100 - lsPct - ssOccPct - ssBlockPct;
-                    return (
-                      <div style={{display:"flex",height:28,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
-                        <div style={{width:`${lsPct}%`,background:C.sage,display:"flex",alignItems:"center",justifyContent:"center"}} title={`Long-stay: ${lsOcc} beds`}>
-                          {lsPct > 8 && <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{lsOcc} LS</span>}
-                        </div>
-                        <div style={{width:`${ssOccPct}%`,background:C.blue,display:"flex",alignItems:"center",justifyContent:"center"}} title={`Short-stay booked: ${ssOcc} beds`}>
-                          {ssOccPct > 5 && <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{ssOcc} SS</span>}
-                        </div>
-                        <div style={{width:`${ssBlockPct}%`,background:C.muted+"66",display:"flex",alignItems:"center",justifyContent:"center"}} title={`Short-stay blocked: ${ssBlocked} beds`}>
-                          {ssBlockPct > 5 && <span style={{fontSize:9,color:C.text,fontWeight:600}}>{ssBlocked} blocked</span>}
-                        </div>
-                        <div style={{width:`${Math.max(0,emptyPct)}%`,background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}} title={`Available: ${total - lsOcc - ssOcc - ssBlocked} beds`}>
-                          {emptyPct > 10 && <span style={{fontSize:9,color:C.muted}}>{total - lsOcc - ssOcc - ssBlocked} open</span>}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginTop:6}}>
-                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.sage,display:"inline-block"}}/> Long-stay</span>
-                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue,display:"inline-block"}}/> Short-stay booked</span>
-                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.muted+"66",display:"inline-block"}}/> Blocked</span>
-                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.bg,border:`1px solid ${C.border}`,display:"inline-block"}}/> Available</span>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Combined LS+SS occupancy lives on the Summary tab (single source) */}
 
             <p style={{fontSize:10,color:C.muted,marginTop:12}}>Source: Lavanda Dev API ({lavandaData.account}) · Data window: {lavandaData.daily[0]?.date} to {lavandaData.daily[lavandaData.daily.length-1]?.date} · Generated: {new Date(lavandaData.generated).toLocaleString("en-GB")}</p>
           </div>
@@ -7731,8 +7686,8 @@ export default function Dashboard() {
                         );
                       })()}
 
-                      {/* Confirmed renewals in period */}
-                      {filteredConfirmed.length > 0 && (
+                      {/* Confirmed renewals in period (per-tenant — team only) */}
+                      {!investor && filteredConfirmed.length > 0 && (
                         <div style={{marginTop:4}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                             <p style={{fontSize:11,fontWeight:700,color:C.sage,textTransform:"uppercase",letterSpacing:"0.06em"}}>
@@ -7808,8 +7763,8 @@ export default function Dashboard() {
                         </div>
                       )}
 
-                      {/* Pending (contracts sent) in period */}
-                      {filteredPending.length > 0 && (
+                      {/* Pending (contracts sent) in period (per-tenant — team only) */}
+                      {!investor && filteredPending.length > 0 && (
                         <div style={{marginTop:14}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                             <p style={{fontSize:11,fontWeight:700,color:C.blue,textTransform:"uppercase",letterSpacing:"0.06em"}}>
@@ -7885,8 +7840,8 @@ export default function Dashboard() {
                         </div>
                       )}
 
-                      {/* Departing list */}
-                      {departingInPeriod.length > 0 && (
+                      {/* Departing list (per-tenant — team only) */}
+                      {!investor && departingInPeriod.length > 0 && (
                         <div style={{marginTop:14}}>
                           <p style={{fontSize:11,fontWeight:700,color:C.rose,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
                             Departing in Period ({departingInPeriod.length})
@@ -8007,12 +7962,12 @@ export default function Dashboard() {
                     <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub={`Left or marked leaving${totalEarlyTerm > 0 ? ` · ${totalEarlyTerm} early term` : ""}`} accent={C.rose}/>
                     <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, no action" accent={C.rose}/>
                   </div>
-                  <div style={{display:"flex",gap:10,marginBottom:16}}>
+                  {!investor && <div style={{display:"flex",gap:10,marginBottom:16}}>
                     <button onClick={() => exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs, earlyTermSet)}
                       style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.sage}`,background:C.sage+"22",color:C.sage,fontWeight:700,fontSize:11,cursor:"pointer",letterSpacing:"0.04em",display:"flex",alignItems:"center",gap:6}}>
                       ↓ Export Renewed + Pending (.xlsx)
                     </button>
-                  </div>
+                  </div>}
 
                   {/* ── Leaving Reasons Breakdown: Overall + Per-Month ── */}
                   {(() => {
@@ -8263,8 +8218,9 @@ export default function Dashboard() {
                         );
                       })()}
 
-                      {/* Search within this month */}
-                      <div style={{marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                      {/* Search within this month + per-tenant table (team only) */}
+                      {investor && <p style={{fontSize:11,color:C.muted}}>Per-tenant detail is available in team view.</p>}
+                      {!investor && <div style={{marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
                         <div style={{position:"relative",flex:"0 0 300px"}}>
                           <input
                             value={renewalSearch}
@@ -8283,9 +8239,9 @@ export default function Dashboard() {
                             }).length} of {selected.entries.length} shown
                           </span>
                         )}
-                      </div>
+                      </div>}
 
-                      {selected.entries.length === 0 ? (
+                      {!investor && (selected.entries.length === 0 ? (
                         <p style={{color:C.muted,fontSize:13}}>No contracts expiring this month.</p>
                       ) : (
                         <div style={{overflowX:"auto"}}>
@@ -8500,12 +8456,12 @@ export default function Dashboard() {
                             );
                           })()}
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
 
-                  {/* SMS / Email Modal */}
-                  {smsModal && (
+                  {/* SMS / Email Modal (team only) */}
+                  {!investor && smsModal && (
                     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
                       onClick={(ev) => { if (ev.target === ev.currentTarget) setSmsModal(null); }}>
                       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px 26px",maxWidth:560,width:"100%",maxHeight:"80vh",overflow:"auto"}} onClick={e => e.stopPropagation()}>
@@ -8555,81 +8511,6 @@ export default function Dashboard() {
             })()}
           </div>
         )}
-
-        {/* ════ REPUTATION ════ */}
-        {property==="southall"&&tab==="reputation"&&(
-          <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brand Health{repLoading?" · loading…":""}</p>
-            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Reputation Score</h2>
-
-            <div style={{display:"flex",gap:14,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
-              <div style={{flex:"0 0 auto",background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:24}}>
-                <OccRing pct={reputationScore} color={reputationColor}/>
-              </div>
-              <div style={{flex:"1 1 220px",minWidth:0}}>
-                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Composite Score</p>
-                <p style={{fontSize:36,fontWeight:700,color:reputationColor,fontFamily:"DM Mono,monospace",marginBottom:4}}>{reputationScore}</p>
-                <p style={{fontSize:12,color:C.muted}}>
-                  {reputationScore>=80?"Excellent — strong brand presence":reputationScore>=60?"Good — solid reputation":reputationScore>=40?"Fair — room for improvement":"Poor — needs attention"}
-                </p>
-                <div style={{marginTop:10,display:"flex",gap:6}}>
-                  <span style={{fontSize:10,background:reputationColor+"22",color:reputationColor,padding:"3px 8px",borderRadius:12}}>Weighted average</span>
-                </div>
-              </div>
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:12,marginBottom:16}}>
-              {[
-                {title:"Google My Business",rating:gmbRating,count:gmbCount,setRating:setGmbRating,setCount:setGmbCount,color:C.blue,icon:"🔍",live:repLive.google},
-                {title:"Airbnb",rating:airbnbRating,count:airbnbCount,setRating:setAirbnbRating,setCount:setAirbnbCount,color:C.rose,icon:"🏠",live:repLive.airbnb},
-                {title:"Trustpilot",rating:trustpilotRating,count:trustpilotCount,setRating:setTrustpilotRating,setCount:setTrustpilotCount,color:C.sage,icon:"⭐",live:repLive.trustpilot},
-              ].map((p,i)=>(
-                <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                    <div>
-                      <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{p.icon} {p.title} <span style={{fontSize:9,color:p.live?C.sage:C.muted,marginLeft:4}}>{p.live?"● live":"○ manual"}</span></p>
-                    </div>
-                  </div>
-                  <div style={{marginBottom:12}}>
-                    <p style={{fontSize:28,fontWeight:700,color:p.color,fontFamily:"DM Mono,monospace",marginBottom:4}}>{p.rating.toFixed(1)}<span style={{fontSize:14,color:C.muted}}>/5</span></p>
-                    <div style={{display:"flex",gap:2,marginBottom:8}}>
-                      {[1,2,3,4,5].map(x=>(
-                        <span key={x} style={{fontSize:16,opacity:x<=Math.floor(p.rating)?1:x<=p.rating?0.6:0.2}}>★</span>
-                      ))}
-                    </div>
-                    <p style={{fontSize:12,color:C.muted}}>{p.count} reviews</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Online Mentions & Sentiment</p>
-              <p style={{fontSize:12,color:C.muted,marginBottom:6}}>Reddit, forums, social media</p>
-              <textarea value={mentions} onChange={e=>setMentions(e.target.value)} placeholder="Paste mentions here..." style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:12,fontFamily:"DM Mono,monospace",minHeight:100,boxSizing:"border-box",resize:"vertical"}}/>
-              <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
-                <span style={{fontSize:10,background:mentions.toLowerCase().includes("love")||mentions.toLowerCase().includes("great")?"#3d9e7522":"#1c202855",color:mentions.toLowerCase().includes("love")||mentions.toLowerCase().includes("great")?C.sage:C.muted,padding:"4px 10px",borderRadius:12}}>
-                  Positive mentions: {mentions.split(" ").filter(w=>["love","great","amazing","best","excellent","perfect"].includes(w.toLowerCase())).length}
-                </span>
-                <span style={{fontSize:10,background:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?"#c95c5422":"#1c202855",color:mentions.toLowerCase().includes("issue")||mentions.toLowerCase().includes("problem")?C.rose:C.muted,padding:"4px 10px",borderRadius:12}}>
-                  Negative mentions: {mentions.split(" ").filter(w=>["issue","problem","bad","awful","hate","disappointed"].includes(w.toLowerCase())).length}
-                </span>
-              </div>
-            </div>
-
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginTop:16}}>
-              <h3 style={{fontSize:"1rem",marginBottom:"12px"}}>Expert Recommendations</h3>
-              <div style={{fontSize:"0.9rem",color:C.muted,lineHeight:"1.6"}}>
-                <div style={{marginBottom:"8px"}}>• Continue optimizing Google & Meta campaigns for cost efficiency</div>
-                <div style={{marginBottom:"8px"}}>• Increase landing page conversion focus to improve CPL</div>
-                <div style={{marginBottom:"8px"}}>• Monitor villa application pipeline for completion rate</div>
-                <div style={{marginBottom:"8px"}}>• Expand room inventory occupancy strategy</div>
-                <div style={{marginBottom:"8px"}}>• ROADMAP: Integrate additional marketing channels for 2026</div>
-              </div>
-            </div>
-          </div>
-        )}
-
 
       {/* setSdTab("crm"), setSdTab("occupancy") - handled in button map above */}
 
