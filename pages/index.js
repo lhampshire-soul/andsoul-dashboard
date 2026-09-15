@@ -3346,6 +3346,21 @@ export default function Dashboard() {
     return merged.sort((a, b) => a.from.localeCompare(b.from));
   }, [lavandaConn, lavandaData, pmsConn, rhAllUnits, rhAllBookings]);
 
+  // Renewal month stats with manual leaving/pending markers applied — mirrors
+  // the Renewals tab derivation so Room Availability (now on Occupancy) sees
+  // the same "leaving" population.
+  const monthStatsGlobal = useMemo(() => {
+    const months = pmsData?.renewalMonths || [];
+    return months.map(m => {
+      const leaving = m.entries.filter(e => {
+        if (leavingSet.has(e.roomStayId)) return true;
+        if (e.isRenewed || e.isPendingRenewal || pendingSet.has(e.roomStayId)) return false;
+        return e.expired;
+      });
+      return { ...m, leaving };
+    });
+  }, [pmsData, leavingSet, pendingSet]);
+
   // ─── DAILY HISTORY ENGINE ────────────────────────────────────────────────────
   // Builds day-by-day series for the last 75 days from data already in memory,
   // so every RH/Lavanda KPI can show a prior-period delta and a 30-day sparkline
@@ -3521,17 +3536,17 @@ export default function Dashboard() {
     // 1. Double bookings
     F.doubleBookings.forEach(c => items.push({
       sev: 3, kind: "Double booking", title: `Room ${c.room} · ${c.nights} night${c.nights!==1?"s":""} · ${c.from} → ${c.to}`,
-      detail: `${c.aLabel} ↔ ${c.bLabel}${c.from <= F.today ? " · LIVE NOW" : ""}`, tab: "renewals",
+      detail: `${c.aLabel} ↔ ${c.bLabel}${c.from <= F.today ? " · LIVE NOW" : ""}`, tab: "bookings",
     }));
     // 2. Held rooms still bookable in the PMS
     if (F.heldStillBookable > 0) items.push({
       sev: 2, kind: "PMS mismatch", title: `${F.heldStillBookable} held room${F.heldStillBookable!==1?"s":""} still marked bookable in Res Harmonics`,
-      detail: "Sales can sell a linen/staff/maintenance room without anything stopping them. Block them in RH.", tab: "renewals",
+      detail: "Sales can sell a linen/staff/maintenance room without anything stopping them. Block them in RH.", tab: "bookings",
     });
     // 3. Holds expiring this week
     F.heldExpiring.forEach(h => items.push({
       sev: 1, kind: "Hold expiring", title: `Room ${h.room} returns to stock on ${h.until}`,
-      detail: h.reason, tab: "renewals",
+      detail: h.reason, tab: "bookings",
     }));
     // 4. Stale / disconnected sources
     [["rh","Res Harmonics",pmsConn],["lavanda","Lavanda",lavandaConn],["ghl","GHL CRM",ghlConn],["meta","Meta",metaIsLive],["google","Google Ads",googleIsLive]].forEach(([k,name,on]) => {
@@ -3553,7 +3568,7 @@ export default function Dashboard() {
     const revMtd = history.sum(history.revGross, mS, F.today) + history.sum(history.ssRev, mS, F.today);
     if (pacingTargets.revenue > 0 && revMtd < pacingTargets.revenue * elapsed * 0.85) items.push({ sev: 1, kind: "Pacing", title: `Revenue behind pace — ${fmt(revMtd)} MTD vs ${fmt(Math.round(pacingTargets.revenue*elapsed))} expected by today`, detail: `Projecting ${fmt(Math.round(revMtd/Math.max(elapsed,0.01)))} for the month against ${fmt(pacingTargets.revenue)}.`, tab: "summary" });
     // 8. Empty sellable stock (info)
-    if (F.sellableRooms > 0) items.push({ sev: 0, kind: "Stock", title: `${F.sellableRooms} room${F.sellableRooms!==1?"s":""} empty and sellable right now`, detail: `${F.emptyRooms} empty in total, ${F.heldEmpty} of them held offline.`, tab: "renewals" });
+    if (F.sellableRooms > 0) items.push({ sev: 0, kind: "Stock", title: `${F.sellableRooms} room${F.sellableRooms!==1?"s":""} empty and sellable right now`, detail: `${F.emptyRooms} empty in total, ${F.heldEmpty} of them held offline.`, tab: "bookings" });
     return items.sort((a,b) => b.sev - a.sev);
   }, [facts, pmsConn, lavandaConn, ghlConn, metaIsLive, googleIsLive, freshness, history, pacingTargets]);
 
@@ -4069,7 +4084,7 @@ export default function Dashboard() {
               <button key={p.k} onClick={()=>setProperty(p.k)} style={{padding:"7px 14px",border:`1px solid ${property===p.k?C.gold:C.border}`,cursor:"pointer",fontWeight:700,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",borderRadius:8,background:property===p.k?C.gold+"22":"transparent",color:property===p.k?C.gold:C.muted}}>{p.l}</button>
             ))}
           </div>
-          {property==="southall"&&<>{tabBtn("summary","Summary")}{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation")}</>}
+          {property==="southall"&&<>{tabBtn("summary","Summary")}{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{tabBtn("forecast","Forecast",C.purple)}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation")}</>}
           {property==="shoreditch"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setSdTab("marketing")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="marketing"?C.gold:"transparent",color:sdTab==="marketing"?"#000":C.muted}}>Marketing</button>
             <button onClick={()=>setSdTab("crm")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="crm"?C.gold:"transparent",color:sdTab==="crm"?"#000":C.muted}}>CRM</button>
@@ -4277,7 +4292,7 @@ export default function Dashboard() {
                     </div>
                     {ssDuplicated > 0 && (
                       <p style={{fontSize:9,color:C.rose,marginTop:4}}>
-                        {ssDuplicated} room{ssDuplicated!==1?"s":""} booked in both systems — counted once (see double bookings under Renewals)
+                        {ssDuplicated} room{ssDuplicated!==1?"s":""} booked in both systems — counted once (see double bookings under Occupancy)
                       </p>
                     )}
                   </div>
@@ -4574,18 +4589,30 @@ export default function Dashboard() {
                 {pmsConn && pmsData && pmsData.forecast && (
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
                     <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
-                      <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Long-Stay Revenue by Month <span style={{fontSize:10,fontWeight:400,color:C.muted}}>· ESTIMATE</span></h3>
-                      <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Modelled: booked nights × monthly AWR ÷ 7 · rooms only · ±1-2% vs actuals — use the Revenue card / finance export for exact figures</p>
-                      <ResponsiveContainer width="100%" height={180}>
-                        <BarChart data={pmsData.forecast.map(fm => ({month:(fm.label||"").split(" ")[0],rev:Math.round((fm.bookedDays||0)/7*(fm.awrGross||pmsData.globalAwrGross||pmsData.globalAwr||0))}))} margin={{top:4,right:8,bottom:0,left:-8}}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                          <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
-                          <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>v>=1000?`£${Math.round(v/1000)}k`:`£${v}`}/>
-                          <Tooltip content={<Tip/>}/>
-                          {annosFor(annoMonthLabel).map(annoLine)}
-                          <Bar dataKey="rev" name="LS Revenue" fill={C.sage} radius={[4,4,0,0]}/>
-                        </BarChart>
-                      </ResponsiveContainer>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Long-Stay Revenue by Month</h3>
+                      <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Actual booked value, gross, nights basis — the same maths as the finance export. Future months show contracted value only.</p>
+                      {(() => {
+                        const y = new Date().getFullYear(), nowM = new Date().getMonth();
+                        const rows = Array.from({length:12}, (_, m) => {
+                          const mS = `${y}-${String(m+1).padStart(2,"0")}-01`;
+                          const mE = `${y}-${String(m+1).padStart(2,"0")}-${String(new Date(y, m+1, 0).getDate()).padStart(2,"0")}`;
+                          const r = rangeRevenueFor(mS, mE);
+                          return { month: new Date(y, m, 1).toLocaleDateString("en-GB",{month:"short"}), rev: r.lsRevGross + r.shortBreakRev, future: m > nowM };
+                        });
+                        return (
+                          <ResponsiveContainer width="100%" height={180}>
+                            <BarChart data={rows} margin={{top:4,right:8,bottom:0,left:-8}}>
+                              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                              <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                              <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>v>=1000?`£${Math.round(v/1000)}k`:`£${v}`}/>
+                              <Tooltip content={<Tip/>}/>
+                              {annosFor(annoMonthLabel).map(annoLine)}
+                              <Bar dataKey="rev" name="LS Revenue" radius={[4,4,0,0]} fill={C.sage}
+                                   shape={(props) => { const {x,y,width,height,payload} = props; return <rect x={x} y={y} width={width} height={height} rx={4} fill={C.sage} opacity={payload.future?0.35:1}/>; }}/>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        );
+                      })()}
                     </div>
 
                     {lavandaConn && lavandaData && lavandaData.monthly && (
@@ -5292,8 +5319,780 @@ export default function Dashboard() {
         {/* ════ OCCUPANCY ════ */}
         {property==="southall"&&tab==="bookings"&&(
           <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>The House · 300 beds</p>
-            <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 16px"}}>Occupancy & Revenue</h2>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Southall · rooms · live from Res Harmonics + Lavanda</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 4px"}}>Occupancy</h2>
+            <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Hard facts only — what is occupied tonight, what is empty and sellable, what is held, and what rates are being achieved. Forecasts and rate modelling live on the Forecast tab.</p>
+
+            {/* ── TODAY'S SNAPSHOT ── */}
+            <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18,marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Today · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Rooms occupied tonight — long-stay (RH){lavandaConn?" + short-stay (Lavanda)":""}, against usable rooms</p>
+                </div>
+                {pmsConn&&<span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>}
+              </div>
+              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:16}}>
+                  <OccRing pct={occPct}/>
+                  <div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+                      <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {usableRooms}</span></p>
+                      <DeltaChip delta={mkDelta(occupied, (history.at(history.occ, history.daysAgo(30))||0) + (history.at(history.ssOcc, history.daysAgo(30))||0), {label:"30 days ago"})}/>
+                    </div>
+                    <Spark data={history.last30(history.occ).map((v,i)=>v + history.last30(history.ssOcc)[i])} color={C.gold} width={120} height={24}/>
+                    <p style={{fontSize:12,color:C.muted}}>rooms occupied today{pmsData?.inHouseGuests > occupied ? ` (${pmsData.inHouseGuests} guests)` : ""}</p>
+                  </div>
+                </div>
+                <div style={{flex:"1 1 200px",display:"flex",flexDirection:"column",gap:8}}>
+                  {(pmsConn&&pmsData?(() => {
+                    const t7=history.today, a7=history.daysAgo(6), b7=history.daysAgo(13), c7=history.daysAgo(7);
+                    const mS = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-01`;
+                    const pmS = (()=>{const d=new Date(); d.setMonth(d.getMonth()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;})();
+                    const pmE = (()=>{const d=new Date(); d.setMonth(d.getMonth()-1); const dom=Math.min(new Date().getDate(), new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(dom).padStart(2,"0")}`;})();
+                    return [
+                    {label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage, delta:mkDelta(history.sum(history.arrivals,a7,t7), history.sum(history.arrivals,b7,c7), {label:"prev 7d"})},
+                    {label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose, delta:mkDelta(history.sum(history.departures,a7,t7), history.sum(history.departures,b7,c7), {label:"prev 7d", invert:true})},
+                    {label:"Revenue this month",value:fmt(monthRev),color:C.gold, delta:mkDelta(history.sum(history.rev,mS,t7), history.sum(history.rev,pmS,pmE), {label:"same point last month"})},
+                    {label:"Revenue this week",value:fmt(weekRev),color:C.text, delta:mkDelta(history.sum(history.rev,a7,t7), history.sum(history.rev,b7,c7), {label:"prev 7d"})},
+                  ];})():[
+                    {label:"Occupancy %",value:`${mOcc}%`,color:C.gold},
+                    {label:"Est. monthly revenue",value:fmt(monthRev),color:C.gold},
+                  ]).map(x=>(
+                    <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:12,color:C.muted}}>{x.label}</span>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:8}}>
+                        {x.delta && <DeltaChip delta={x.delta} size={9}/>}
+                        <span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {!pmsConn&&(<div style={{marginTop:12,display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:150}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
+                  <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
+                </div>
+                <div style={{flex:1,minWidth:150}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
+                  <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                </div>
+              </div>)}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:12,marginBottom:4}}>
+                <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
+                <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.max(0,Math.ceil(usableRooms*.95)-occupied)} to go`}</span>
+              </div>
+              <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
+                <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
+                <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
+              </div>
+            </div>
+
+
+            {/* ── ROOM AVAILABILITY (moved from Renewals) ── */}
+            {/* ── Room Availability — only rooms with 60+ days empty (no upcoming booking) ── */}
+            {(() => {
+              const today = new Date();
+              const todayStr = today.toISOString().slice(0, 10);
+              const MIN_GAP = 60; // Only show rooms with at least 60 days empty
+              // 3-month lookahead for departures
+              const cutoff = new Date(today);
+              cutoff.setMonth(cutoff.getMonth() + 3);
+              const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+              // Collect candidate rooms from departures
+              const candidates = [];
+              monthStatsGlobal.forEach(m => {
+                m.leaving.forEach(e => {
+                  if (e.endDate < todayStr) return;
+                  if (e.endDate > cutoffStr) return;
+                  if (e.isRenewed) return;
+                  if (!e.roomType || e.roomType === "Other") return;
+                  const endD = new Date(e.endDate);
+                  endD.setDate(endD.getDate() + 1);
+                  const availableFrom = endD.toISOString().slice(0, 10);
+                  candidates.push({
+                    room: e.room, roomType: e.roomType, availableFrom,
+                    endDate: e.endDate, name: e.name, pcm: e.pcm,
+                    roomStayId: e.roomStayId,
+                    isManualLeaving: leavingSet.has(e.roomStayId),
+                    reason: leavingReasons[e.roomStayId] || null,
+                  });
+                });
+              });
+
+              // Cross-reference every candidate against all bookings to find next incoming
+              const allBk = rhAllBookings || [];
+              const availableRooms = [];
+              candidates.forEach(r => {
+                let nextStart = null;
+                allBk.forEach(b => {
+                  if (!b.unit?.name || b.unit.name !== r.room) return;
+                  const bStart = (b.startDate || "").slice(0, 10);
+                  const bStatus = (b.roomStayStatus || "").toUpperCase();
+                  if (bStatus !== "CONFIRMED" && bStatus !== "PENDING" && bStatus !== "CHECKED_IN") return;
+                  if (bStart < r.availableFrom) return;
+                  if (b.roomStayId === r.roomStayId) return;
+                  if (!nextStart || bStart < nextStart) nextStart = bStart;
+                });
+                if (nextStart) {
+                  const gapDays = Math.round((new Date(nextStart) - new Date(r.availableFrom)) / 86400000);
+                  if (gapDays < MIN_GAP) return; // Not enough empty time — skip entirely
+                  r.gapDays = gapDays;
+                  r.nextBookingStart = nextStart;
+                } else {
+                  r.gapDays = null; // No booking at all — fully open
+                }
+                availableRooms.push(r);
+              });
+
+              if (availableRooms.length === 0) return (
+                <div style={{marginTop:24}}>
+                  <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
+                  <p style={{fontSize:12,color:C.muted,marginBottom:10}}>
+                    Rooms with 60+ days empty after departure — no short-gap rooms shown.
+                    {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
+                  </p>
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,textAlign:"center"}}>
+                    <p style={{color:C.sage,fontWeight:600,fontSize:14}}>All rooms have bookings within 60 days</p>
+                    <p style={{color:C.muted,fontSize:11,marginTop:4}}>No vacancies to fill right now.</p>
+                  </div>
+                </div>
+              );
+
+              // Group by room type
+              const byType = {};
+              availableRooms.forEach(r => {
+                if (!byType[r.roomType]) byType[r.roomType] = [];
+                byType[r.roomType].push(r);
+              });
+              Object.values(byType).forEach(arr => arr.sort((a, b) => a.availableFrom.localeCompare(b.availableFrom)));
+              const sortedTypes = Object.entries(byType).sort((a, b) => b[1].length - a[1].length);
+
+              // ── Fully-open rooms: every bedroom with NO current or upcoming booking ──
+              // Independent of the departures list above — this walks the whole unit list.
+              // Ensuite (Nomad) rooms are let via Lavanda/Booking.com, so Res Harmonics
+              // always shows them empty; they are reported separately from live Lavanda
+              // data and excluded from the long-stay availability %.
+              const openSummary = (() => {
+                const units = rhAllUnits || [];
+                if (units.length === 0) return null;
+                const bedrooms = units.filter(u => /^Room:/i.test((u.unitName || "").trim()));
+                if (bedrooms.length === 0) return null;
+                const busy = new Set();
+                (rhAllBookings || []).forEach(b => {
+                  const s = (b.roomStayStatus || "").toUpperCase();
+                  if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(s)) return;
+                  const e = (b.endDate || "").slice(0, 10);
+                  if (!e || e < todayStr) return; // ended already — not a live booking
+                  const id = b.unit?.id ?? b.unitId;
+                  if (id) busy.add(id);
+                });
+                const SHORT_STAY_TYPE = "Ensuite";
+                // Nomad/Ensuite rooms are let BOTH ways: long-stay tenants sit in
+                // Res Harmonics and short-stay guests in Lavanda. A room is only
+                // genuinely open when NEITHER system has it booked, so the two
+                // sets are unioned by room number here.
+                const ssBookedRooms = new Set(
+                  (lavandaConn && lavandaData?.ssUnitStatus?.bookedRoomNumbers) || []
+                );
+                const totals = {}, open = {}, openRooms = {};
+                let ssBothCount = 0;
+                bedrooms.forEach(u => {
+                  const t = baseRoomType(u.unitTypeName);
+                  if (!t) return;
+                  totals[t] = (totals[t] || 0) + 1;
+                  const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
+                  const rhBusy = busy.has(u.id);
+                  let isBusy = rhBusy;
+                  if (t === SHORT_STAY_TYPE && ssBookedRooms.size > 0) {
+                    const lavBusy = ssBookedRooms.has(roomNo);
+                    if (rhBusy && lavBusy) ssBothCount++;
+                    isBusy = rhBusy || lavBusy;
+                  }
+                  if (!isBusy) {
+                    open[t] = (open[t] || 0) + 1;
+                    // Carry the room number and whether RH has it marked
+                    // unbookable, so genuinely sellable rooms can be told
+                    // apart from maintenance stock at a glance.
+                    const reg = offlineInfoFor(u.unitName);
+                    (openRooms[t] = openRooms[t] || []).push({
+                      room: roomNo,
+                      offline: u.bookable === false || !!reg,
+                      reg,                          // ops register entry, if any
+                      rhFlagged: u.bookable === false,
+                    });
+                  }
+                });
+                Object.values(openRooms).forEach(list =>
+                  list.sort((a, b) => (parseInt(a.room, 10) || 0) - (parseInt(b.room, 10) || 0)));
+
+                // ── Genuine cross-system double bookings ──
+                // A room having stays in both systems is not itself a clash —
+                // they're usually sequential. Only overlapping DATES matter.
+                const crossClashes = [];
+                if (lavandaConn && lavandaData?.ssStays) {
+                  const lavByRoom = {};
+                  (lavandaData.ssStays || []).forEach(s => {
+                    if (!s.room) return;
+                    (lavByRoom[s.room] = lavByRoom[s.room] || []).push(s);
+                  });
+                  bedrooms.filter(u => baseRoomType(u.unitTypeName) === SHORT_STAY_TYPE).forEach(u => {
+                    const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
+                    const lavStays = lavByRoom[roomNo];
+                    if (!lavStays || lavStays.length === 0) return;
+                    (rhAllBookings || []).forEach(b => {
+                      const id = b.unit?.id ?? b.unitId;
+                      if (id !== u.id) return;
+                      const st = (b.roomStayStatus || "").toUpperCase();
+                      if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(st)) return;
+                      const f = (b.startDate || "").slice(0, 10), t2 = (b.endDate || "").slice(0, 10);
+                      if (!f || !t2 || t2 < todayStr) return;
+                      lavStays.forEach(s => {
+                        const os = f > s.start ? f : s.start;
+                        const oe = t2 < s.end ? t2 : s.end;
+                        const nights = Math.round((new Date(oe) - new Date(os)) / 864e5);
+                        if (nights > 0) crossClashes.push({
+                          room: roomNo, nights, from: os, to: oe,
+                          longStay: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+                          longStayRef: b.bookingReference, longStayStatus: st,
+                          shortStay: s.guest, shortStayCode: s.code,
+                        });
+                      });
+                    });
+                  });
+                }
+                const lavClashes = (lavandaConn && lavandaData?.conflicts) ? lavandaData.conflicts : [];
+                const rows = Object.keys(totals)
+                  .filter(t => t !== SHORT_STAY_TYPE)
+                  .map(t => ({ type: t, total: totals[t], open: open[t] || 0, source: "rh" }))
+                  .sort((a, b) => b.open - a.open || b.total - a.total);
+                const lsTotal = rows.reduce((s, r) => s + r.total, 0);
+                const lsOpen = rows.reduce((s, r) => s + r.open, 0);
+
+                // Short-stay (Nomad): RH shows every one of these empty because their
+                // bookings live in Lavanda. Use Lavanda's per-unit forward-booking data
+                // so they can be counted alongside the long-stay stock.
+                const su = (lavandaConn && lavandaData?.ssUnitStatus) ? lavandaData.ssUnitStatus : null;
+                const ssTotal = totals[SHORT_STAY_TYPE] || 0;
+                const ssOpen = open[SHORT_STAY_TYPE] || 0;
+                const ss = ssTotal ? {
+                  type: SHORT_STAY_TYPE,
+                  total: ssTotal,
+                  open: su ? ssOpen : null,          // union of RH + Lavanda
+                  shortStayBooked: su ? su.withForwardBooking : null,
+                  bothSystems: ssBothCount,          // long-stay tenant AND a short-stay booking
+                  blocked: su ? su.blockedTonight : null,
+                  source: "lavanda",
+                } : null;
+
+                const hasSS = !!(ss && ss.open != null);
+                const allRows = (hasSS ? [...rows, { type: ss.type, total: ss.total, open: ss.open, source: "lavanda" }] : rows)
+                  .map(r => ({ ...r, rooms: openRooms[r.type] || [] }))
+                  .sort((a, b) => b.open - a.open || b.total - a.total);
+                const allOpenRooms = Object.values(openRooms).flat();
+                const offlineOpen = allOpenRooms.filter(r => r.offline).length;
+                const sellableOpen = allOpenRooms.length - offlineOpen;
+                // Every register room that is currently held, whether empty or occupied
+                const registerHeld = Object.keys(offlineRoomMap).length;
+                const grandTotal = lsTotal + (hasSS ? ss.total : 0);
+                const grandOpen = lsOpen + (hasSS ? ss.open : 0);
+                return {
+                  rows: allRows, lsTotal, lsOpen,
+                  lsPct: lsTotal > 0 ? (lsOpen / lsTotal) * 100 : 0,
+                  grandTotal, grandOpen,
+                  pct: grandTotal > 0 ? (grandOpen / grandTotal) * 100 : 0,
+                  ss, hasSS, crossClashes, lavClashes, openRooms, offlineOpen,
+                  sellableOpen, registerHeld,
+                };
+              })();
+
+              return (
+                <div style={{marginTop:24}}>
+                  <div style={{marginBottom:14}}>
+                    <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
+                    <p style={{fontSize:12,color:C.muted}}>
+                      Rooms with 60+ days empty after departure — these need filling.
+                      {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
+                    </p>
+                  </div>
+
+                  {/* ── FULLY OPEN BY ROOM TYPE ── */}
+                  {openSummary && (
+                    <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:12,padding:18,marginBottom:16}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:14}}>
+                        <div>
+                          <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Fully Open by Room Type</p>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Bedrooms with no current guest and nothing booked ahead — completely empty stock</p>
+                          <div style={{display:"flex",gap:14,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap",alignItems:"center"}}>
+                            <span style={{display:"flex",alignItems:"center",gap:5}}>
+                              <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.sage+"18",color:C.sage,border:`1px solid ${C.sage}33`}}>000</span>
+                              sellable now
+                            </span>
+                            <span style={{display:"flex",alignItems:"center",gap:5}}>
+                              <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.rose+"22",color:C.rose,border:`1px solid ${C.rose}55`}}>000 ⚠</span>
+                              held offline — hover for reason
+                            </span>
+                            <span style={{color:C.muted}}>{openSummary.registerHeld} rooms on the offline register</span>
+                          </div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <p style={{fontSize:28,fontWeight:800,color:C.sage,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                            {openSummary.sellableOpen}
+                          </p>
+                          <p style={{fontSize:11,color:C.text,marginTop:2,fontWeight:600}}>sellable right now</p>
+                          <p style={{fontSize:10,color:C.muted,marginTop:3}}>
+                            {openSummary.grandOpen} empty ({openSummary.pct.toFixed(1)}% of {openSummary.grandTotal})
+                            {openSummary.offlineOpen > 0 && <> · <span style={{color:C.rose}}>{openSummary.offlineOpen} held offline</span></>}
+                          </p>
+                          {openSummary.hasSS && (
+                            <p style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              {openSummary.lsOpen} long-stay + {openSummary.ss.open} short-stay empty
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}}>
+                        {openSummary.rows.map(r => {
+                          const p = r.total > 0 ? (r.open / r.total) * 100 : 0;
+                          const col = r.open === 0 ? C.sage : p >= 20 ? C.rose : C.gold;
+                          return (
+                            <div key={r.type} style={{background:C.bg,border:`1px solid ${r.source==="lavanda"?C.blue+"55":r.open>0?col+"44":C.border}`,borderRadius:10,padding:"10px 12px"}}>
+                              <p style={{fontSize:11,color:C.text,fontWeight:600,marginBottom:4}}>
+                                {r.type}
+                                {r.source==="lavanda" && <span style={{fontSize:9,color:C.blue,fontWeight:500,marginLeft:5}}>· Nomad</span>}
+                              </p>
+                              <p style={{fontSize:20,fontWeight:700,color:col,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                                {r.open}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/{r.total}</span>
+                              </p>
+                              <div style={{height:4,background:C.border,borderRadius:2,marginTop:6,overflow:"hidden"}}>
+                                <div style={{width:`${p}%`,height:"100%",background:col,transition:"width 0.4s"}}/>
+                              </div>
+                              <p style={{fontSize:10,color:C.muted,marginTop:4}}>{p.toFixed(0)}% open</p>
+                              {r.rooms && r.rooms.length > 0 && (
+                                <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                                  {r.rooms.map(rm => {
+                                    const cat = rm.reg?.category || null;
+                                    const col = cat ? (OFFLINE_CAT_COLORS[cat] || C.rose) : (rm.offline ? C.rose : C.sage);
+                                    const tip = rm.reg
+                                      ? `Room ${rm.room} — ${rm.reg.category}: ${rm.reg.reason}` +
+                                        (rm.reg.until ? ` · held until ${rm.reg.until}` : "") +
+                                        (rm.reg.note ? `\n${rm.reg.note}` : "") +
+                                        (rm.rhFlagged ? "\n(also flagged unbookable in Res Harmonics)" : "\n(NOT flagged in Res Harmonics — still sellable in the PMS)")
+                                      : rm.offline
+                                        ? `Room ${rm.room} — flagged unbookable in Res Harmonics`
+                                        : `Room ${rm.room} — sellable, nothing booked`;
+                                    return (
+                                      <span key={rm.room} title={tip}
+                                        style={{
+                                          fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,
+                                          padding:"2px 6px",borderRadius:5,cursor:"help",
+                                          background: col+"22", color: col, border:`1px solid ${col}55`,
+                                        }}>
+                                        {rm.room}{rm.offline && " ⚠"}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* ── OFFLINE REGISTER ── */}
+                      {(() => {
+                        const held = Object.values(offlineRoomMap);
+                        if (held.length === 0) return null;
+                        const openSet = new Set(Object.values(openSummary.openRooms||{}).flat().map(r => String(parseInt(r.room,10))));
+                        const byCat = {};
+                        held.forEach(h => { (byCat[h.category] = byCat[h.category] || []).push(h); });
+                        const notFlagged = held.filter(h => {
+                          const u = (rhAllUnits||[]).find(x => roomKey(x.unitName) === String(parseInt(h.room,10)));
+                          return u && u.bookable !== false;
+                        }).length;
+                        return (
+                          <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:8}}>
+                              <p style={{fontSize:11,color:C.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>Offline Register · {held.length} rooms held</p>
+                              {notFlagged > 0 && (
+                                <p style={{fontSize:10,color:C.rose}}>
+                                  ⚠ {notFlagged} of these are still marked bookable in Res Harmonics — sellable by mistake
+                                </p>
+                              )}
+                            </div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                              {Object.entries(byCat).sort((a,b)=>b[1].length-a[1].length).map(([cat,list]) => {
+                                const col = OFFLINE_CAT_COLORS[cat] || C.muted;
+                                return (
+                                  <div key={cat} style={{background:C.bg,border:`1px solid ${col}44`,borderRadius:9,padding:"8px 11px",minWidth:150}}>
+                                    <p style={{fontSize:10,color:col,fontWeight:700,marginBottom:4}}>{cat} · {list.length}</p>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                      {list.map(h => {
+                                        const k = String(parseInt(h.room,10));
+                                        const isEmpty = openSet.has(k);
+                                        return (
+                                          <span key={h.room}
+                                            title={`Room ${h.room} — ${h.reason}${h.until?` · until ${h.until}`:""}${h.note?`\n${h.note}`:""}\n${isEmpty?"Currently EMPTY":"Currently occupied"}`}
+                                            style={{fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,cursor:"help",
+                                              background:isEmpty?col+"22":"transparent",color:isEmpty?col:C.muted,
+                                              border:`1px solid ${isEmpty?col+"55":C.border}`}}>
+                                            {h.room}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <p style={{fontSize:9,color:C.muted,marginTop:8}}>
+                              Solid = room is empty right now · outline = currently occupied despite the hold. Holds expire automatically on their end date.
+                            </p>
+                          </div>
+                        );
+                      })()}
+
+                      {openSummary.ss && (
+                        <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                          <div>
+                            <p style={{fontSize:11,color:C.blue,fontWeight:700}}>Ensuite (Nomad) · {openSummary.ss.total} rooms · short-stay via Booking.com</p>
+                            <p style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              {openSummary.hasSS
+                                ? <>These rooms are let both ways — long-stay tenants in Res Harmonics and short-stay guests in Lavanda. A room counts as open only when <em>neither</em> system has it booked.
+                                    {openSummary.ss.bothSystems > 0 && <> {openSummary.ss.bothSystems} room{openSummary.ss.bothSystems!==1?"s have":" has"} stays in both systems (mostly sequential, not clashes).</>}</>
+                                : "Lavanda not connected — short-stay rooms excluded from the total above"}
+                            </p>
+                          </div>
+                          <p style={{fontSize:12,color:C.muted,fontFamily:"DM Mono,monospace",whiteSpace:"nowrap"}}>
+                            {openSummary.hasSS
+                              ? <><span style={{color:C.blue,fontWeight:700}}>{openSummary.ss.shortStayBooked}</span> short-stay booked · <span style={{color:C.rose,fontWeight:700}}>{openSummary.ss.open}</span> fully open</>
+                              : "—"}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* ── GENUINE DOUBLE BOOKINGS (real date overlaps) ── */}
+                      {doubleBookings.length === 0 ? (
+                        <p style={{fontSize:10,color:C.sage,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                          ✓ No overlapping bookings detected across Res Harmonics and Lavanda.
+                        </p>
+                      ) : (
+                        <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.rose}44`}}>
+                          <p style={{fontSize:11,color:C.rose,fontWeight:700,marginBottom:8}}>
+                            ⚠ {doubleBookings.length} double booking{doubleBookings.length!==1?"s":""} — same room, overlapping dates
+                          </p>
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {doubleBookings.map((c,i) => (
+                              <div key={i} style={{background:(c.kind==="cross"?C.rose:C.gold)+"11",border:`1px solid ${(c.kind==="cross"?C.rose:C.gold)}44`,borderRadius:8,padding:"8px 10px"}}>
+                                <p style={{fontSize:11,color:C.text,fontWeight:600}}>
+                                  Room {c.room} · {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                                  <span style={{fontSize:9,color:c.kind==="cross"?C.rose:C.gold,marginLeft:6}}>{c.kind==="cross"?"LONG-STAY vs SHORT-STAY":"BOTH SHORT-STAY"}</span>
+                                </p>
+                                <p style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:"DM Mono,monospace"}}>
+                                  {c.aLabel} ({c.aMeta}) ↔ {c.bLabel} ({c.bMeta})
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                      <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Rooms to Fill</p>
+                      <p style={{fontSize:22,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{availableRooms.length}</p>
+                    </div>
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                      <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Room Types</p>
+                      <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{sortedTypes.length}</p>
+                    </div>
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                      <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Earliest Available</p>
+                      <p style={{fontSize:14,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{new Date(availableRooms.sort((a,b) => a.availableFrom.localeCompare(b.availableFrom))[0].availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</p>
+                    </div>
+                  </div>
+
+                  {sortedTypes.map(([type, rooms]) => (
+                    <div key={type} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <span style={{fontSize:14,fontWeight:700,color:C.text}}>{type}</span>
+                          <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{rooms.length} room{rooms.length!==1?"s":""}</span>
+                        </div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:8}}>
+                        {rooms.map((r, i) => (
+                          <div key={r.roomStayId || i} style={{background:C.bg,border:`1px solid ${C.rose}33`,borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                              <span style={{fontSize:13,fontWeight:700,color:C.text}}>{r.room}</span>
+                              <span style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{r.pcm.toLocaleString()}/mo</span>
+                            </div>
+                            <div style={{fontSize:11,color:C.sage,fontWeight:600,marginBottom:4}}>
+                              Available {new Date(r.availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
+                            </div>
+                            <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+                              <span style={{fontSize:9,color:C.muted}}>Departing: {r.name}</span>
+                              {r.reason && <span style={{fontSize:8,background:C.rose+"18",color:C.rose,padding:"1px 5px",borderRadius:4}}>{r.reason}</span>}
+                            </div>
+                            <div style={{padding:"4px 8px",borderRadius:6,background:C.rose+"10"}}>
+                              {r.gapDays !== null ? (
+                                <span style={{fontSize:9,fontWeight:700,color:C.gold}}>
+                                  Empty for {r.gapDays} days · next booking {new Date(r.nextBookingStart + "T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                                </span>
+                              ) : (
+                                <span style={{fontSize:9,fontWeight:700,color:C.rose}}>No upcoming booking — fully open</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* ── SECTION A: Room Type Occupancy — Month by Month ── */}
+            {pmsConn && pmsData?.roomTypeData && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginTop:18,marginBottom:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Room Type Occupancy — Month by Month</h3>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{textAlign:"left",padding:"8px 12px",color:C.muted,fontWeight:600}}>Room Type</th>
+                        {pmsData.forecast.map((fm, i) => (
+                          <th key={fm.key} style={{textAlign:"center",padding:"8px 6px",color:C.muted,fontWeight:600,fontSize:11}}>{fm.label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ROOM_TYPES.map((rt, idx) => {
+                        const data = pmsData.roomTypeData[rt];
+                        if (!data || data.totalUnits === 0) return null;
+                        return (
+                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}`}}>
+                            <td style={{padding:"10px 12px",color:C.text,fontWeight:600,fontSize:12}}>
+                              {rt} <span style={{color:C.muted,fontWeight:400}}>({data.totalUnits})</span>
+                            </td>
+                            {data.months.map((m, mi) => {
+                              const pct = m.occupancyPct ?? (m.totalDays > 0 ? Math.round((m.bookedDays / m.totalDays) * 100) : 0);
+                              const occupiedColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
+                              return (
+                                <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:occupiedColor,fontWeight:600}}>
+                                  {pct}% <span style={{color:C.muted,fontWeight:400,fontSize:9}}>({(m.bookedDays||0)}/{(m.totalDays||0)}d)</span>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                      <tr style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
+                        <td style={{padding:"10px 12px",color:C.muted,fontWeight:600,fontSize:12}}>Available Rooms</td>
+                        {(() => {
+                          const available = Array(pmsData.forecast.length).fill(0);
+                          ROOM_TYPES.forEach(rt => {
+                            const data = pmsData.roomTypeData[rt];
+                            if (data) {
+                              data.months.forEach((m, mi) => {
+                                available[mi] += m.available;
+                              });
+                            }
+                          });
+                          return available.map((avail, mi) => (
+                            <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:C.sage,fontWeight:600}}>
+                              {avail}
+                            </td>
+                          ));
+                        })()}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION B: Live Average Weekly Rate (AWR) ── */}
+            {pmsConn && pmsData?.roomTypeData && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Live Average Weekly Rate (AWR)</h3>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:12,marginBottom:16}}>
+                  {ROOM_TYPES.map((rt) => {
+                    const data = pmsData.roomTypeData[rt];
+                    if (!data || data.totalUnits === 0) return null;
+                    const awrGross = data.awrGross || 0;
+                    const awrNet = data.awr;
+                    const color = awrGross >= TARGET_RATE ? C.sage : awrGross >= 250 ? C.gold : C.rose;
+                    return (
+                      <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                        <p style={{fontSize:11,color:C.muted,marginBottom:4}}>{rt}</p>
+                        <p style={{fontSize:20,fontWeight:700,color:color,fontFamily:"DM Mono,monospace",marginBottom:0}}>{fmt(awrGross)}</p>
+                        <p style={{fontSize:9,color:C.muted,marginTop:1,marginBottom:2,fontFamily:"DM Mono,monospace"}}>£{awrNet} net</p>
+                        <p style={{fontSize:10,color:awrGross >= TARGET_RATE ? C.sage : C.rose}}>
+                          {awrGross >= TARGET_RATE ? "✓ Target met" : `£${TARGET_RATE - awrGross} below target`}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <p style={{fontSize:11,color:C.muted,marginBottom:4}}>Blended AWR (28+ day bookings)</p>
+                      <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace",marginBottom:0}}>
+                        {fmt(pmsData.globalAwrGross || 0)}
+                      </p>
+                      <p style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:2}}>£{pmsData.globalAwr || 0} net (ex-VAT)</p>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <p style={{fontSize:12,color:C.muted,marginBottom:4}}>Target: {fmt(TARGET_RATE)}</p>
+                      <p style={{fontSize:18,fontWeight:700,color:(pmsData.globalAwrGross||0) >= TARGET_RATE ? C.sage : C.rose,fontFamily:"DM Mono,monospace"}}>
+                        {(() => {
+                          const diff = (pmsData.globalAwrGross||0) - TARGET_RATE;
+                          return diff >= 0 ? `+${fmt(diff)}` : fmt(diff);
+                        })()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── LENGTH-OF-STAY BREAKDOWN BY STATUS ── */}
+            {pmsConn && pmsData?.losByStatus && (pmsData.losByStatus.inHouse.total > 0 || pmsData.losByStatus.upcoming.total > 0) && (() => {
+              const { inHouse, upcoming, bands } = pmsData.losByStatus;
+              const barColors = [C.rose, C.gold, C.blue, C.sage, C.purple];
+              const renderGroup = (group, title, subtitle) => {
+                if (group.total === 0) return null;
+                return (
+                  <div style={{flex:"1 1 320px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{title}</p>
+                    <p style={{fontSize:11,color:C.muted,marginBottom:14}}>{group.total} stays · {subtitle}</p>
+                    {/* Stacked bar */}
+                    <div style={{display:"flex",height:18,borderRadius:6,overflow:"hidden",marginBottom:14}}>
+                      {bands.map((b, i) => {
+                        const pct = group.total > 0 ? (group.counts[b.key] / group.total) * 100 : 0;
+                        if (pct === 0) return null;
+                        return <div key={b.key} style={{width:`${pct}%`,background:barColors[i],minWidth:pct>0?2:0}} title={`${b.label}: ${Math.round(pct)}%`}/>;
+                      })}
+                    </div>
+                    {/* Rows */}
+                    {bands.map((b, i) => {
+                      const count = group.counts[b.key];
+                      const pct = group.total > 0 ? (count / group.total) * 100 : 0;
+                      return (
+                        <div key={b.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",borderBottom:i<bands.length-1?`1px solid ${C.border}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:10,height:10,borderRadius:3,background:barColors[i],flexShrink:0}}/>
+                            <span style={{fontSize:12,color:C.muted}}>{b.label}</span>
+                          </div>
+                          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                            <span style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{Math.round(pct)}%</span>
+                            <span style={{fontSize:11,color:C.muted,fontFamily:"DM Mono,monospace",minWidth:28,textAlign:"right"}}>{count}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              };
+              // ── Short-stay (Lavanda) LoS, folded in live ──
+              const ssLos = (lavandaConn && lavandaData && lavandaData.los) ? lavandaData.los : null;
+              const ssCombined = ssLos ? (() => {
+                const c = { counts: {}, total: ssLos.inHouse.total + ssLos.upcoming.total };
+                bands.forEach(b => { c.counts[b.key] = (ssLos.inHouse.counts[b.key] || 0) + (ssLos.upcoming.counts[b.key] || 0); });
+                return c;
+              })() : null;
+
+              // Combined totals — long-stay + short-stay
+              const combined = { counts: {}, total: inHouse.total + upcoming.total + (ssCombined ? ssCombined.total : 0) };
+              bands.forEach(b => {
+                combined.counts[b.key] = (inHouse.counts[b.key] || 0) + (upcoming.counts[b.key] || 0) + (ssCombined ? (ssCombined.counts[b.key] || 0) : 0);
+              });
+              return (
+                <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:14,padding:18,marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                    <div>
+                      <p style={{fontSize:11,color:C.blue,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Length-of-Stay Breakdown</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current &amp; upcoming bookings by stay duration · bedrooms only (excludes parking &amp; bikes){ssLos?" · long-stay (RH) + short-stay (Lavanda)":""}</p>
+                    </div>
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● RH LIVE</span>
+                      {ssLos && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● LAVANDA LIVE</span>}
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",gap:14}}>
+                    {renderGroup(inHouse, "Checked In · Long-Stay", "stay records in the building — a room move counts twice")}
+                    {renderGroup(upcoming, "Confirmed & Pending · Long-Stay", "future bookings")}
+                    {ssCombined && ssCombined.total > 0 && renderGroup(ssCombined, "Short-Stay · Booking.com", `${ssLos.inHouse.total} in-house + ${ssLos.upcoming.total} upcoming`)}
+                    {renderGroup(combined, "All Bookings", `${inHouse.total + upcoming.total} long-stay${ssCombined ? ` + ${ssCombined.total} short-stay` : ""}`)}
+                  </div>
+                  {/* AWR by status row */}
+                  {pmsData.awrByStatus && (() => {
+                    const a = pmsData.awrByStatus;
+                    const cards = [
+                      { title: "Checked In", awr: a.inHouse.awr, awrGross: a.inHouse.awrGross, count: a.inHouse.count },
+                      { title: "Confirmed & Pending", awr: a.upcoming.awr, awrGross: a.upcoming.awrGross, count: a.upcoming.count },
+                      { title: "All Bookings", awr: a.all.awr, awrGross: a.all.awrGross, count: a.all.count },
+                    ];
+                    return (
+                      <div style={{marginTop:14}}>
+                        <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:10}}>Average Weekly Rate (AWR) · Long-Stay · 28+ Day Bookings</p>
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                          {lavandaConn && lavandaData?.ssAdr && lavandaData.ssAdr.all.count > 0 && (
+                            <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.blue}44`,order:99}}>
+                              <p style={{fontSize:12,fontWeight:700,color:C.blue,marginBottom:2}}>Short-Stay ADR</p>
+                              <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{lavandaData.ssAdr.all.count} active bookings · per night</p>
+                              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:2}}>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Net (ex-VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",margin:0}}>£{(lavandaData.ssAdr.all.adr/1.2).toFixed(0)}</p>
+                                </div>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",margin:0}}>£{lavandaData.ssAdr.all.adr.toFixed(0)}</p>
+                                </div>
+                              </div>
+                              <p style={{fontSize:10,color:C.muted,marginTop:4}}>≈ £{Math.round(lavandaData.ssAdr.all.adr*7).toLocaleString()}/wk equivalent gross</p>
+                            </div>
+                          )}
+                          {cards.map((c, i) => (
+                            <div key={i} style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                              <p style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:2}}>{c.title}</p>
+                              <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{c.count} qualifying bookings</p>
+                              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:2}}>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Net (ex-VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:c.awr>=TARGET_RATE?C.sage:c.awr>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
+                                    {c.awr>0?`£${c.awr.toLocaleString()}`:"—"}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
+                                  <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                                    <p style={{fontSize:24,fontWeight:700,color:c.awrGross>=TARGET_RATE?C.sage:c.awrGross>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
+                                      {c.awrGross>0?`£${c.awrGross.toLocaleString()}`:"—"}
+                                    </p>
+                                    {c.title==="All Bookings" && <DeltaChip delta={pp.point30(history.awr)}/>}
+                                  </div>
+                                  {c.title==="All Bookings" && <Spark data={history.last30(history.awr)} color={C.gold} width={100} height={20}/>}
+                                </div>
+                              </div>
+                              <p style={{fontSize:10,color:c.awr>=TARGET_RATE?C.sage:C.rose,marginTop:4}}>
+                                {c.awr>0?(c.awr>=TARGET_RATE?`✓ Net above £${TARGET_RATE} target`:`Net £${TARGET_RATE-c.awr} below £${TARGET_RATE} target`):"No data"}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
 
             {/* ── RECENT BOOKING ACTIVITY ── */}
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
@@ -5583,249 +6382,20 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* ── TODAY'S SNAPSHOT ── */}
-            <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18,marginBottom:16}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                <div>
-                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Today · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</p>
-                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Rooms occupied tonight — long-stay (RH){lavandaConn?" + short-stay (Lavanda)":""}, against usable rooms</p>
-                </div>
-                {pmsConn&&<span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>}
-              </div>
-              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:16}}>
-                  <OccRing pct={occPct}/>
-                  <div>
-                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-                      <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {usableRooms}</span></p>
-                      <DeltaChip delta={mkDelta(occupied, (history.at(history.occ, history.daysAgo(30))||0) + (history.at(history.ssOcc, history.daysAgo(30))||0), {label:"30 days ago"})}/>
-                    </div>
-                    <Spark data={history.last30(history.occ).map((v,i)=>v + history.last30(history.ssOcc)[i])} color={C.gold} width={120} height={24}/>
-                    <p style={{fontSize:12,color:C.muted}}>rooms occupied today{pmsData?.inHouseGuests > occupied ? ` (${pmsData.inHouseGuests} guests)` : ""}</p>
-                  </div>
-                </div>
-                <div style={{flex:"1 1 200px",display:"flex",flexDirection:"column",gap:8}}>
-                  {(pmsConn&&pmsData?(() => {
-                    const t7=history.today, a7=history.daysAgo(6), b7=history.daysAgo(13), c7=history.daysAgo(7);
-                    const mS = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-01`;
-                    const pmS = (()=>{const d=new Date(); d.setMonth(d.getMonth()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;})();
-                    const pmE = (()=>{const d=new Date(); d.setMonth(d.getMonth()-1); const dom=Math.min(new Date().getDate(), new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(dom).padStart(2,"0")}`;})();
-                    return [
-                    {label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage, delta:mkDelta(history.sum(history.arrivals,a7,t7), history.sum(history.arrivals,b7,c7), {label:"prev 7d"})},
-                    {label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose, delta:mkDelta(history.sum(history.departures,a7,t7), history.sum(history.departures,b7,c7), {label:"prev 7d", invert:true})},
-                    {label:"Revenue this month",value:fmt(monthRev),color:C.gold, delta:mkDelta(history.sum(history.rev,mS,t7), history.sum(history.rev,pmS,pmE), {label:"same point last month"})},
-                    {label:"Revenue this week",value:fmt(weekRev),color:C.text, delta:mkDelta(history.sum(history.rev,a7,t7), history.sum(history.rev,b7,c7), {label:"prev 7d"})},
-                  ];})():[
-                    {label:"Occupancy %",value:`${mOcc}%`,color:C.gold},
-                    {label:"Est. monthly revenue",value:fmt(monthRev),color:C.gold},
-                  ]).map(x=>(
-                    <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-                      <span style={{fontSize:12,color:C.muted}}>{x.label}</span>
-                      <span style={{display:"inline-flex",alignItems:"center",gap:8}}>
-                        {x.delta && <DeltaChip delta={x.delta} size={9}/>}
-                        <span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {!pmsConn&&(<div style={{marginTop:12,display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div style={{flex:1,minWidth:150}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
-                  <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
-                </div>
-                <div style={{flex:1,minWidth:150}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
-                  <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
-                </div>
-              </div>)}
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:12,marginBottom:4}}>
-                <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
-                <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.max(0,Math.ceil(usableRooms*.95)-occupied)} to go`}</span>
-              </div>
-              <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
-                <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
-                <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
-              </div>
-            </div>
 
-            {/* ── LENGTH-OF-STAY BREAKDOWN BY STATUS ── */}
-            {pmsConn && pmsData?.losByStatus && (pmsData.losByStatus.inHouse.total > 0 || pmsData.losByStatus.upcoming.total > 0) && (() => {
-              const { inHouse, upcoming, bands } = pmsData.losByStatus;
-              const barColors = [C.rose, C.gold, C.blue, C.sage, C.purple];
-              const renderGroup = (group, title, subtitle) => {
-                if (group.total === 0) return null;
-                return (
-                  <div style={{flex:"1 1 320px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
-                    <p style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{title}</p>
-                    <p style={{fontSize:11,color:C.muted,marginBottom:14}}>{group.total} stays · {subtitle}</p>
-                    {/* Stacked bar */}
-                    <div style={{display:"flex",height:18,borderRadius:6,overflow:"hidden",marginBottom:14}}>
-                      {bands.map((b, i) => {
-                        const pct = group.total > 0 ? (group.counts[b.key] / group.total) * 100 : 0;
-                        if (pct === 0) return null;
-                        return <div key={b.key} style={{width:`${pct}%`,background:barColors[i],minWidth:pct>0?2:0}} title={`${b.label}: ${Math.round(pct)}%`}/>;
-                      })}
-                    </div>
-                    {/* Rows */}
-                    {bands.map((b, i) => {
-                      const count = group.counts[b.key];
-                      const pct = group.total > 0 ? (count / group.total) * 100 : 0;
-                      return (
-                        <div key={b.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",borderBottom:i<bands.length-1?`1px solid ${C.border}`:"none"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{width:10,height:10,borderRadius:3,background:barColors[i],flexShrink:0}}/>
-                            <span style={{fontSize:12,color:C.muted}}>{b.label}</span>
-                          </div>
-                          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-                            <span style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{Math.round(pct)}%</span>
-                            <span style={{fontSize:11,color:C.muted,fontFamily:"DM Mono,monospace",minWidth:28,textAlign:"right"}}>{count}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              };
-              // ── Short-stay (Lavanda) LoS, folded in live ──
-              const ssLos = (lavandaConn && lavandaData && lavandaData.los) ? lavandaData.los : null;
-              const ssCombined = ssLos ? (() => {
-                const c = { counts: {}, total: ssLos.inHouse.total + ssLos.upcoming.total };
-                bands.forEach(b => { c.counts[b.key] = (ssLos.inHouse.counts[b.key] || 0) + (ssLos.upcoming.counts[b.key] || 0); });
-                return c;
-              })() : null;
+          </div>
+        )}
 
-              // Combined totals — long-stay + short-stay
-              const combined = { counts: {}, total: inHouse.total + upcoming.total + (ssCombined ? ssCombined.total : 0) };
-              bands.forEach(b => {
-                combined.counts[b.key] = (inHouse.counts[b.key] || 0) + (upcoming.counts[b.key] || 0) + (ssCombined ? (ssCombined.counts[b.key] || 0) : 0);
-              });
-              return (
-                <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:14,padding:18,marginBottom:16}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                    <div>
-                      <p style={{fontSize:11,color:C.blue,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Length-of-Stay Breakdown</p>
-                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current &amp; upcoming bookings by stay duration · bedrooms only (excludes parking &amp; bikes){ssLos?" · long-stay (RH) + short-stay (Lavanda)":""}</p>
-                    </div>
-                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                      <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● RH LIVE</span>
-                      {ssLos && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● LAVANDA LIVE</span>}
-                    </div>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",gap:14}}>
-                    {renderGroup(inHouse, "Checked In · Long-Stay", "stay records in the building — a room move counts twice")}
-                    {renderGroup(upcoming, "Confirmed & Pending · Long-Stay", "future bookings")}
-                    {ssCombined && ssCombined.total > 0 && renderGroup(ssCombined, "Short-Stay · Booking.com", `${ssLos.inHouse.total} in-house + ${ssLos.upcoming.total} upcoming`)}
-                    {renderGroup(combined, "All Bookings", `${inHouse.total + upcoming.total} long-stay${ssCombined ? ` + ${ssCombined.total} short-stay` : ""}`)}
-                  </div>
-                  {/* AWR by status row */}
-                  {pmsData.awrByStatus && (() => {
-                    const a = pmsData.awrByStatus;
-                    const cards = [
-                      { title: "Checked In", awr: a.inHouse.awr, awrGross: a.inHouse.awrGross, count: a.inHouse.count },
-                      { title: "Confirmed & Pending", awr: a.upcoming.awr, awrGross: a.upcoming.awrGross, count: a.upcoming.count },
-                      { title: "All Bookings", awr: a.all.awr, awrGross: a.all.awrGross, count: a.all.count },
-                    ];
-                    return (
-                      <div style={{marginTop:14}}>
-                        <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:10}}>Average Weekly Rate (AWR) · Long-Stay · 28+ Day Bookings</p>
-                        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                          {lavandaConn && lavandaData?.ssAdr && lavandaData.ssAdr.all.count > 0 && (
-                            <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.blue}44`,order:99}}>
-                              <p style={{fontSize:12,fontWeight:700,color:C.blue,marginBottom:2}}>Short-Stay ADR</p>
-                              <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{lavandaData.ssAdr.all.count} active bookings · per night</p>
-                              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:2}}>
-                                <div>
-                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Net (ex-VAT)</p>
-                                  <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",margin:0}}>£{(lavandaData.ssAdr.all.adr/1.2).toFixed(0)}</p>
-                                </div>
-                                <div>
-                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
-                                  <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",margin:0}}>£{lavandaData.ssAdr.all.adr.toFixed(0)}</p>
-                                </div>
-                              </div>
-                              <p style={{fontSize:10,color:C.muted,marginTop:4}}>≈ £{Math.round(lavandaData.ssAdr.all.adr*7).toLocaleString()}/wk equivalent gross</p>
-                            </div>
-                          )}
-                          {cards.map((c, i) => (
-                            <div key={i} style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
-                              <p style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:2}}>{c.title}</p>
-                              <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{c.count} qualifying bookings</p>
-                              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:2}}>
-                                <div>
-                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Net (ex-VAT)</p>
-                                  <p style={{fontSize:24,fontWeight:700,color:c.awr>=TARGET_RATE?C.sage:c.awr>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
-                                    {c.awr>0?`£${c.awr.toLocaleString()}`:"—"}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
-                                  <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-                                    <p style={{fontSize:24,fontWeight:700,color:c.awrGross>=TARGET_RATE?C.sage:c.awrGross>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
-                                      {c.awrGross>0?`£${c.awrGross.toLocaleString()}`:"—"}
-                                    </p>
-                                    {c.title==="All Bookings" && <DeltaChip delta={pp.point30(history.awr)}/>}
-                                  </div>
-                                  {c.title==="All Bookings" && <Spark data={history.last30(history.awr)} color={C.gold} width={100} height={20}/>}
-                                </div>
-                              </div>
-                              <p style={{fontSize:10,color:c.awr>=TARGET_RATE?C.sage:C.rose,marginTop:4}}>
-                                {c.awr>0?(c.awr>=TARGET_RATE?`✓ Net above £${TARGET_RATE} target`:`Net £${TARGET_RATE-c.awr} below £${TARGET_RATE} target`):"No data"}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              );
-            })()}
-
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Revenue Target Calculator</p>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10,marginBottom:16}}>
-                {[{label:"Target occupancy",value:`${TARGET_OCC*100}%`,color:C.gold},{label:"Target rooms",value:TARGET_ROOMS,color:C.sage},{label:"Average rate",value:fmt(TARGET_RATE),color:C.blue},{label:"Monthly target",value:fmt(TARGET_MONTHLY),color:C.rose}].map((s,i)=>(
-                  <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
-                    <p style={{fontSize:16,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
-                  </div>
-                ))}
+        {/* ════ FORECAST · INTERNAL ════ */}
+        {property==="southall"&&tab==="forecast"&&(
+          <div style={{padding:"22px 26px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8}}>
+              <div>
+                <p style={{fontSize:11,color:C.purple,textTransform:"uppercase",letterSpacing:"0.1em"}}>Internal · models, not facts</p>
+                <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 4px"}}>Forecast & Rate Strategy</h2>
+                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Scenario tools driven by adjustable assumptions (renewal rate, new bookings per month, sales cycle, LoS mix, rate changes). Nothing here is a reported figure — for actuals use Summary and Occupancy.</p>
               </div>
-
-              <div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.border}`,marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
-                  <span style={{fontSize:12,color:C.muted}}>Current vs Target</span>
-                  <span style={{fontSize:14,fontWeight:700,color:occupied>=TARGET_ROOMS?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{occupied} / {TARGET_ROOMS} rooms</span>
-                </div>
-                <div style={{height:8,background:C.border,borderRadius:4,position:"relative",overflow:"hidden"}}>
-                  <div style={{height:8,background:occupied>=TARGET_ROOMS?C.sage:C.gold,borderRadius:4,width:`${Math.min((occupied/TARGET_ROOMS)*100,100)}%`,transition:"width 0.4s"}}/>
-                </div>
-                <p style={{fontSize:10,color:C.muted,marginTop:6}}>{occupied>=TARGET_ROOMS?`✓ TARGET HIT`:`${TARGET_ROOMS-occupied} rooms still needed`}</p>
-              </div>
-
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10}}>
-                {(() => {
-                  const today = new Date();
-                  const july1 = new Date("2026-07-01");
-                  const daysLeft = Math.ceil((july1 - today) / (1000*60*60*24));
-                  const weeksLeft = Math.ceil(daysLeft / 7);
-                  const roomsNeeded = Math.max(0, TARGET_ROOMS - occupied);
-                  const bookingsPerWeek = weeksLeft > 0 ? Math.ceil(roomsNeeded / weeksLeft) : 0;
-
-                  return [
-                    {label:"Days until July 1st",value:daysLeft,color:C.muted},
-                    {label:"Weeks remaining",value:weeksLeft,color:C.muted},
-                    {label:"Rooms still needed",value:roomsNeeded,color:roomsNeeded===0?C.sage:C.rose},
-                    {label:"Bookings per week needed",value:bookingsPerWeek,color:C.gold},
-                  ].map((s,i)=>(
-                    <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                      <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{s.label}</p>
-                      <p style={{fontSize:16,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
-                    </div>
-                  ));
-                })()}
-              </div>
+              <span style={{fontSize:10,fontWeight:700,color:C.purple,background:C.purple+"1a",border:`1px solid ${C.purple}44`,padding:"3px 10px",borderRadius:20}}>INTERNAL</span>
             </div>
 
             {/* ── MONTH-BY-MONTH OCCUPANCY FORECAST ── */}
@@ -6411,112 +6981,6 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* ── SECTION A: Room Type Occupancy — Month by Month ── */}
-            {pmsConn && pmsData?.roomTypeData && (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginTop:18,marginBottom:18}}>
-                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Room Type Occupancy — Month by Month</h3>
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead>
-                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        <th style={{textAlign:"left",padding:"8px 12px",color:C.muted,fontWeight:600}}>Room Type</th>
-                        {pmsData.forecast.map((fm, i) => (
-                          <th key={fm.key} style={{textAlign:"center",padding:"8px 6px",color:C.muted,fontWeight:600,fontSize:11}}>{fm.label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ROOM_TYPES.map((rt, idx) => {
-                        const data = pmsData.roomTypeData[rt];
-                        if (!data || data.totalUnits === 0) return null;
-                        return (
-                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}`}}>
-                            <td style={{padding:"10px 12px",color:C.text,fontWeight:600,fontSize:12}}>
-                              {rt} <span style={{color:C.muted,fontWeight:400}}>({data.totalUnits})</span>
-                            </td>
-                            {data.months.map((m, mi) => {
-                              const pct = m.occupancyPct ?? (m.totalDays > 0 ? Math.round((m.bookedDays / m.totalDays) * 100) : 0);
-                              const occupiedColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
-                              return (
-                                <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:occupiedColor,fontWeight:600}}>
-                                  {pct}% <span style={{color:C.muted,fontWeight:400,fontSize:9}}>({(m.bookedDays||0)}/{(m.totalDays||0)}d)</span>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                      <tr style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
-                        <td style={{padding:"10px 12px",color:C.muted,fontWeight:600,fontSize:12}}>Available Rooms</td>
-                        {(() => {
-                          const available = Array(pmsData.forecast.length).fill(0);
-                          ROOM_TYPES.forEach(rt => {
-                            const data = pmsData.roomTypeData[rt];
-                            if (data) {
-                              data.months.forEach((m, mi) => {
-                                available[mi] += m.available;
-                              });
-                            }
-                          });
-                          return available.map((avail, mi) => (
-                            <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:C.sage,fontWeight:600}}>
-                              {avail}
-                            </td>
-                          ));
-                        })()}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* ── SECTION B: Live Average Weekly Rate (AWR) ── */}
-            {pmsConn && pmsData?.roomTypeData && (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
-                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Live Average Weekly Rate (AWR)</h3>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:12,marginBottom:16}}>
-                  {ROOM_TYPES.map((rt) => {
-                    const data = pmsData.roomTypeData[rt];
-                    if (!data || data.totalUnits === 0) return null;
-                    const awrGross = data.awrGross || 0;
-                    const awrNet = data.awr;
-                    const color = awrGross >= TARGET_RATE ? C.sage : awrGross >= 250 ? C.gold : C.rose;
-                    return (
-                      <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                        <p style={{fontSize:11,color:C.muted,marginBottom:4}}>{rt}</p>
-                        <p style={{fontSize:20,fontWeight:700,color:color,fontFamily:"DM Mono,monospace",marginBottom:0}}>{fmt(awrGross)}</p>
-                        <p style={{fontSize:9,color:C.muted,marginTop:1,marginBottom:2,fontFamily:"DM Mono,monospace"}}>£{awrNet} net</p>
-                        <p style={{fontSize:10,color:awrGross >= TARGET_RATE ? C.sage : C.rose}}>
-                          {awrGross >= TARGET_RATE ? "✓ Target met" : `£${TARGET_RATE - awrGross} below target`}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
-                      <p style={{fontSize:11,color:C.muted,marginBottom:4}}>Blended AWR (28+ day bookings)</p>
-                      <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace",marginBottom:0}}>
-                        {fmt(pmsData.globalAwrGross || 0)}
-                      </p>
-                      <p style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:2}}>£{pmsData.globalAwr || 0} net (ex-VAT)</p>
-                    </div>
-                    <div style={{textAlign:"right"}}>
-                      <p style={{fontSize:12,color:C.muted,marginBottom:4}}>Target: {fmt(TARGET_RATE)}</p>
-                      <p style={{fontSize:18,fontWeight:700,color:(pmsData.globalAwrGross||0) >= TARGET_RATE ? C.sage : C.rose,fontFamily:"DM Mono,monospace"}}>
-                        {(() => {
-                          const diff = (pmsData.globalAwrGross||0) - TARGET_RATE;
-                          return diff >= 0 ? `+${fmt(diff)}` : fmt(diff);
-                        })()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* ── SECTION C: Rate Adjustment & Revenue Predictor ── */}
             {pmsConn && pmsData?.roomTypeData && (
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
@@ -6833,6 +7297,7 @@ export default function Dashboard() {
 
           </div>
         )}
+
 
         {/* ════ SHORT STAYS ════ */}
         {property==="southall"&&tab==="shortstays"&&lavandaData&&(
@@ -8084,469 +8549,6 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* ── Room Availability — only rooms with 60+ days empty (no upcoming booking) ── */}
-                  {(() => {
-                    const today = new Date();
-                    const todayStr = today.toISOString().slice(0, 10);
-                    const MIN_GAP = 60; // Only show rooms with at least 60 days empty
-                    // 3-month lookahead for departures
-                    const cutoff = new Date(today);
-                    cutoff.setMonth(cutoff.getMonth() + 3);
-                    const cutoffStr = cutoff.toISOString().slice(0, 10);
-
-                    // Collect candidate rooms from departures
-                    const candidates = [];
-                    monthStats.forEach(m => {
-                      m.leaving.forEach(e => {
-                        if (e.endDate < todayStr) return;
-                        if (e.endDate > cutoffStr) return;
-                        if (e.isRenewed) return;
-                        if (!e.roomType || e.roomType === "Other") return;
-                        const endD = new Date(e.endDate);
-                        endD.setDate(endD.getDate() + 1);
-                        const availableFrom = endD.toISOString().slice(0, 10);
-                        candidates.push({
-                          room: e.room, roomType: e.roomType, availableFrom,
-                          endDate: e.endDate, name: e.name, pcm: e.pcm,
-                          roomStayId: e.roomStayId,
-                          isManualLeaving: leavingSet.has(e.roomStayId),
-                          reason: leavingReasons[e.roomStayId] || null,
-                        });
-                      });
-                    });
-
-                    // Cross-reference every candidate against all bookings to find next incoming
-                    const allBk = rhAllBookings || [];
-                    const availableRooms = [];
-                    candidates.forEach(r => {
-                      let nextStart = null;
-                      allBk.forEach(b => {
-                        if (!b.unit?.name || b.unit.name !== r.room) return;
-                        const bStart = (b.startDate || "").slice(0, 10);
-                        const bStatus = (b.roomStayStatus || "").toUpperCase();
-                        if (bStatus !== "CONFIRMED" && bStatus !== "PENDING" && bStatus !== "CHECKED_IN") return;
-                        if (bStart < r.availableFrom) return;
-                        if (b.roomStayId === r.roomStayId) return;
-                        if (!nextStart || bStart < nextStart) nextStart = bStart;
-                      });
-                      if (nextStart) {
-                        const gapDays = Math.round((new Date(nextStart) - new Date(r.availableFrom)) / 86400000);
-                        if (gapDays < MIN_GAP) return; // Not enough empty time — skip entirely
-                        r.gapDays = gapDays;
-                        r.nextBookingStart = nextStart;
-                      } else {
-                        r.gapDays = null; // No booking at all — fully open
-                      }
-                      availableRooms.push(r);
-                    });
-
-                    if (availableRooms.length === 0) return (
-                      <div style={{marginTop:24}}>
-                        <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
-                        <p style={{fontSize:12,color:C.muted,marginBottom:10}}>
-                          Rooms with 60+ days empty after departure — no short-gap rooms shown.
-                          {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
-                        </p>
-                        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,textAlign:"center"}}>
-                          <p style={{color:C.sage,fontWeight:600,fontSize:14}}>All rooms have bookings within 60 days</p>
-                          <p style={{color:C.muted,fontSize:11,marginTop:4}}>No vacancies to fill right now.</p>
-                        </div>
-                      </div>
-                    );
-
-                    // Group by room type
-                    const byType = {};
-                    availableRooms.forEach(r => {
-                      if (!byType[r.roomType]) byType[r.roomType] = [];
-                      byType[r.roomType].push(r);
-                    });
-                    Object.values(byType).forEach(arr => arr.sort((a, b) => a.availableFrom.localeCompare(b.availableFrom)));
-                    const sortedTypes = Object.entries(byType).sort((a, b) => b[1].length - a[1].length);
-
-                    // ── Fully-open rooms: every bedroom with NO current or upcoming booking ──
-                    // Independent of the departures list above — this walks the whole unit list.
-                    // Ensuite (Nomad) rooms are let via Lavanda/Booking.com, so Res Harmonics
-                    // always shows them empty; they are reported separately from live Lavanda
-                    // data and excluded from the long-stay availability %.
-                    const openSummary = (() => {
-                      const units = rhAllUnits || [];
-                      if (units.length === 0) return null;
-                      const bedrooms = units.filter(u => /^Room:/i.test((u.unitName || "").trim()));
-                      if (bedrooms.length === 0) return null;
-                      const busy = new Set();
-                      (rhAllBookings || []).forEach(b => {
-                        const s = (b.roomStayStatus || "").toUpperCase();
-                        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(s)) return;
-                        const e = (b.endDate || "").slice(0, 10);
-                        if (!e || e < todayStr) return; // ended already — not a live booking
-                        const id = b.unit?.id ?? b.unitId;
-                        if (id) busy.add(id);
-                      });
-                      const SHORT_STAY_TYPE = "Ensuite";
-                      // Nomad/Ensuite rooms are let BOTH ways: long-stay tenants sit in
-                      // Res Harmonics and short-stay guests in Lavanda. A room is only
-                      // genuinely open when NEITHER system has it booked, so the two
-                      // sets are unioned by room number here.
-                      const ssBookedRooms = new Set(
-                        (lavandaConn && lavandaData?.ssUnitStatus?.bookedRoomNumbers) || []
-                      );
-                      const totals = {}, open = {}, openRooms = {};
-                      let ssBothCount = 0;
-                      bedrooms.forEach(u => {
-                        const t = baseRoomType(u.unitTypeName);
-                        if (!t) return;
-                        totals[t] = (totals[t] || 0) + 1;
-                        const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
-                        const rhBusy = busy.has(u.id);
-                        let isBusy = rhBusy;
-                        if (t === SHORT_STAY_TYPE && ssBookedRooms.size > 0) {
-                          const lavBusy = ssBookedRooms.has(roomNo);
-                          if (rhBusy && lavBusy) ssBothCount++;
-                          isBusy = rhBusy || lavBusy;
-                        }
-                        if (!isBusy) {
-                          open[t] = (open[t] || 0) + 1;
-                          // Carry the room number and whether RH has it marked
-                          // unbookable, so genuinely sellable rooms can be told
-                          // apart from maintenance stock at a glance.
-                          const reg = offlineInfoFor(u.unitName);
-                          (openRooms[t] = openRooms[t] || []).push({
-                            room: roomNo,
-                            offline: u.bookable === false || !!reg,
-                            reg,                          // ops register entry, if any
-                            rhFlagged: u.bookable === false,
-                          });
-                        }
-                      });
-                      Object.values(openRooms).forEach(list =>
-                        list.sort((a, b) => (parseInt(a.room, 10) || 0) - (parseInt(b.room, 10) || 0)));
-
-                      // ── Genuine cross-system double bookings ──
-                      // A room having stays in both systems is not itself a clash —
-                      // they're usually sequential. Only overlapping DATES matter.
-                      const crossClashes = [];
-                      if (lavandaConn && lavandaData?.ssStays) {
-                        const lavByRoom = {};
-                        (lavandaData.ssStays || []).forEach(s => {
-                          if (!s.room) return;
-                          (lavByRoom[s.room] = lavByRoom[s.room] || []).push(s);
-                        });
-                        bedrooms.filter(u => baseRoomType(u.unitTypeName) === SHORT_STAY_TYPE).forEach(u => {
-                          const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
-                          const lavStays = lavByRoom[roomNo];
-                          if (!lavStays || lavStays.length === 0) return;
-                          (rhAllBookings || []).forEach(b => {
-                            const id = b.unit?.id ?? b.unitId;
-                            if (id !== u.id) return;
-                            const st = (b.roomStayStatus || "").toUpperCase();
-                            if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(st)) return;
-                            const f = (b.startDate || "").slice(0, 10), t2 = (b.endDate || "").slice(0, 10);
-                            if (!f || !t2 || t2 < todayStr) return;
-                            lavStays.forEach(s => {
-                              const os = f > s.start ? f : s.start;
-                              const oe = t2 < s.end ? t2 : s.end;
-                              const nights = Math.round((new Date(oe) - new Date(os)) / 864e5);
-                              if (nights > 0) crossClashes.push({
-                                room: roomNo, nights, from: os, to: oe,
-                                longStay: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
-                                longStayRef: b.bookingReference, longStayStatus: st,
-                                shortStay: s.guest, shortStayCode: s.code,
-                              });
-                            });
-                          });
-                        });
-                      }
-                      const lavClashes = (lavandaConn && lavandaData?.conflicts) ? lavandaData.conflicts : [];
-                      const rows = Object.keys(totals)
-                        .filter(t => t !== SHORT_STAY_TYPE)
-                        .map(t => ({ type: t, total: totals[t], open: open[t] || 0, source: "rh" }))
-                        .sort((a, b) => b.open - a.open || b.total - a.total);
-                      const lsTotal = rows.reduce((s, r) => s + r.total, 0);
-                      const lsOpen = rows.reduce((s, r) => s + r.open, 0);
-
-                      // Short-stay (Nomad): RH shows every one of these empty because their
-                      // bookings live in Lavanda. Use Lavanda's per-unit forward-booking data
-                      // so they can be counted alongside the long-stay stock.
-                      const su = (lavandaConn && lavandaData?.ssUnitStatus) ? lavandaData.ssUnitStatus : null;
-                      const ssTotal = totals[SHORT_STAY_TYPE] || 0;
-                      const ssOpen = open[SHORT_STAY_TYPE] || 0;
-                      const ss = ssTotal ? {
-                        type: SHORT_STAY_TYPE,
-                        total: ssTotal,
-                        open: su ? ssOpen : null,          // union of RH + Lavanda
-                        shortStayBooked: su ? su.withForwardBooking : null,
-                        bothSystems: ssBothCount,          // long-stay tenant AND a short-stay booking
-                        blocked: su ? su.blockedTonight : null,
-                        source: "lavanda",
-                      } : null;
-
-                      const hasSS = !!(ss && ss.open != null);
-                      const allRows = (hasSS ? [...rows, { type: ss.type, total: ss.total, open: ss.open, source: "lavanda" }] : rows)
-                        .map(r => ({ ...r, rooms: openRooms[r.type] || [] }))
-                        .sort((a, b) => b.open - a.open || b.total - a.total);
-                      const allOpenRooms = Object.values(openRooms).flat();
-                      const offlineOpen = allOpenRooms.filter(r => r.offline).length;
-                      const sellableOpen = allOpenRooms.length - offlineOpen;
-                      // Every register room that is currently held, whether empty or occupied
-                      const registerHeld = Object.keys(offlineRoomMap).length;
-                      const grandTotal = lsTotal + (hasSS ? ss.total : 0);
-                      const grandOpen = lsOpen + (hasSS ? ss.open : 0);
-                      return {
-                        rows: allRows, lsTotal, lsOpen,
-                        lsPct: lsTotal > 0 ? (lsOpen / lsTotal) * 100 : 0,
-                        grandTotal, grandOpen,
-                        pct: grandTotal > 0 ? (grandOpen / grandTotal) * 100 : 0,
-                        ss, hasSS, crossClashes, lavClashes, openRooms, offlineOpen,
-                        sellableOpen, registerHeld,
-                      };
-                    })();
-
-                    return (
-                      <div style={{marginTop:24}}>
-                        <div style={{marginBottom:14}}>
-                          <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
-                          <p style={{fontSize:12,color:C.muted}}>
-                            Rooms with 60+ days empty after departure — these need filling.
-                            {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
-                          </p>
-                        </div>
-
-                        {/* ── FULLY OPEN BY ROOM TYPE ── */}
-                        {openSummary && (
-                          <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:12,padding:18,marginBottom:16}}>
-                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:14}}>
-                              <div>
-                                <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Fully Open by Room Type</p>
-                                <p style={{fontSize:12,color:C.muted,marginTop:2}}>Bedrooms with no current guest and nothing booked ahead — completely empty stock</p>
-                                <div style={{display:"flex",gap:14,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap",alignItems:"center"}}>
-                                  <span style={{display:"flex",alignItems:"center",gap:5}}>
-                                    <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.sage+"18",color:C.sage,border:`1px solid ${C.sage}33`}}>000</span>
-                                    sellable now
-                                  </span>
-                                  <span style={{display:"flex",alignItems:"center",gap:5}}>
-                                    <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.rose+"22",color:C.rose,border:`1px solid ${C.rose}55`}}>000 ⚠</span>
-                                    held offline — hover for reason
-                                  </span>
-                                  <span style={{color:C.muted}}>{openSummary.registerHeld} rooms on the offline register</span>
-                                </div>
-                              </div>
-                              <div style={{textAlign:"right"}}>
-                                <p style={{fontSize:28,fontWeight:800,color:C.sage,fontFamily:"DM Mono,monospace",lineHeight:1}}>
-                                  {openSummary.sellableOpen}
-                                </p>
-                                <p style={{fontSize:11,color:C.text,marginTop:2,fontWeight:600}}>sellable right now</p>
-                                <p style={{fontSize:10,color:C.muted,marginTop:3}}>
-                                  {openSummary.grandOpen} empty ({openSummary.pct.toFixed(1)}% of {openSummary.grandTotal})
-                                  {openSummary.offlineOpen > 0 && <> · <span style={{color:C.rose}}>{openSummary.offlineOpen} held offline</span></>}
-                                </p>
-                                {openSummary.hasSS && (
-                                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>
-                                    {openSummary.lsOpen} long-stay + {openSummary.ss.open} short-stay empty
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}}>
-                              {openSummary.rows.map(r => {
-                                const p = r.total > 0 ? (r.open / r.total) * 100 : 0;
-                                const col = r.open === 0 ? C.sage : p >= 20 ? C.rose : C.gold;
-                                return (
-                                  <div key={r.type} style={{background:C.bg,border:`1px solid ${r.source==="lavanda"?C.blue+"55":r.open>0?col+"44":C.border}`,borderRadius:10,padding:"10px 12px"}}>
-                                    <p style={{fontSize:11,color:C.text,fontWeight:600,marginBottom:4}}>
-                                      {r.type}
-                                      {r.source==="lavanda" && <span style={{fontSize:9,color:C.blue,fontWeight:500,marginLeft:5}}>· Nomad</span>}
-                                    </p>
-                                    <p style={{fontSize:20,fontWeight:700,color:col,fontFamily:"DM Mono,monospace",lineHeight:1}}>
-                                      {r.open}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/{r.total}</span>
-                                    </p>
-                                    <div style={{height:4,background:C.border,borderRadius:2,marginTop:6,overflow:"hidden"}}>
-                                      <div style={{width:`${p}%`,height:"100%",background:col,transition:"width 0.4s"}}/>
-                                    </div>
-                                    <p style={{fontSize:10,color:C.muted,marginTop:4}}>{p.toFixed(0)}% open</p>
-                                    {r.rooms && r.rooms.length > 0 && (
-                                      <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
-                                        {r.rooms.map(rm => {
-                                          const cat = rm.reg?.category || null;
-                                          const col = cat ? (OFFLINE_CAT_COLORS[cat] || C.rose) : (rm.offline ? C.rose : C.sage);
-                                          const tip = rm.reg
-                                            ? `Room ${rm.room} — ${rm.reg.category}: ${rm.reg.reason}` +
-                                              (rm.reg.until ? ` · held until ${rm.reg.until}` : "") +
-                                              (rm.reg.note ? `\n${rm.reg.note}` : "") +
-                                              (rm.rhFlagged ? "\n(also flagged unbookable in Res Harmonics)" : "\n(NOT flagged in Res Harmonics — still sellable in the PMS)")
-                                            : rm.offline
-                                              ? `Room ${rm.room} — flagged unbookable in Res Harmonics`
-                                              : `Room ${rm.room} — sellable, nothing booked`;
-                                          return (
-                                            <span key={rm.room} title={tip}
-                                              style={{
-                                                fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,
-                                                padding:"2px 6px",borderRadius:5,cursor:"help",
-                                                background: col+"22", color: col, border:`1px solid ${col}55`,
-                                              }}>
-                                              {rm.room}{rm.offline && " ⚠"}
-                                            </span>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            {/* ── OFFLINE REGISTER ── */}
-                            {(() => {
-                              const held = Object.values(offlineRoomMap);
-                              if (held.length === 0) return null;
-                              const openSet = new Set(Object.values(openSummary.openRooms||{}).flat().map(r => String(parseInt(r.room,10))));
-                              const byCat = {};
-                              held.forEach(h => { (byCat[h.category] = byCat[h.category] || []).push(h); });
-                              const notFlagged = held.filter(h => {
-                                const u = (rhAllUnits||[]).find(x => roomKey(x.unitName) === String(parseInt(h.room,10)));
-                                return u && u.bookable !== false;
-                              }).length;
-                              return (
-                                <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
-                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:8}}>
-                                    <p style={{fontSize:11,color:C.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>Offline Register · {held.length} rooms held</p>
-                                    {notFlagged > 0 && (
-                                      <p style={{fontSize:10,color:C.rose}}>
-                                        ⚠ {notFlagged} of these are still marked bookable in Res Harmonics — sellable by mistake
-                                      </p>
-                                    )}
-                                  </div>
-                                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                                    {Object.entries(byCat).sort((a,b)=>b[1].length-a[1].length).map(([cat,list]) => {
-                                      const col = OFFLINE_CAT_COLORS[cat] || C.muted;
-                                      return (
-                                        <div key={cat} style={{background:C.bg,border:`1px solid ${col}44`,borderRadius:9,padding:"8px 11px",minWidth:150}}>
-                                          <p style={{fontSize:10,color:col,fontWeight:700,marginBottom:4}}>{cat} · {list.length}</p>
-                                          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                                            {list.map(h => {
-                                              const k = String(parseInt(h.room,10));
-                                              const isEmpty = openSet.has(k);
-                                              return (
-                                                <span key={h.room}
-                                                  title={`Room ${h.room} — ${h.reason}${h.until?` · until ${h.until}`:""}${h.note?`\n${h.note}`:""}\n${isEmpty?"Currently EMPTY":"Currently occupied"}`}
-                                                  style={{fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,cursor:"help",
-                                                    background:isEmpty?col+"22":"transparent",color:isEmpty?col:C.muted,
-                                                    border:`1px solid ${isEmpty?col+"55":C.border}`}}>
-                                                  {h.room}
-                                                </span>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  <p style={{fontSize:9,color:C.muted,marginTop:8}}>
-                                    Solid = room is empty right now · outline = currently occupied despite the hold. Holds expire automatically on their end date.
-                                  </p>
-                                </div>
-                              );
-                            })()}
-
-                            {openSummary.ss && (
-                              <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                                <div>
-                                  <p style={{fontSize:11,color:C.blue,fontWeight:700}}>Ensuite (Nomad) · {openSummary.ss.total} rooms · short-stay via Booking.com</p>
-                                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>
-                                    {openSummary.hasSS
-                                      ? <>These rooms are let both ways — long-stay tenants in Res Harmonics and short-stay guests in Lavanda. A room counts as open only when <em>neither</em> system has it booked.
-                                          {openSummary.ss.bothSystems > 0 && <> {openSummary.ss.bothSystems} room{openSummary.ss.bothSystems!==1?"s have":" has"} stays in both systems (mostly sequential, not clashes).</>}</>
-                                      : "Lavanda not connected — short-stay rooms excluded from the total above"}
-                                  </p>
-                                </div>
-                                <p style={{fontSize:12,color:C.muted,fontFamily:"DM Mono,monospace",whiteSpace:"nowrap"}}>
-                                  {openSummary.hasSS
-                                    ? <><span style={{color:C.blue,fontWeight:700}}>{openSummary.ss.shortStayBooked}</span> short-stay booked · <span style={{color:C.rose,fontWeight:700}}>{openSummary.ss.open}</span> fully open</>
-                                    : "—"}
-                                </p>
-                              </div>
-                            )}
-
-                            {/* ── GENUINE DOUBLE BOOKINGS (real date overlaps) ── */}
-                            {doubleBookings.length === 0 ? (
-                              <p style={{fontSize:10,color:C.sage,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                                ✓ No overlapping bookings detected across Res Harmonics and Lavanda.
-                              </p>
-                            ) : (
-                              <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.rose}44`}}>
-                                <p style={{fontSize:11,color:C.rose,fontWeight:700,marginBottom:8}}>
-                                  ⚠ {doubleBookings.length} double booking{doubleBookings.length!==1?"s":""} — same room, overlapping dates
-                                </p>
-                                <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                                  {doubleBookings.map((c,i) => (
-                                    <div key={i} style={{background:(c.kind==="cross"?C.rose:C.gold)+"11",border:`1px solid ${(c.kind==="cross"?C.rose:C.gold)}44`,borderRadius:8,padding:"8px 10px"}}>
-                                      <p style={{fontSize:11,color:C.text,fontWeight:600}}>
-                                        Room {c.room} · {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
-                                        <span style={{fontSize:9,color:c.kind==="cross"?C.rose:C.gold,marginLeft:6}}>{c.kind==="cross"?"LONG-STAY vs SHORT-STAY":"BOTH SHORT-STAY"}</span>
-                                      </p>
-                                      <p style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:"DM Mono,monospace"}}>
-                                        {c.aLabel} ({c.aMeta}) ↔ {c.bLabel} ({c.bMeta})
-                                      </p>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-                          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
-                            <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Rooms to Fill</p>
-                            <p style={{fontSize:22,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{availableRooms.length}</p>
-                          </div>
-                          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
-                            <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Room Types</p>
-                            <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{sortedTypes.length}</p>
-                          </div>
-                          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
-                            <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Earliest Available</p>
-                            <p style={{fontSize:14,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{new Date(availableRooms.sort((a,b) => a.availableFrom.localeCompare(b.availableFrom))[0].availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</p>
-                          </div>
-                        </div>
-
-                        {sortedTypes.map(([type, rooms]) => (
-                          <div key={type} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",marginBottom:10}}>
-                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                                <span style={{fontSize:14,fontWeight:700,color:C.text}}>{type}</span>
-                                <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{rooms.length} room{rooms.length!==1?"s":""}</span>
-                              </div>
-                            </div>
-                            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:8}}>
-                              {rooms.map((r, i) => (
-                                <div key={r.roomStayId || i} style={{background:C.bg,border:`1px solid ${C.rose}33`,borderRadius:8,padding:"10px 12px"}}>
-                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                                    <span style={{fontSize:13,fontWeight:700,color:C.text}}>{r.room}</span>
-                                    <span style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{r.pcm.toLocaleString()}/mo</span>
-                                  </div>
-                                  <div style={{fontSize:11,color:C.sage,fontWeight:600,marginBottom:4}}>
-                                    Available {new Date(r.availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
-                                  </div>
-                                  <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
-                                    <span style={{fontSize:9,color:C.muted}}>Departing: {r.name}</span>
-                                    {r.reason && <span style={{fontSize:8,background:C.rose+"18",color:C.rose,padding:"1px 5px",borderRadius:4}}>{r.reason}</span>}
-                                  </div>
-                                  <div style={{padding:"4px 8px",borderRadius:6,background:C.rose+"10"}}>
-                                    {r.gapDays !== null ? (
-                                      <span style={{fontSize:9,fontWeight:700,color:C.gold}}>
-                                        Empty for {r.gapDays} days · next booking {new Date(r.nextBookingStart + "T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
-                                      </span>
-                                    ) : (
-                                      <span style={{fontSize:9,fontWeight:700,color:C.rose}}>No upcoming booking — fully open</span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
 
                 </div>
               );
