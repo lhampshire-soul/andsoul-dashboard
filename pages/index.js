@@ -1742,12 +1742,71 @@ const Tip = ({active,payload,label}) => {
   </div>;
 };
 
-const KPI = ({label,value,sub,accent=C.gold,badge}) => (
+// ─── PERIOD-OVER-PERIOD HELPERS ───────────────────────────────────────────────
+// mkDelta(current, previous, {invert}) → {pct, abs, dir} or null when there is
+// no meaningful prior value. `invert` marks metrics where DOWN is good (cost,
+// CPL, CAC, bounce) so the chip colours correctly.
+const mkDelta = (cur, prev, opts = {}) => {
+  if (cur == null || prev == null || !isFinite(cur) || !isFinite(prev)) return null;
+  if (prev === 0) return cur === 0 ? { pct: 0, abs: 0, dir: "flat", invert: !!opts.invert } : { pct: null, abs: cur, dir: cur > 0 ? "up" : "down", invert: !!opts.invert };
+  const abs = cur - prev;
+  const pct = (abs / Math.abs(prev)) * 100;
+  const dir = Math.abs(pct) < 0.5 ? "flat" : pct > 0 ? "up" : "down";
+  return { pct, abs, dir, invert: !!opts.invert, label: opts.label };
+};
+
+// Compact delta chip: ↗ +19% / ↘ −8% / → 0%, coloured for good/bad given `invert`
+const DeltaChip = ({ delta, size = 10 }) => {
+  if (!delta) return null;
+  const good = delta.dir === "flat" ? null : (delta.dir === "up") !== delta.invert;
+  const col = delta.dir === "flat" ? C.muted : good ? C.sage : C.rose;
+  const arrow = delta.dir === "up" ? "↗" : delta.dir === "down" ? "↘" : "→";
+  const txt = delta.pct == null ? (delta.abs > 0 ? "new" : "—")
+            : `${delta.pct > 0 ? "+" : ""}${Math.abs(delta.pct) >= 100 ? Math.round(delta.pct) : delta.pct.toFixed(Math.abs(delta.pct) < 10 ? 1 : 0)}%`;
+  return (
+    <span title={delta.label ? `vs ${delta.label}` : "vs previous period"}
+      style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:size,fontWeight:700,fontFamily:"'DM Mono',monospace",
+        color:col,background:col+"1a",border:`1px solid ${col}44`,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>
+      {arrow} {txt}
+    </span>
+  );
+};
+
+// Tiny inline sparkline — pure SVG, no chart lib overhead per card
+const Spark = ({ data, color = C.gold, width = 96, height = 26 }) => {
+  if (!data || data.length < 2) return null;
+  const vals = data.map(v => (v == null || isNaN(v) ? 0 : v));
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const stepX = width / (vals.length - 1);
+  const pts = vals.map((v, i) => `${(i * stepX).toFixed(1)},${(height - 2 - ((v - min) / span) * (height - 4)).toFixed(1)}`);
+  const last = vals[vals.length - 1];
+  const lx = ((vals.length - 1) * stepX).toFixed(1), ly = (height - 2 - ((last - min) / span) * (height - 4)).toFixed(1);
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{display:"block",overflow:"visible"}} aria-hidden="true">
+      <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" opacity="0.9"/>
+      <polyline points={`0,${height} ${pts.join(" ")} ${lx},${height}`} fill={color} opacity="0.08" stroke="none"/>
+      <circle cx={lx} cy={ly} r="2" fill={color}/>
+    </svg>
+  );
+};
+
+// KPI card — now carries an optional period delta chip and a 30-day sparkline.
+// Cards without prior-period data render exactly as before.
+const KPI = ({label,value,sub,accent=C.gold,badge,delta,spark,sparkColor}) => (
   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",borderTop:`2px solid ${accent}`,flex:"1 1 140px",minWidth:0,position:"relative"}}>
     {badge&&<span style={{position:"absolute",top:10,right:12,fontSize:10,color:accent,background:accent+"22",padding:"2px 8px",borderRadius:20}}>{badge}</span>}
     <p style={{color:C.muted,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>{label}</p>
-    <p style={{fontSize:26,fontWeight:700,color:C.text,fontFamily:"'DM Mono',monospace",letterSpacing:"-0.02em"}}>{value}</p>
-    {sub&&<p style={{fontSize:11,color:C.muted,marginTop:4}}>{sub}</p>}
+    <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:10}}>
+      <div style={{minWidth:0}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+          <p style={{fontSize:26,fontWeight:700,color:C.text,fontFamily:"'DM Mono',monospace",letterSpacing:"-0.02em"}}>{value}</p>
+          {delta && <DeltaChip delta={delta}/>}
+        </div>
+        {sub&&<p style={{fontSize:11,color:C.muted,marginTop:4}}>{sub}</p>}
+      </div>
+      {spark && spark.length > 1 && <div style={{flexShrink:0,opacity:0.95}}><Spark data={spark} color={sparkColor||accent}/></div>}
+    </div>
   </div>
 );
 
@@ -2125,16 +2184,48 @@ export default function Dashboard() {
     } catch(e) { console.log("Analytics fetch error:", e.message); return null; }
   }, []);
 
+  // ─── PRIOR PERIOD (same length, immediately before `from`) ──────────────────
+  // Every KPI shows a delta against this window. Meta/Google/GA4 are fetched a
+  // second time for it; RH/Lavanda/GHL are computed from data already in memory.
+  const prior = useMemo(() => {
+    const f = new Date(from + "T00:00:00Z"), t = new Date(to + "T00:00:00Z");
+    const days = Math.round((t - f) / 864e5) + 1;
+    const pt = new Date(f.getTime() - 864e5), pf = new Date(pt.getTime() - (days - 1) * 864e5);
+    return { from: pf.toISOString().slice(0,10), to: pt.toISOString().slice(0,10), days,
+             label: `prev ${days}d` };
+  }, [from, to]);
+  const [prevMetaData, setPrevMetaData] = useState(null);
+  const [prevGoogleData, setPrevGoogleData] = useState(null);
+  const [prevAnalyticsData, setPrevAnalyticsData] = useState(null);
+
+  // ─── LAST REFRESHED per source ───────────────────────────────────────────────
+  const [lastRefreshed, setLastRefreshed] = useState({});
+  const stamp = useCallback((k) => setLastRefreshed(p => ({ ...p, [k]: Date.now() })), []);
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => { const i = setInterval(() => setNowTick(Date.now()), 60 * 1000); return () => clearInterval(i); }, []);
+  const STALE_MS = 60 * 60 * 1000;
+  const freshness = useCallback((k) => {
+    const t = lastRefreshed[k];
+    if (!t) return { t: null, stale: false, label: "—" };
+    const age = nowTick - t;
+    return { t, stale: age > STALE_MS, ageMin: Math.round(age / 60000),
+             label: new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) };
+  }, [lastRefreshed, nowTick]);
+
   useEffect(()=>{
     setAdLoading(true);
     setAnalyticsLoading(true);
+    const fetchPrevJson = async (url) => { try { const r = await fetch(url); const j = await r.json(); return (j.configured && j.data) ? j.data : null; } catch { return null; } };
     Promise.all([
-      fetchLiveMeta(from, to, property),
-      fetchLiveGoogle(from, to, property),
-      fetchAnalytics(from, to, "southall").then(d => setAnalyticsData(d)),
+      fetchLiveMeta(from, to, property).then(() => stamp("meta")),
+      fetchLiveGoogle(from, to, property).then(() => stamp("google")),
+      fetchAnalytics(from, to, "southall").then(d => { setAnalyticsData(d); stamp("ga4"); }),
       fetchAnalytics(from, to, "shoreditch").then(d => setSdAnalyticsData(d)),
+      fetchPrevJson(`/api/meta?dateFrom=${prior.from}&dateTo=${prior.to}&property=${property}`).then(setPrevMetaData),
+      fetchPrevJson(`/api/google?dateFrom=${prior.from}&dateTo=${prior.to}&property=${property}`).then(setPrevGoogleData),
+      fetchPrevJson(`/api/analytics?dateFrom=${prior.from}&dateTo=${prior.to}&property=southall`).then(setPrevAnalyticsData),
     ]).finally(()=>{ setAdLoading(false); setAnalyticsLoading(false); });
-  }, [from, to, property]);
+  }, [from, to, property, prior.from, prior.to]);
 
   // ─── COMPUTED: prefer live data, fall back to static ────────────────────────
   const metaRows  = useMemo(()=>META_DAILY.filter(r=>r.iso>=from&&r.iso<=to),[from,to]);
@@ -2355,7 +2446,7 @@ export default function Dashboard() {
 
   const runGHL = useCallback(async(f,t)=>{
     setGhlLoad(true); setGhlErr("");
-    try { setGhlData(await loadGHL(f,t)); setGhlConn(true); }
+    try { setGhlData(await loadGHL(f,t)); setGhlConn(true); stamp("ghl"); }
     catch(e) { setGhlErr(e.message); console.log("GHL Error:", e.message); }
     finally { setGhlLoad(false); }
   },[]);
@@ -2381,6 +2472,12 @@ export default function Dashboard() {
   // Still overridable, but the register is the starting point so usable-room
   // maths matches what's actually held. (v2 key so the old manual value doesn't
   // stick and silently understate the holds.)
+  // Pacing targets (persisted per browser). Defaults come from the existing
+  // revenue-target model and the forecast sliders.
+  const [pacingTargets, setPacingTargetsRaw] = useState({ revenue: TARGET_MONTHLY, bookings: 50, occPct: 95, adr: 40 });
+  const [pacingEdit, setPacingEdit] = useState(false);
+  const setPacingTargets = (fn) => setPacingTargetsRaw(prev => { const next = typeof fn === "function" ? fn(prev) : fn; try { localStorage.setItem("southall_pacing_targets_v1", JSON.stringify(next)); } catch {} return next; });
+  useEffect(() => { try { const v = JSON.parse(localStorage.getItem("southall_pacing_targets_v1") || "null"); if (v && typeof v === "object") setPacingTargetsRaw(p => ({ ...p, ...v })); } catch {} }, []);
   const REGISTER_OFFLINE = Object.keys(offlineRoomMap).length;
   const [offlineRooms, setOfflineRoomsRaw] = useState(REGISTER_OFFLINE);
   const [offlineIsManual, setOfflineIsManual] = useState(false);
@@ -2415,7 +2512,7 @@ export default function Dashboard() {
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then(d => {
         if (d && d.kpis && d.daily && d.daily.length > 0) {
-          setLavandaData(d);
+          setLavandaData(d); stamp("lavanda");
           setLavandaErr("");
           console.log("Lavanda live data loaded:", d.kpis, d.errors);
         } else {
@@ -3188,6 +3285,79 @@ export default function Dashboard() {
     merged.forEach(m => { m.nights = Math.round((new Date(m.to) - new Date(m.from)) / 864e5); });
     return merged.sort((a, b) => a.from.localeCompare(b.from));
   }, [lavandaConn, lavandaData, pmsConn, rhAllUnits, rhAllBookings]);
+
+  // ─── DAILY HISTORY ENGINE ────────────────────────────────────────────────────
+  // Builds day-by-day series for the last 75 days from data already in memory,
+  // so every RH/Lavanda KPI can show a prior-period delta and a 30-day sparkline
+  // without extra API calls. Nights basis throughout (checkout day excluded).
+  const history = useMemo(() => {
+    const DAYS = 75;
+    const today = new Date(); today.setUTCHours(0,0,0,0);
+    const dates = [];
+    for (let i = DAYS - 1; i >= 0; i--) dates.push(new Date(today.getTime() - i * 864e5).toISOString().slice(0,10));
+    const idx = Object.fromEntries(dates.map((d,i)=>[d,i]));
+    const z = () => new Array(DAYS).fill(0);
+    const S = { dates, occ: z(), rev: z(), revGross: z(), awrSum: z(), awrN: z(), newBk: z(), arrivals: z(), departures: z(),
+                ssOcc: z(), ssRev: z(), ssBooked: z(), ssNights: z() };
+    const bedroomIds = new Set((rhAllUnits||[]).filter(u=>/^Room:/i.test((u.unitName||"").trim())).map(u=>u.id));
+    const first = dates[0], last = dates[DAYS-1];
+    const occSets = dates.map(() => new Set());
+    (rhAllBookings||[]).forEach(b => {
+      const st = (b.roomStayStatus||"").toUpperCase();
+      const f = (b.startDate||"").slice(0,10), t = (b.endDate||"").slice(0,10);
+      if (!f || !t) return;
+      const uid = b.unit?.id ?? b.unitId;
+      const isRoom = bedroomIds.size === 0 || bedroomIds.has(uid);
+      const nights = Math.round((new Date(t) - new Date(f)) / 864e5);
+      // creation date from reference
+      const ref = b.bookingReference || "";
+      if (ref.length >= 8 && isRoom) {
+        const c = `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+        if (idx[c] != null && ["CHECKED_IN","CONFIRMED","PENDING","CHECKED_OUT"].includes(st)) S.newBk[idx[c]]++;
+      }
+      if (!["CHECKED_IN","CONFIRMED","CHECKED_OUT"].includes(st) || !isRoom) return;
+      if (idx[f] != null) S.arrivals[idx[f]]++;
+      if (idx[t] != null) S.departures[idx[t]]++;
+      if (nights < 1) return;
+      const net = parseFloat(b.netAmount||0), vat = parseFloat(b.vatAmount||0);
+      const gross = net + (isNaN(vat)?0:vat);
+      const perNightNet = net > 0 ? net / nights : 0, perNightGross = gross > 0 ? gross / nights : 0;
+      const weeklyGross = (gross > 0 && nights >= MIN_STAY_DAYS) ? (gross / nights) * 7 : null;
+      // iterate nights within window
+      const lo = f > first ? f : first;
+      const hiExcl = t < last ? t : new Date(new Date(last).getTime() + 864e5).toISOString().slice(0,10);
+      for (let d = new Date(lo + "T00:00:00Z"); d.toISOString().slice(0,10) < hiExcl; d = new Date(d.getTime() + 864e5)) {
+        const k = d.toISOString().slice(0,10); const i2 = idx[k]; if (i2 == null) continue;
+        if (nights >= MIN_STAY_DAYS && uid) occSets[i2].add(uid);
+        S.rev[i2] += perNightNet; S.revGross[i2] += perNightGross;
+        if (weeklyGross != null && weeklyGross < 5000) { S.awrSum[i2] += weeklyGross; S.awrN[i2]++; }
+      }
+    });
+    for (let i = 0; i < DAYS; i++) S.occ[i] = occSets[i].size;
+    S.awr = S.awrSum.map((v,i)=> S.awrN[i] ? v / S.awrN[i] : null);
+    // Lavanda
+    if (lavandaConn && lavandaData?.daily) {
+      lavandaData.daily.forEach(d => { const i2 = idx[d.date]; if (i2 == null) return;
+        S.ssOcc[i2] = d.booked || 0; S.ssRev[i2] = d.rev || 0; });
+      (lavandaData.bookingsLite||[]).forEach(b => { const i2 = idx[b.created]; if (i2 != null) S.ssBooked[i2]++; });
+    }
+    S.ssAdr = S.ssRev.map((r,i)=> S.ssOcc[i] > 0 ? r / S.ssOcc[i] : null);
+    // helpers
+    const rangeIdx = (a, b) => { const lo = Math.max(0, idx[a] ?? 0), hi = Math.min(DAYS-1, idx[b] ?? (DAYS-1)); return [lo, hi]; };
+    const sum = (arr, a, b) => { const [lo,hi] = rangeIdx(a,b); let s=0; for (let i=lo;i<=hi;i++) s += (arr[i]||0); return s; };
+    const avg = (arr, a, b) => { const [lo,hi] = rangeIdx(a,b); let s=0,n=0; for (let i=lo;i<=hi;i++) { if (arr[i]!=null && !isNaN(arr[i])) { s+=arr[i]; n++; } } return n ? s/n : null; };
+    const at  = (arr, dStr) => { const i2 = idx[dStr]; return i2 == null ? null : arr[i2]; };
+    const last30 = (arr) => arr.slice(DAYS-30).map(v => v == null ? 0 : v);
+    const daysAgo = (n) => dates[Math.max(0, DAYS-1-n)];
+    return { ...S, sum, avg, at, last30, daysAgo, today: last };
+  }, [rhAllBookings, rhAllUnits, lavandaConn, lavandaData]);
+
+  // Convenience: current-vs-prior over the range picker window
+  const pp = useMemo(() => ({
+    sum: (arr) => mkDelta(history.sum(arr, from, to), history.sum(arr, prior.from, prior.to), { label: prior.label }),
+    avg: (arr, invert=false) => mkDelta(history.avg(arr, from, to), history.avg(arr, prior.from, prior.to), { label: prior.label, invert }),
+    point30: (arr, invert=false) => mkDelta(history.at(arr, history.today), history.at(arr, history.daysAgo(30)), { label: "30 days ago", invert }),
+  }), [history, from, to, prior]);
   const occPct = pmsConn && pmsData ? Math.round(occupied / usableRooms * 100) : mOcc;
   const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
   const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
@@ -3251,7 +3421,7 @@ export default function Dashboard() {
       const allRenewals = [...(metrics.pendingRenewals || []), ...(metrics.confirmedRenewals || [])];
       await enrichRenewalsWithDates(tok, allRenewals);
 
-      setPmsData(metrics);
+      setPmsData(metrics); stamp("rh");
       setRhAllBookings(mergedBookings);
       setRhAllUnits(allUnits);
       console.log("PMS silent refresh complete, bookings:", mergedBookings.length, "(incl", pendingBookings.length, "pending)");
@@ -3314,7 +3484,7 @@ export default function Dashboard() {
       await enrichRenewalsWithDates(tok, allRenewals);
       console.log("Renewal date enrichment complete");
 
-      setPmsData(metrics);
+      setPmsData(metrics); stamp("rh");
       setRhAllBookings(allBookings);
       setRhAllUnits(allUnits);
       setPmsConn(true);
@@ -3615,10 +3785,30 @@ export default function Dashboard() {
             </div>
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            <span style={{background:metaIsLive?"#d4a84322":C.border,color:metaIsLive?C.gold:C.muted,padding:"3px 10px",borderRadius:20,fontSize:11}}>{metaIsLive?"● Meta · live":"○ Meta · static"}</span>
-            <span style={{background:googleIsLive?"#3d82c422":C.border,color:googleIsLive?C.blue:C.muted,padding:"3px 10px",borderRadius:20,fontSize:11}}>{googleIsLive?"● Google Ads · live":"○ Google Ads · static"}</span>
-            <span style={{background:ghlConn?"#9b72cf22":C.border,color:ghlConn?C.purple:C.muted,padding:"3px 10px",borderRadius:20,fontSize:11}}>{ghlConn?"● GHL CRM · live":"○ GHL CRM"}</span>
-            <span style={{background:pmsConn?"#3d9e7522":C.border,color:pmsConn?C.sage:C.muted,padding:"3px 10px",borderRadius:20,fontSize:11}}>{pmsConn?"● Res Harmonics · live":"○ Res Harmonics"}</span>
+            {[
+              { k:"meta",    on:metaIsLive,   name:"Meta",         col:C.gold,   bg:"#d4a84322", off:"Meta · static" },
+              { k:"google",  on:googleIsLive, name:"Google Ads",   col:C.blue,   bg:"#3d82c422", off:"Google Ads · static" },
+              { k:"ga4",     on:!!analyticsData, name:"GA4",       col:C.blue,   bg:"#3d82c422", off:"GA4" },
+              { k:"ghl",     on:ghlConn,      name:"GHL CRM",      col:C.purple, bg:"#9b72cf22", off:"GHL CRM" },
+              { k:"rh",      on:pmsConn,      name:"Res Harmonics",col:C.sage,   bg:"#3d9e7522", off:"Res Harmonics" },
+              { k:"lavanda", on:lavandaConn,  name:"Lavanda",      col:C.blue,   bg:"#3d82c422", off:"Lavanda" },
+            ].map(src => {
+              const f = freshness(src.k);
+              const stale = src.on && f.stale;
+              const col = stale ? C.rose : src.on ? src.col : C.muted;
+              const bg  = stale ? C.rose+"22" : src.on ? src.bg : C.border;
+              const tip = !src.on ? `${src.name} not connected`
+                        : stale ? `${src.name} last refreshed ${f.label} — ${f.ageMin} min ago. Data may be out of date.`
+                        : `${src.name} refreshed ${f.label}`;
+              return (
+                <span key={src.k} title={tip}
+                  style={{background:bg,color:col,padding:"3px 10px",borderRadius:20,fontSize:11,display:"inline-flex",alignItems:"center",gap:5,cursor:"default"}}>
+                  {src.on ? (stale ? "⚠" : "●") : "○"} {src.on ? src.name : src.off}
+                  {src.on && f.t && <span style={{fontSize:9,opacity:0.8,fontFamily:"'DM Mono',monospace"}}>{f.label}</span>}
+                  {stale && <span style={{fontSize:9,fontWeight:700}}>STALE</span>}
+                </span>
+              );
+            })}
           </div>
         </div>
 
@@ -3776,7 +3966,13 @@ export default function Dashboard() {
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:14,margin:"18px 0"}}>
                   <div style={{background:`linear-gradient(135deg, ${C.card}, ${C.bg})`,border:`1px solid ${C.gold}44`,borderRadius:14,padding:20}}>
                     <p style={{fontSize:10,color:C.gold,fontWeight:600,marginBottom:6}}>TOTAL OCCUPIED</p>
-                    <p style={{fontSize:36,fontWeight:800,color:C.gold,fontFamily:"DM Mono,monospace",lineHeight:1}}>{totalOcc}</p>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:10}}>
+                      <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+                        <p style={{fontSize:36,fontWeight:800,color:C.gold,fontFamily:"DM Mono,monospace",lineHeight:1}}>{totalOcc}</p>
+                        <DeltaChip delta={mkDelta(totalOcc, (history.at(history.occ, history.daysAgo(30))||0) + (history.at(history.ssOcc, history.daysAgo(30))||0), {label:"30 days ago"})} size={11}/>
+                      </div>
+                      <Spark data={history.last30(history.occ).map((v,i)=>v + history.last30(history.ssOcc)[i])} color={C.gold} width={110} height={30}/>
+                    </div>
                     <p style={{fontSize:13,color:C.muted,marginTop:6}}>{totalPct}% of {usable} usable rooms</p>
                     <div style={{display:"flex",height:6,borderRadius:3,overflow:"hidden",marginTop:10,background:C.border}}>
                       <div style={{width:`${lsPct}%`,background:C.sage,transition:"width 0.4s"}}/>
@@ -3796,7 +3992,13 @@ export default function Dashboard() {
 
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
                     <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>REVENUE · {new Date(from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} ({rangeDays}d)</p>
-                    <p style={{fontSize:28,fontWeight:800,color:C.text,fontFamily:"DM Mono,monospace",lineHeight:1}}>{fmt(totalRev)}</p>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:10}}>
+                      <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+                        <p style={{fontSize:28,fontWeight:800,color:C.text,fontFamily:"DM Mono,monospace",lineHeight:1}}>{fmt(totalRev)}</p>
+                        <DeltaChip delta={mkDelta(totalRev, history.sum(history.revGross, prior.from, prior.to) + history.sum(history.ssRev, prior.from, prior.to), {label: prior.label})} size={11}/>
+                      </div>
+                      <Spark data={history.last30(history.revGross).map((v,i)=>v + history.last30(history.ssRev)[i])} color={C.text} width={110} height={30}/>
+                    </div>
                     <p style={{fontSize:12,color:C.muted,marginTop:8}}>
                       <span style={{color:C.sage}}>{fmt(lsRevGross)}</span> long-stay gross <span style={{fontSize:10}}>({fmt(lsRev)} net)</span>
                       {shortBreakRev > 0 && <> · <span style={{color:C.gold}}>{fmt(shortBreakRev)}</span> short breaks <span style={{fontSize:10}}>(RH &lt;28n)</span></>}
@@ -3809,12 +4011,20 @@ export default function Dashboard() {
                     <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>RATES</p>
                     <div style={{display:"flex",gap:16,alignItems:"baseline"}}>
                       <div>
-                        <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>£{lsAWR}</p>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                          <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>£{lsAWR}</p>
+                          <DeltaChip delta={pp.point30(history.awr)}/>
+                        </div>
+                        <Spark data={history.last30(history.awr)} color={C.sage} width={90} height={22}/>
                         <p style={{fontSize:10,color:C.muted}}>AWR gross (LS)</p>
                         <p style={{fontSize:11,color:C.sage,fontFamily:"DM Mono,monospace",marginTop:2}}>£{lsAWRNet} <span style={{color:C.muted,fontFamily:"inherit"}}>net /wk</span></p>
                       </div>
                       {ssADR > 0 && <div>
-                        <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{ssADR.toFixed(0)}</p>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                          <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{ssADR.toFixed(0)}</p>
+                          <DeltaChip delta={pp.avg(history.ssAdr)}/>
+                        </div>
+                        <Spark data={history.last30(history.ssAdr)} color={C.blue} width={90} height={22}/>
                         <p style={{fontSize:10,color:C.muted}}>ADR gross (SS)</p>
                         <p style={{fontSize:11,color:C.blue,fontFamily:"DM Mono,monospace",marginTop:2}}>£{ssADRNet.toFixed(0)} <span style={{color:C.muted,fontFamily:"inherit"}}>net /night</span></p>
                       </div>}
@@ -3824,17 +4034,113 @@ export default function Dashboard() {
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
                     <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>7-DAY MOVEMENT</p>
                     <div style={{display:"flex",gap:20}}>
+                      {(() => {
+                        const t7 = history.today, a7 = history.daysAgo(6), b7 = history.daysAgo(13), c7 = history.daysAgo(7);
+                        const arrPrev = history.sum(history.arrivals, b7, c7), depPrev = history.sum(history.departures, b7, c7);
+                        const arrCur = history.sum(history.arrivals, a7, t7), depCur = history.sum(history.departures, a7, t7);
+                        return (<>
                       <div>
-                        <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>+{lsCheckIns + ssArrivals}</p>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                          <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>+{lsCheckIns + ssArrivals}</p>
+                          <DeltaChip delta={mkDelta(arrCur, arrPrev, {label:"prev 7d"})}/>
+                        </div>
+                        <Spark data={history.last30(history.arrivals)} color={C.sage} width={90} height={22}/>
                         <p style={{fontSize:10,color:C.muted}}>arrivals{ssArrivals>0?` (${lsCheckIns} LS + ${ssArrivals} SS)`:""}</p>
                       </div>
                       <div>
-                        <p style={{fontSize:22,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>-{lsCheckOuts + ssDepartures}</p>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                          <p style={{fontSize:22,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>-{lsCheckOuts + ssDepartures}</p>
+                          <DeltaChip delta={mkDelta(depCur, depPrev, {label:"prev 7d", invert:true})}/>
+                        </div>
+                        <Spark data={history.last30(history.departures)} color={C.rose} width={90} height={22}/>
                         <p style={{fontSize:10,color:C.muted}}>departures{ssDepartures>0?` (${lsCheckOuts} LS + ${ssDepartures} SS)`:""}</p>
                       </div>
+                        </>);
+                      })()}
                     </div>
                   </div>
                 </div>
+
+                {/* ── MONTH-TO-DATE PACING ── */}
+                {(() => {
+                  const now = new Date();
+                  const y = now.getFullYear(), m = now.getMonth();
+                  const dim = new Date(y, m + 1, 0).getDate();
+                  const dom = now.getDate();
+                  const elapsed = dom / dim;
+                  const mStart = `${y}-${String(m+1).padStart(2,"0")}-01`;
+                  const mLabel = now.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+                  const T = pacingTargets;
+                  const revMtd = history.sum(history.revGross, mStart, history.today) + history.sum(history.ssRev, mStart, history.today);
+                  const bkMtd  = history.sum(history.newBk, mStart, history.today) + history.sum(history.ssBooked, mStart, history.today);
+                  const adrMtd = history.avg(history.ssAdr, mStart, history.today);
+                  const occTargetRooms = Math.ceil(usable * (T.occPct / 100));
+                  const rows = [
+                    { key:"rev", label:"Revenue", actual:revMtd, target:T.revenue, fmtV:v=>fmt(v), color:C.gold, kind:"cumulative" },
+                    { key:"bk",  label:"New bookings", actual:bkMtd, target:T.bookings, fmtV:v=>Math.round(v).toString(), color:C.blue, kind:"cumulative" },
+                    { key:"occ", label:"Occupancy", actual:totalOcc, target:occTargetRooms, fmtV:v=>`${Math.round(v)} rooms`, color:C.sage, kind:"level", sub:`${T.occPct}% of ${usable} usable` },
+                    { key:"adr", label:"Short-stay ADR", actual:adrMtd, target:T.adr, fmtV:v=>v==null?"—":`£${v.toFixed(0)}`, color:C.purple, kind:"level" },
+                  ];
+                  return (
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:12}}>
+                        <div>
+                          <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Pacing — {mLabel}</h3>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Day {dom} of {dim} · {Math.round(elapsed*100)}% of the month elapsed · targets editable, saved in this browser</p>
+                        </div>
+                        <button onClick={()=>setPacingEdit(v=>!v)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>{pacingEdit?"Done":"Edit targets"}</button>
+                      </div>
+                      {pacingEdit && (
+                        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12,padding:"10px 12px",background:C.bg,borderRadius:10,border:`1px solid ${C.border}`}}>
+                          {[["revenue","Monthly revenue £",1000],["bookings","New bookings / month",1],["occPct","Occupancy target %",1],["adr","Short-stay ADR £",1]].map(([k,l,step])=>(
+                            <label key={k} style={{fontSize:10,color:C.muted,display:"flex",flexDirection:"column",gap:4}}>
+                              {l}
+                              <input type="number" step={step} value={T[k]} onChange={e=>setPacingTargets(t=>({...t,[k]:+e.target.value||0}))}
+                                style={{width:120,fontSize:12,fontFamily:"DM Mono,monospace",background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",color:C.text,outline:"none"}}/>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
+                        {rows.map(r => {
+                          const hasData = r.actual != null && r.target > 0;
+                          const expected = r.kind === "cumulative" ? r.target * elapsed : r.target;
+                          const projected = r.kind === "cumulative" && elapsed > 0 ? r.actual / elapsed : r.actual;
+                          const ratio = hasData && expected > 0 ? r.actual / expected : null;
+                          const status = !hasData ? "nodata" : ratio >= 0.97 ? "on" : ratio >= 0.85 ? "close" : "behind";
+                          const scol = status === "on" ? C.sage : status === "close" ? C.gold : status === "behind" ? C.rose : C.muted;
+                          const progress = hasData ? Math.min(100, (r.actual / r.target) * 100) : 0;
+                          return (
+                            <div key={r.key} style={{background:C.bg,border:`1px solid ${scol}44`,borderRadius:10,padding:"12px 14px"}}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+                                <p style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>{r.label}</p>
+                                <span style={{fontSize:9,fontWeight:700,color:scol,background:scol+"1a",border:`1px solid ${scol}44`,padding:"2px 7px",borderRadius:20}}>
+                                  {status==="on"?"ON PACE":status==="close"?"CLOSE":status==="behind"?"BEHIND":"NO DATA"}
+                                </span>
+                              </div>
+                              <p style={{fontSize:22,fontWeight:800,color:r.color,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                                {hasData ? r.fmtV(r.actual) : "—"}
+                                <span style={{fontSize:11,color:C.muted,fontWeight:400}}> / {r.fmtV(r.target)}</span>
+                              </p>
+                              <div style={{position:"relative",height:6,background:C.border,borderRadius:3,marginTop:8,overflow:"hidden"}}>
+                                <div style={{width:`${progress}%`,height:"100%",background:scol,transition:"width 0.4s"}}/>
+                                {r.kind === "cumulative" && <div title="Where you should be today" style={{position:"absolute",top:-2,bottom:-2,left:`${Math.min(100,elapsed*100)}%`,width:2,background:C.text,opacity:0.6}}/>}
+                              </div>
+                              <p style={{fontSize:10,color:C.muted,marginTop:6}}>
+                                {!hasData ? (r.sub || "Awaiting data")
+                                 : r.kind === "cumulative"
+                                   ? (ratio >= 0.97
+                                       ? `Ahead of pace · projecting ${r.fmtV(projected)} by month end`
+                                       : `${r.fmtV(Math.max(0, expected - r.actual))} behind today's pace · projecting ${r.fmtV(projected)}`)
+                                   : (ratio >= 1 ? `Target met${r.sub?` · ${r.sub}`:""}` : `${r.fmtV(Math.max(0, r.target - r.actual))} short of target${r.sub?` · ${r.sub}`:""}`)}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* ── Bed utilisation bar ── */}
                 <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
