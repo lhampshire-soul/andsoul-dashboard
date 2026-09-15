@@ -5432,6 +5432,282 @@ export default function Dashboard() {
             </div>
 
 
+            {/* ── NEW BOOKINGS & RENEWALS (moved up: this is the list of every new booking with its rate) ── */}
+            {/* ── RECENT BOOKING ACTIVITY ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>New Bookings & Renewals</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Every booking created in the period, with its agreed PCM and weekly rate (gross) — full list at the bottom of this card</p>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  {[
+                    {l:"Last 7d",k:"7d",fn:()=>{const d=new Date();d.setDate(d.getDate()-6);setActivityFrom(d.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("7d");}},
+                    {l:"Last 14d",k:"14d",fn:()=>{const d=new Date();d.setDate(d.getDate()-13);setActivityFrom(d.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("14d");}},
+                    {l:"This week",k:"week",fn:()=>{const d=new Date();const day=d.getDay();const diff=day===0?6:day-1;const mon=new Date(d);mon.setDate(mon.getDate()-diff);setActivityFrom(mon.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("week");}},
+                  ].map(o=>(
+                    <button key={o.k} onClick={o.fn} style={{padding:"4px 13px",borderRadius:20,border:`1px solid ${activityPreset===o.k?C.gold:C.border}`,background:activityPreset===o.k?C.gold+"22":"transparent",color:activityPreset===o.k?C.gold:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>{o.l}</button>
+                  ))}
+                  <CalendarPicker value={activityFrom} onChange={v=>{setActivityFrom(v);setActivityPreset(null);}} />
+                  <span style={{fontSize:11,color:C.muted}}>→</span>
+                  <CalendarPicker value={activityTo} onChange={v=>{setActivityTo(v);setActivityPreset(null);}} />
+                </div>
+              </div>
+
+              {/* KPI cards */}
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
+                <KPI label="New Bookings" value={recentActivity.stats.newCount} sub="First-time tenants" accent={C.blue} delta={mkDelta(recentActivity.stats.newCount, prevActivity?.stats?.newCount, {label:prevActivityWindow.label})} spark={history.last30(history.newBk)}/>
+                <KPI label="Returning" value={recentActivity.stats.renewalCount} sub="Returning residents" accent={C.sage} delta={mkDelta(recentActivity.stats.renewalCount, prevActivity?.stats?.renewalCount, {label:prevActivityWindow.label})}/>
+                <KPI label="Moved to Pending" value={recentActivity.stats.pendingCount} sub="Status: PENDING" accent={C.gold} delta={mkDelta(recentActivity.stats.pendingCount, prevActivity?.stats?.pendingCount, {label:prevActivityWindow.label})}/>
+                <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Returning" accent={C.text} delta={mkDelta(recentActivity.stats.totalActivity, prevActivity?.stats?.totalActivity, {label:prevActivityWindow.label})}/>
+              </div>
+
+              {/* LoS & Room Type breakdown */}
+              {recentActivity.all.length > 0 && (
+                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
+                  {/* LoS Breakdown */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <div>
+                        <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown</p>
+                        <p style={{fontSize:9,color:C.muted,marginTop:2}}>RH = long-stay · Lav = short-stay (Booking.com)</p>
+                      </div>
+                      <button onClick={()=>{
+                        const losRows = [["LoS Band","Res Harmonics","Lavanda","Total","Days"]];
+                        LOS_BANDS.forEach(b=>{
+                          const rh = recentActivity.losBySource?.rh?.[b.short]||0;
+                          const lav = recentActivity.losBySource?.lav?.[b.short]||0;
+                          losRows.push([`${b.label} (${b.note})`, rh, lav, rh+lav, recentActivity.losDaysBuckets?.[b.short]||0]);
+                        });
+                        losRows.push(["Total",
+                          recentActivity.srcTotals?.rh?.count||0,
+                          recentActivity.srcTotals?.lav?.count||0,
+                          (recentActivity.srcTotals?.rh?.count||0)+(recentActivity.srcTotals?.lav?.count||0),
+                          recentActivity.totalDaysBooked||0]);
+                        copyTable(losRows,"los");
+                      }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="los"?C.sage:C.border}`,background:copiedTable==="los"?C.sage+"22":"transparent",color:copiedTable==="los"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                        {copiedTable==="los"?"✓ Copied":"Copy"}
+                      </button>
+                    </div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`1px solid ${C.border}44`}}>
+                          <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
+                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.sage,fontWeight:600}} title="Res Harmonics — long-stay">RH</th>
+                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.blue,fontWeight:600}} title="Lavanda — short-stay">Lav</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Total</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {LOS_BANDS.map(band=>{
+                          const k = band.short;
+                          const rh = recentActivity.losBySource?.rh?.[k] || 0;
+                          const lav = recentActivity.losBySource?.lav?.[k] || 0;
+                          const tot = rh + lav;
+                          return (
+                          <tr key={k} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>
+                              {band.label}
+                              <span style={{fontSize:9,color:C.muted+"99",marginLeft:6}}>{band.note}</span>
+                            </td>
+                            <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,color:rh>0?C.sage:C.muted+"66"}}>{rh}</td>
+                            <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,color:lav>0?C.blue:C.muted+"66"}}>{lav}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:tot>0?C.text:C.muted}}>{tot}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:C.muted}}>{(recentActivity.losDaysBuckets?.[k]||0).toLocaleString()}</td>
+                          </tr>);
+                        })}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total New Bookings</td>
+                          <td style={{padding:"6px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.sage}}>{recentActivity.srcTotals?.rh?.count||0}</td>
+                          <td style={{padding:"6px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.blue}}>{recentActivity.srcTotals?.lav?.count||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.srcTotals?.rh?.count||0)+(recentActivity.srcTotals?.lav?.count||0)}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Room Type Breakdown */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>Room Type Breakdown</p>
+                      <button onClick={()=>{
+                        const rtRows = [["Room Type","Bookings","Days"]];
+                        ["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].forEach(rt=>{
+                          rtRows.push([rt, recentActivity.roomBuckets?.[rt]||0, recentActivity.roomDaysBuckets?.[rt]||0]);
+                        });
+                        rtRows.push(["Total", recentActivity.all?.length||0, recentActivity.totalDaysBooked||0]);
+                        copyTable(rtRows,"roomtype");
+                      }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="roomtype"?C.sage:C.border}`,background:copiedTable==="roomtype"?C.sage+"22":"transparent",color:copiedTable==="roomtype"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                        {copiedTable==="roomtype"?"✓ Copied":"Copy"}
+                      </button>
+                    </div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`1px solid ${C.border}44`}}>
+                          <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Bookings</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].map(rt=>(
+                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>{rt}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:(recentActivity.roomBuckets?.[rt]||0)>0?C.text:C.muted}}>{recentActivity.roomBuckets?.[rt]||0}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:(recentActivity.roomDaysBuckets?.[rt]||0)>0?C.muted:C.muted+"66"}}>{(recentActivity.roomDaysBuckets?.[rt]||0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {(recentActivity.roomBuckets?.Other||0) > 0 && (
+                          <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>Other</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>{recentActivity.roomBuckets.Other}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:C.muted}}>{(recentActivity.roomDaysBuckets?.Other||0).toLocaleString()}</td>
+                          </tr>
+                        )}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Move-in by Month & AWR Summary */}
+              {recentActivity.all.length > 0 && (
+                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
+                  {/* Move-in by Month */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Move-in by Month</p>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <tbody>
+                        {(recentActivity.moveInOrdered||[]).map(row=>(
+                          <tr key={row.month} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>{row.month}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:row.count>0?C.text:C.muted}}>{row.count}</td>
+                          </tr>
+                        ))}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* AWR Summary */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Closed Bookings — AWR Summary</p>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <tbody>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Avg Weekly Rent</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>£{recentActivity.awrSummary?.avg||0}</span><br/><span style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.avgNet||0} net</span></td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Min AWR</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.min||0}</span><br/><span style={{fontSize:9,color:C.muted+"99",fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.minNet||0} net</span></td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Max AWR</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.max||0}</span><br/><span style={{fontSize:9,color:C.muted+"99",fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.maxNet||0} net</span></td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Bookings with rate data</td>
+                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>{recentActivity.awrSummary?.count||0} / {recentActivity.all?.length||0}</td>
+                        </tr>
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total Contract Value</td>
+                          <td style={{padding:"6px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>£{(recentActivity.awrSummary?.totalContractValue||0).toLocaleString()}</span><br/><span style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{(recentActivity.awrSummary?.totalContractValueNet||0).toLocaleString()} net</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Lead Source Breakdown */}
+              {recentActivity.all.length > 0 && Object.keys(leadSources).length > 0 && (
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+                  {Object.entries(lsSummary).filter(([c])=>c!=="not_found"&&c!=="error").sort((a,b)=>b[1]-a[1]).map(([code,count])=>(
+                    <div key={code} style={{background:C.bg,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:9,background:(SOURCE_COLORS[code]||"#666")+"22",color:SOURCE_COLORS[code]||"#666",padding:"2px 7px",borderRadius:8,fontWeight:600}}>{SOURCE_LABELS[code]||code}</span>
+                      <span style={{fontFamily:"DM Mono,monospace",fontSize:13,fontWeight:700,color:C.text}}>{count}</span>
+                    </div>
+                  ))}
+                  {(lsSummary.not_found||0)>0&&(
+                    <div style={{background:C.bg,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:9,color:C.muted,fontWeight:600}}>Not found</span>
+                      <span style={{fontFamily:"DM Mono,monospace",fontSize:13,fontWeight:700,color:C.muted}}>{lsSummary.not_found}</span>
+                    </div>
+                  )}
+                  {lsLoading&&<span style={{fontSize:10,color:C.muted,alignSelf:"center"}}>Loading sources…</span>}
+                </div>
+              )}
+
+              {/* Breakdown table */}
+              {recentActivity.all.length > 0 && (
+                <div style={{overflowX:"auto"}}>
+                  {!investor && <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+                    <button onClick={()=>{
+                      const rows = [["Name","Source","Booking Ref","Created","Start","End","LoS (days)","Room","PCM (£)","AWR (£)","Status","Type"]];
+                      recentActivity.all.forEach(r=>{
+                        const srcCode = leadSources[r.name] || "not_found";
+                        rows.push([r.name||"—", SOURCE_LABELS[srcCode]||"—", r.bookingReference||"—", r.created, r.startDate, r.endDate, r.losDays, r.room, r.pcmGross||"—", r.weeklyRateGross||"—", r.status, r.activityType]);
+                      });
+                      copyTable(rows,"bookings");
+                    }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="bookings"?C.sage:C.border}`,background:copiedTable==="bookings"?C.sage+"22":"transparent",color:copiedTable==="bookings"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                      {copiedTable==="bookings"?"✓ Copied":"Copy All"}
+                    </button>
+                  </div>}
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        {["Name","Source","Booking Ref","Created","Start → End","LoS","Room","PCM","AWR","Status","Type"].map(h=>(
+                          <th key={h} style={{padding:"8px 10px",textAlign:h==="PCM"||h==="AWR"?"right":"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentActivity.all.map((r,i)=>{
+                        const statusColor = r.status==="CHECKED_IN"?C.sage:r.status==="CONFIRMED"?C.blue:C.gold;
+                        const typeColor = r.activityType==="Returning"?C.sage:C.blue;
+                        const srcCode = leadSources[r.name] || (lsLoading ? "loading" : "not_found");
+                        const srcColor = SOURCE_COLORS[srcCode] || "#666";
+                        const srcLabel = srcCode === "loading" ? "…" : (SOURCE_LABELS[srcCode] || "—");
+                        return (
+                          <tr key={r.roomStayId||i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"8px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{investor ? (r.activityType==="Returning" ? "Returning resident" : "New tenant") : (r.name||"—")}</td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:9,background:srcColor+"22",color:srcColor,padding:"2px 7px",borderRadius:8,fontWeight:600,whiteSpace:"nowrap"}}>{srcLabel}</span></td>
+                            <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",fontSize:11}}>
+                              {r.bookingId && !investor ?(
+                                <a href={`https://app.resharmonics.com/bookings/${r.bookingId}`} target="_blank" rel="noopener noreferrer" style={{color:C.gold,textDecoration:"none",borderBottom:`1px dashed ${C.gold}55`}}>{r.bookingReference}</a>
+                              ):(
+                                <span style={{color:C.muted}}>{investor ? "—" : (r.bookingReference||"—")}</span>
+                              )}
+                            </td>
+                            <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{r.created}</td>
+                            <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap",fontSize:11}}>{r.startDate} → {r.endDate}</td>
+                            <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace"}}>{r.losDays}d</td>
+                            <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap"}}>{r.room}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",color:r.pcmGross>0?C.gold:C.muted,fontFamily:"DM Mono,monospace",fontSize:11,fontWeight:700}}>{r.pcmGross>0?`£${r.pcmGross.toLocaleString()}`:"—"}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",color:r.weeklyRateGross>0?C.muted:C.muted+"66",fontFamily:"DM Mono,monospace",fontSize:11}}>{r.weeklyRateGross>0?`£${r.weeklyRateGross}`:"—"}</td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:statusColor+"22",color:statusColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.status}</span></td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:typeColor+"22",color:typeColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.activityType}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {recentActivity.all.length === 0 && (
+                <p style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>No qualifying bookings found in this date range.</p>
+              )}
+            </div>
+
             {/* ── ROOM AVAILABILITY (moved from Renewals) ── */}
             {/* ── Room Availability — only rooms with 60+ days empty (no upcoming booking) ── */}
             {(() => {
@@ -6136,280 +6412,6 @@ export default function Dashboard() {
               );
             })()}
 
-            {/* ── RECENT BOOKING ACTIVITY ── */}
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-                <div>
-                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Recent Booking Activity</p>
-                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>New bookings & renewals created in period</p>
-                </div>
-                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  {[
-                    {l:"Last 7d",k:"7d",fn:()=>{const d=new Date();d.setDate(d.getDate()-6);setActivityFrom(d.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("7d");}},
-                    {l:"Last 14d",k:"14d",fn:()=>{const d=new Date();d.setDate(d.getDate()-13);setActivityFrom(d.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("14d");}},
-                    {l:"This week",k:"week",fn:()=>{const d=new Date();const day=d.getDay();const diff=day===0?6:day-1;const mon=new Date(d);mon.setDate(mon.getDate()-diff);setActivityFrom(mon.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("week");}},
-                  ].map(o=>(
-                    <button key={o.k} onClick={o.fn} style={{padding:"4px 13px",borderRadius:20,border:`1px solid ${activityPreset===o.k?C.gold:C.border}`,background:activityPreset===o.k?C.gold+"22":"transparent",color:activityPreset===o.k?C.gold:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>{o.l}</button>
-                  ))}
-                  <CalendarPicker value={activityFrom} onChange={v=>{setActivityFrom(v);setActivityPreset(null);}} />
-                  <span style={{fontSize:11,color:C.muted}}>→</span>
-                  <CalendarPicker value={activityTo} onChange={v=>{setActivityTo(v);setActivityPreset(null);}} />
-                </div>
-              </div>
-
-              {/* KPI cards */}
-              <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-                <KPI label="New Bookings" value={recentActivity.stats.newCount} sub="First-time tenants" accent={C.blue} delta={mkDelta(recentActivity.stats.newCount, prevActivity?.stats?.newCount, {label:prevActivityWindow.label})} spark={history.last30(history.newBk)}/>
-                <KPI label="Returning" value={recentActivity.stats.renewalCount} sub="Returning residents" accent={C.sage} delta={mkDelta(recentActivity.stats.renewalCount, prevActivity?.stats?.renewalCount, {label:prevActivityWindow.label})}/>
-                <KPI label="Moved to Pending" value={recentActivity.stats.pendingCount} sub="Status: PENDING" accent={C.gold} delta={mkDelta(recentActivity.stats.pendingCount, prevActivity?.stats?.pendingCount, {label:prevActivityWindow.label})}/>
-                <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Returning" accent={C.text} delta={mkDelta(recentActivity.stats.totalActivity, prevActivity?.stats?.totalActivity, {label:prevActivityWindow.label})}/>
-              </div>
-
-              {/* LoS & Room Type breakdown */}
-              {recentActivity.all.length > 0 && (
-                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
-                  {/* LoS Breakdown */}
-                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                      <div>
-                        <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown</p>
-                        <p style={{fontSize:9,color:C.muted,marginTop:2}}>RH = long-stay · Lav = short-stay (Booking.com)</p>
-                      </div>
-                      <button onClick={()=>{
-                        const losRows = [["LoS Band","Res Harmonics","Lavanda","Total","Days"]];
-                        LOS_BANDS.forEach(b=>{
-                          const rh = recentActivity.losBySource?.rh?.[b.short]||0;
-                          const lav = recentActivity.losBySource?.lav?.[b.short]||0;
-                          losRows.push([`${b.label} (${b.note})`, rh, lav, rh+lav, recentActivity.losDaysBuckets?.[b.short]||0]);
-                        });
-                        losRows.push(["Total",
-                          recentActivity.srcTotals?.rh?.count||0,
-                          recentActivity.srcTotals?.lav?.count||0,
-                          (recentActivity.srcTotals?.rh?.count||0)+(recentActivity.srcTotals?.lav?.count||0),
-                          recentActivity.totalDaysBooked||0]);
-                        copyTable(losRows,"los");
-                      }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="los"?C.sage:C.border}`,background:copiedTable==="los"?C.sage+"22":"transparent",color:copiedTable==="los"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
-                        {copiedTable==="los"?"✓ Copied":"Copy"}
-                      </button>
-                    </div>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <thead>
-                        <tr style={{borderBottom:`1px solid ${C.border}44`}}>
-                          <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
-                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.sage,fontWeight:600}} title="Res Harmonics — long-stay">RH</th>
-                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.blue,fontWeight:600}} title="Lavanda — short-stay">Lav</th>
-                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Total</th>
-                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {LOS_BANDS.map(band=>{
-                          const k = band.short;
-                          const rh = recentActivity.losBySource?.rh?.[k] || 0;
-                          const lav = recentActivity.losBySource?.lav?.[k] || 0;
-                          const tot = rh + lav;
-                          return (
-                          <tr key={k} style={{borderBottom:`1px solid ${C.border}22`}}>
-                            <td style={{padding:"5px 8px",color:C.muted}}>
-                              {band.label}
-                              <span style={{fontSize:9,color:C.muted+"99",marginLeft:6}}>{band.note}</span>
-                            </td>
-                            <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,color:rh>0?C.sage:C.muted+"66"}}>{rh}</td>
-                            <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,color:lav>0?C.blue:C.muted+"66"}}>{lav}</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:tot>0?C.text:C.muted}}>{tot}</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:C.muted}}>{(recentActivity.losDaysBuckets?.[k]||0).toLocaleString()}</td>
-                          </tr>);
-                        })}
-                        <tr style={{borderTop:`1px solid ${C.border}`}}>
-                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total New Bookings</td>
-                          <td style={{padding:"6px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.sage}}>{recentActivity.srcTotals?.rh?.count||0}</td>
-                          <td style={{padding:"6px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.blue}}>{recentActivity.srcTotals?.lav?.count||0}</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.srcTotals?.rh?.count||0)+(recentActivity.srcTotals?.lav?.count||0)}</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  {/* Room Type Breakdown */}
-                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                      <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>Room Type Breakdown</p>
-                      <button onClick={()=>{
-                        const rtRows = [["Room Type","Bookings","Days"]];
-                        ["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].forEach(rt=>{
-                          rtRows.push([rt, recentActivity.roomBuckets?.[rt]||0, recentActivity.roomDaysBuckets?.[rt]||0]);
-                        });
-                        rtRows.push(["Total", recentActivity.all?.length||0, recentActivity.totalDaysBooked||0]);
-                        copyTable(rtRows,"roomtype");
-                      }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="roomtype"?C.sage:C.border}`,background:copiedTable==="roomtype"?C.sage+"22":"transparent",color:copiedTable==="roomtype"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
-                        {copiedTable==="roomtype"?"✓ Copied":"Copy"}
-                      </button>
-                    </div>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <thead>
-                        <tr style={{borderBottom:`1px solid ${C.border}44`}}>
-                          <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
-                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Bookings</th>
-                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].map(rt=>(
-                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}22`}}>
-                            <td style={{padding:"5px 8px",color:C.muted}}>{rt}</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:(recentActivity.roomBuckets?.[rt]||0)>0?C.text:C.muted}}>{recentActivity.roomBuckets?.[rt]||0}</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:(recentActivity.roomDaysBuckets?.[rt]||0)>0?C.muted:C.muted+"66"}}>{(recentActivity.roomDaysBuckets?.[rt]||0).toLocaleString()}</td>
-                          </tr>
-                        ))}
-                        {(recentActivity.roomBuckets?.Other||0) > 0 && (
-                          <tr style={{borderBottom:`1px solid ${C.border}22`}}>
-                            <td style={{padding:"5px 8px",color:C.muted}}>Other</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>{recentActivity.roomBuckets.Other}</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:C.muted}}>{(recentActivity.roomDaysBuckets?.Other||0).toLocaleString()}</td>
-                          </tr>
-                        )}
-                        <tr style={{borderTop:`1px solid ${C.border}`}}>
-                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Move-in by Month & AWR Summary */}
-              {recentActivity.all.length > 0 && (
-                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
-                  {/* Move-in by Month */}
-                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
-                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Move-in by Month</p>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <tbody>
-                        {(recentActivity.moveInOrdered||[]).map(row=>(
-                          <tr key={row.month} style={{borderBottom:`1px solid ${C.border}22`}}>
-                            <td style={{padding:"5px 8px",color:C.muted}}>{row.month}</td>
-                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:row.count>0?C.text:C.muted}}>{row.count}</td>
-                          </tr>
-                        ))}
-                        <tr style={{borderTop:`1px solid ${C.border}`}}>
-                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  {/* AWR Summary */}
-                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
-                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Closed Bookings — AWR Summary</p>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <tbody>
-                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
-                          <td style={{padding:"5px 8px",color:C.muted}}>Avg Weekly Rent</td>
-                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>£{recentActivity.awrSummary?.avg||0}</span><br/><span style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.avgNet||0} net</span></td>
-                        </tr>
-                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
-                          <td style={{padding:"5px 8px",color:C.muted}}>Min AWR</td>
-                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.min||0}</span><br/><span style={{fontSize:9,color:C.muted+"99",fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.minNet||0} net</span></td>
-                        </tr>
-                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
-                          <td style={{padding:"5px 8px",color:C.muted}}>Max AWR</td>
-                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.max||0}</span><br/><span style={{fontSize:9,color:C.muted+"99",fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.maxNet||0} net</span></td>
-                        </tr>
-                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
-                          <td style={{padding:"5px 8px",color:C.muted}}>Bookings with rate data</td>
-                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>{recentActivity.awrSummary?.count||0} / {recentActivity.all?.length||0}</td>
-                        </tr>
-                        <tr style={{borderTop:`1px solid ${C.border}`}}>
-                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total Contract Value</td>
-                          <td style={{padding:"6px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>£{(recentActivity.awrSummary?.totalContractValue||0).toLocaleString()}</span><br/><span style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{(recentActivity.awrSummary?.totalContractValueNet||0).toLocaleString()} net</span></td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Lead Source Breakdown */}
-              {recentActivity.all.length > 0 && Object.keys(leadSources).length > 0 && (
-                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
-                  {Object.entries(lsSummary).filter(([c])=>c!=="not_found"&&c!=="error").sort((a,b)=>b[1]-a[1]).map(([code,count])=>(
-                    <div key={code} style={{background:C.bg,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:9,background:(SOURCE_COLORS[code]||"#666")+"22",color:SOURCE_COLORS[code]||"#666",padding:"2px 7px",borderRadius:8,fontWeight:600}}>{SOURCE_LABELS[code]||code}</span>
-                      <span style={{fontFamily:"DM Mono,monospace",fontSize:13,fontWeight:700,color:C.text}}>{count}</span>
-                    </div>
-                  ))}
-                  {(lsSummary.not_found||0)>0&&(
-                    <div style={{background:C.bg,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:9,color:C.muted,fontWeight:600}}>Not found</span>
-                      <span style={{fontFamily:"DM Mono,monospace",fontSize:13,fontWeight:700,color:C.muted}}>{lsSummary.not_found}</span>
-                    </div>
-                  )}
-                  {lsLoading&&<span style={{fontSize:10,color:C.muted,alignSelf:"center"}}>Loading sources…</span>}
-                </div>
-              )}
-
-              {/* Breakdown table */}
-              {recentActivity.all.length > 0 && (
-                <div style={{overflowX:"auto"}}>
-                  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
-                    <button onClick={()=>{
-                      const rows = [["Name","Source","Booking Ref","Created","Start","End","LoS (days)","Room","PCM (£)","AWR (£)","Status","Type"]];
-                      recentActivity.all.forEach(r=>{
-                        const srcCode = leadSources[r.name] || "not_found";
-                        rows.push([r.name||"—", SOURCE_LABELS[srcCode]||"—", r.bookingReference||"—", r.created, r.startDate, r.endDate, r.losDays, r.room, r.pcmGross||"—", r.weeklyRateGross||"—", r.status, r.activityType]);
-                      });
-                      copyTable(rows,"bookings");
-                    }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="bookings"?C.sage:C.border}`,background:copiedTable==="bookings"?C.sage+"22":"transparent",color:copiedTable==="bookings"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
-                      {copiedTable==="bookings"?"✓ Copied":"Copy All"}
-                    </button>
-                  </div>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead>
-                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        {["Name","Source","Booking Ref","Created","Start → End","LoS","Room","PCM","AWR","Status","Type"].map(h=>(
-                          <th key={h} style={{padding:"8px 10px",textAlign:h==="PCM"||h==="AWR"?"right":"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recentActivity.all.map((r,i)=>{
-                        const statusColor = r.status==="CHECKED_IN"?C.sage:r.status==="CONFIRMED"?C.blue:C.gold;
-                        const typeColor = r.activityType==="Returning"?C.sage:C.blue;
-                        const srcCode = leadSources[r.name] || (lsLoading ? "loading" : "not_found");
-                        const srcColor = SOURCE_COLORS[srcCode] || "#666";
-                        const srcLabel = srcCode === "loading" ? "…" : (SOURCE_LABELS[srcCode] || "—");
-                        return (
-                          <tr key={r.roomStayId||i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                            <td style={{padding:"8px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{r.name||"—"}</td>
-                            <td style={{padding:"8px 10px"}}><span style={{fontSize:9,background:srcColor+"22",color:srcColor,padding:"2px 7px",borderRadius:8,fontWeight:600,whiteSpace:"nowrap"}}>{srcLabel}</span></td>
-                            <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",fontSize:11}}>
-                              {r.bookingId?(
-                                <a href={`https://app.resharmonics.com/bookings/${r.bookingId}`} target="_blank" rel="noopener noreferrer" style={{color:C.gold,textDecoration:"none",borderBottom:`1px dashed ${C.gold}55`}}>{r.bookingReference}</a>
-                              ):(
-                                <span style={{color:C.muted}}>{r.bookingReference||"—"}</span>
-                              )}
-                            </td>
-                            <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{r.created}</td>
-                            <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap",fontSize:11}}>{r.startDate} → {r.endDate}</td>
-                            <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace"}}>{r.losDays}d</td>
-                            <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap"}}>{r.room}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",color:r.pcmGross>0?C.gold:C.muted,fontFamily:"DM Mono,monospace",fontSize:11,fontWeight:700}}>{r.pcmGross>0?`£${r.pcmGross.toLocaleString()}`:"—"}</td>
-                            <td style={{padding:"8px 10px",textAlign:"right",color:r.weeklyRateGross>0?C.muted:C.muted+"66",fontFamily:"DM Mono,monospace",fontSize:11}}>{r.weeklyRateGross>0?`£${r.weeklyRateGross}`:"—"}</td>
-                            <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:statusColor+"22",color:statusColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.status}</span></td>
-                            <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:typeColor+"22",color:typeColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.activityType}</span></td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {recentActivity.all.length === 0 && (
-                <p style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>No qualifying bookings found in this date range.</p>
-              )}
-            </div>
 
             {!pmsConn&&(
               <div style={{background:C.card,border:`1px solid ${C.goldDim}`,borderRadius:14,padding:18,marginBottom:18}}>
