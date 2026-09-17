@@ -4249,6 +4249,16 @@ export default function Dashboard() {
             )}
 
             {/* ── Hero KPI row ── */}
+            {pmsLoad && !pmsConn && (
+              <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:16,margin:"16px 0 0",display:"flex",alignItems:"center",gap:12}}>
+                <span style={{width:14,height:14,border:`2px solid ${C.gold}`,borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"spin 0.9s linear infinite"}}/>
+                <div>
+                  <p style={{fontSize:13,fontWeight:700,color:C.text}}>Loading Res Harmonics…</p>
+                  <p style={{fontSize:11,color:C.muted,marginTop:2}}>Long-stay occupancy, revenue and rates appear once the full booking set is in (usually under a minute). Figures below are short-stay only until then.</p>
+                </div>
+                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+              </div>
+            )}
             {(() => {
               const lsOcc = pmsConn && pmsData ? pmsData.occupied : 0;
               const lsTotal = totalBedrooms;
