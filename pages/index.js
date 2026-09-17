@@ -2206,7 +2206,7 @@ export default function Dashboard() {
 
   // ─── LAST REFRESHED per source ───────────────────────────────────────────────
   const [lastRefreshed, setLastRefreshed] = useState({});
-  const stamp = useCallback((k) => setLastRefreshed(p => ({ ...p, [k]: Date.now() })), []);
+  const stamp = useCallback((k, at) => setLastRefreshed(p => ({ ...p, [k]: at || Date.now() })), []);
   const [nowTick, setNowTick] = useState(Date.now());
   useEffect(() => { const i = setInterval(() => setNowTick(Date.now()), 60 * 1000); return () => clearInterval(i); }, []);
   const STALE_MS = 60 * 60 * 1000;
@@ -3649,12 +3649,90 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Auto-connect PMS when cid+csec loaded from localStorage
+  // ── Server snapshot (fast path) ─────────────────────────────────────────
+  // /api/snapshot holds a Redis copy of the full RH dataset (bookings, stays,
+  // units, room-stay details). Applying it takes ~2s instead of 60–90s of
+  // per-browser API pulls. If it's older than SNAPSHOT_MAX_AGE_MIN we drive
+  // the incremental server builder in the background and re-apply when done.
+  const SNAPSHOT_MAX_AGE_MIN = 15;
+  const [snapState, setSnapState] = useState("pending"); // pending | applied | none
+  const [snapInfo, setSnapInfo] = useState(null);        // { builtAt, ageMin, refreshing, stage, progress }
+  const snapBusy = useRef(false);
+
+  const applySnapshot = useCallback((snap) => {
+    if (!snap?.ok || !Array.isArray(snap.bookings) || snap.bookings.length < 50 || (snap.guestStays || []).length < 50) return false;
+    const details = snap.details || {};
+    const bookings = snap.bookings.map(b => {
+      const d = b.roomStayId != null ? details[b.roomStayId] : null;
+      if (!d) return b;
+      return { ...b, _rateType: d.rateType, _trueRatePcm: d.truePcm, _originalRatePcm: d.originalRate, _rateName: d.rateName, _rateCode: d.rateCode };
+    });
+    const metrics = computePmsMetrics(snap.guestStays, bookings, snap.units || []);
+    [...(metrics.pendingRenewals || []), ...(metrics.confirmedRenewals || [])].forEach(r => {
+      const d = r.roomStayId != null ? details[r.roomStayId] : null;
+      if (!d) return;
+      r.conversionDate = d.conversionDate; r.confirmedDate = d.confirmedDate;
+      r.contractSignedDate = d.contractSignedDate; r.lastStatusChangeDate = d.lastStatusChangeDate;
+    });
+    setPmsData(metrics);
+    setRhAllBookings(bookings);
+    setRhAllUnits(snap.units || []);
+    setPmsConn(true); setPmsErr("");
+    const at = snap.builtAt ? new Date(snap.builtAt).getTime() : Date.now();
+    stamp("rh", at);
+    setSnapInfo(i => ({ ...(i || {}), builtAt: snap.builtAt, ageMin: Math.round((Date.now() - at) / 60000), refreshing: false }));
+    console.log(`Snapshot applied: ${bookings.length} bookings, built ${snap.builtAt}`);
+    return true;
+  }, [stamp]);
+
+  // Drive the server builder to completion (each call = one bounded step), then re-apply.
+  const refreshSnapshot = useCallback(async (reason) => {
+    if (snapBusy.current) return;
+    snapBusy.current = true;
+    setSnapInfo(i => ({ ...(i || {}), refreshing: true, stage: "starting", reason }));
+    try {
+      for (let step = 0; step < 60; step++) {
+        const r = await fetch("/api/snapshot?action=build", { method: "POST" });
+        const j = await r.json();
+        setSnapInfo(i => ({ ...(i || {}), refreshing: true, stage: j.stage, progress: j.progress }));
+        if (j.done) break;
+        if (j.stage === "error") { console.warn("Snapshot build error:", j.error); break; }
+        if (j.stage === "locked") await new Promise(res => setTimeout(res, 4000));
+      }
+      const snap = await (await fetch("/api/snapshot")).json();
+      applySnapshot(snap);
+    } catch (e) { console.warn("Snapshot refresh failed:", e.message); }
+    finally { snapBusy.current = false; setSnapInfo(i => ({ ...(i || {}), refreshing: false, stage: null })); }
+  }, [applySnapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setPmsLoad(true);
+        const snap = await (await fetch("/api/snapshot")).json();
+        if (cancelled) return;
+        if (applySnapshot(snap)) {
+          setSnapState("applied");
+          const ageMin = Math.round((Date.now() - new Date(snap.builtAt).getTime()) / 60000);
+          if (ageMin >= SNAPSHOT_MAX_AGE_MIN) refreshSnapshot(`snapshot ${ageMin} min old`);
+        } else {
+          setSnapState("none");
+          // No snapshot yet: seed it in the background so the next visitor is fast.
+          refreshSnapshot("no snapshot");
+        }
+      } catch (e) { if (!cancelled) setSnapState("none"); }
+      finally { if (!cancelled) setPmsLoad(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Auto-connect PMS directly (slow path) only when no snapshot could be applied
   useEffect(()=>{
-    if (cid && csec && !pmsConn) {
+    if (cid && csec && !pmsConn && snapState === "none") {
       connectPMS();
     }
-  }, [cid, csec]);
+  }, [cid, csec, snapState]);
 
   // Silent background refresh — re-fetches PMS data without showing loading spinner
   const silentPmsRefresh = useCallback(async()=>{
@@ -3695,12 +3773,14 @@ export default function Dashboard() {
     }catch(e){ console.log("PMS silent refresh error:", e.message); }
   },[cid,csec]);
 
-  // Auto-refresh PMS data every 5 minutes so new bookings appear live
+  // Auto-refresh PMS data every 5 minutes so new bookings appear live.
+  // Snapshot path: nudge the server builder (cheap for the browser) and re-apply.
   useEffect(()=>{
-    if (!pmsConn || !cid || !csec) return;
-    const interval = setInterval(silentPmsRefresh, 5 * 60 * 1000);
+    if (!pmsConn) return;
+    const tick = () => { if (snapState === "applied") refreshSnapshot("periodic"); else if (cid && csec) silentPmsRefresh(); };
+    const interval = setInterval(tick, 5 * 60 * 1000);
     return ()=> clearInterval(interval);
-  }, [pmsConn, cid, csec, silentPmsRefresh]);
+  }, [pmsConn, cid, csec, silentPmsRefresh, snapState, refreshSnapshot]);
 
   // Auto-refresh GA4 analytics every 5 minutes
   useEffect(()=>{
@@ -4014,6 +4094,7 @@ export default function Dashboard() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
         <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
           /* Phone layout (≤640px). Styles are inline throughout, so these use attribute selectors + !important. */
           @media (max-width: 640px) {
             [style*="padding: 22px 26px"] { padding: 14px 12px !important; }
@@ -4068,6 +4149,13 @@ export default function Dashboard() {
                 </span>
               );
             })}
+            {snapInfo?.refreshing && (
+              <span title={`Refreshing the Res Harmonics snapshot on the server (${snapInfo.stage || "…"}${snapInfo.progress ? " · " + snapInfo.progress : ""}). Current figures stay on screen until the new data is in.`}
+                style={{fontSize:10,color:C.muted,display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px"}}>
+                <span style={{width:9,height:9,border:`2px solid ${C.sage}`,borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"spin 0.9s linear infinite"}}/>
+                updating RH{snapInfo.stage ? ` · ${snapInfo.stage}` : ""}
+              </span>
+            )}
             <button onClick={()=>{ setInvestor(!investor); if(!investor && tab==="forecast") setTab("summary"); }}
               title={investor ? "Investor view: facts only — internal tools, advice and forecasts hidden. Click for team view." : "Team view: all tools visible. Click for investor view (facts only)."}
               style={{marginLeft:8,padding:"3px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",border:`1px solid ${investor?C.gold:C.border}`,background:investor?C.gold+"22":"transparent",color:investor?C.gold:C.muted,display:"inline-flex",alignItems:"center",gap:6}}>
