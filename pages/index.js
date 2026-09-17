@@ -1794,7 +1794,7 @@ const Spark = ({ data, color = C.gold, width = 96, height = 26 }) => {
 // KPI card — now carries an optional period delta chip and a 30-day sparkline.
 // Cards without prior-period data render exactly as before.
 const KPI = ({label,value,sub,accent=C.gold,badge,delta,spark,sparkColor}) => (
-  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",borderTop:`2px solid ${accent}`,flex:"1 1 140px",minWidth:0,position:"relative"}}>
+  <div className="kpi" style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",borderTop:`2px solid ${accent}`,flex:"1 1 140px",minWidth:0,position:"relative"}}>
     {badge&&<span style={{position:"absolute",top:10,right:12,fontSize:10,color:accent,background:accent+"22",padding:"2px 8px",borderRadius:20}}>{badge}</span>}
     <p style={{color:C.muted,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>{label}</p>
     <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:10}}>
@@ -3581,7 +3581,7 @@ export default function Dashboard() {
     const now = new Date(); const elapsed = now.getDate() / new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
     const mS = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
     const revMtd = history.sum(history.revGross, mS, F.today) + history.sum(history.ssRev, mS, F.today);
-    if (pacingTargets.revenue > 0 && revMtd < pacingTargets.revenue * elapsed * 0.85) items.push({ sev: 1, kind: "Pacing", title: `Revenue behind pace — ${fmt(revMtd)} MTD vs ${fmt(Math.round(pacingTargets.revenue*elapsed))} expected by today`, detail: `Projecting ${fmt(Math.round(revMtd/Math.max(elapsed,0.01)))} for the month against ${fmt(pacingTargets.revenue)}.`, tab: "summary" });
+    if (pmsConn && pacingTargets.revenue > 0 && revMtd < pacingTargets.revenue * elapsed * 0.85) items.push({ sev: 1, kind: "Pacing", title: `Revenue behind pace — ${fmt(revMtd)} MTD vs ${fmt(Math.round(pacingTargets.revenue*elapsed))} expected by today`, detail: `Projecting ${fmt(Math.round(revMtd/Math.max(elapsed,0.01)))} for the month against ${fmt(pacingTargets.revenue)}.`, tab: "summary" });
     // 8. Empty sellable stock (info)
     if (F.sellableRooms > 0) items.push({ sev: 0, kind: "Stock", title: `${F.sellableRooms} room${F.sellableRooms!==1?"s":""} empty and sellable right now`, detail: `${F.emptyRooms} empty in total, ${F.heldEmpty} of them held offline.`, tab: "bookings" });
     return items.sort((a,b) => b.sev - a.sev);
@@ -4001,7 +4001,7 @@ export default function Dashboard() {
   useEffect(()=>{ if(sdGhlConn) runSDGHL(from,to); },[from,to]);
 
   const tabBtn=(t,label,dot)=>(
-    <button onClick={()=>setTab(t)} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,background:tab===t?C.gold:"transparent",color:tab===t?"#000":C.muted,whiteSpace:"nowrap"}}>
+    <button onClick={()=>setTab(t)} className="tabbtn" style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,background:tab===t?C.gold:"transparent",color:tab===t?"#000":C.muted,whiteSpace:"nowrap"}}>
       {dot&&<span style={{width:6,height:6,borderRadius:"50%",background:dot,flexShrink:0}}/>}
       {label}
     </button>
@@ -4013,6 +4013,22 @@ export default function Dashboard() {
         <title>The Residential Dashboard</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+        <style>{`
+          /* Phone layout (≤640px). Styles are inline throughout, so these use attribute selectors + !important. */
+          @media (max-width: 640px) {
+            [style*="padding: 22px 26px"] { padding: 14px 12px !important; }
+            [style*="padding: 13px 26px"], [style*="padding: 9px 26px"], [style*="padding: 10px 26px 0"] { padding-left: 12px !important; padding-right: 12px !important; }
+            [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+            .kpi { flex: 1 1 100% !important; }
+            .hdr-sub, .hdr-stamp { display: none !important; }
+            .hdr-pill { padding: 2px 7px !important; font-size: 10px !important; }
+            .tabbtn { padding: 8px 12px !important; font-size: 11px !important; }
+            table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+            .recharts-wrapper, .recharts-responsive-container { max-width: 100% !important; }
+            h2 { font-size: 18px !important; }
+            [style*="font-size: 36px"] { font-size: 28px !important; }
+          }
+        `}</style>
       </Head>
       <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:"'DM Sans',system-ui,sans-serif"}}>
 
@@ -4024,7 +4040,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p style={{fontSize:"0.95rem",color:C.text,margin:"4px 0 0 0"}}>&Soul · Performance Dashboard</p>
-              <p style={{fontSize:11,color:C.muted}}>Performance dashboard</p>
+              <p className="hdr-sub" style={{fontSize:11,color:C.muted}}>Performance dashboard</p>
             </div>
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -4044,10 +4060,10 @@ export default function Dashboard() {
                         : stale ? `${src.name} last refreshed ${f.label} — ${f.ageMin} min ago. Data may be out of date.`
                         : `${src.name} refreshed ${f.label}`;
               return (
-                <span key={src.k} title={tip}
+                <span key={src.k} title={tip} className="hdr-pill"
                   style={{background:bg,color:col,padding:"3px 10px",borderRadius:20,fontSize:11,display:"inline-flex",alignItems:"center",gap:5,cursor:"default"}}>
                   {src.on ? (stale ? "⚠" : "●") : "○"} {src.on ? src.name : src.off}
-                  {src.on && f.t && <span style={{fontSize:9,opacity:0.8,fontFamily:"'DM Mono',monospace"}}>{f.label}</span>}
+                  {src.on && f.t && <span className="hdr-stamp" style={{fontSize:9,opacity:0.8,fontFamily:"'DM Mono',monospace"}}>{f.label}</span>}
                   {stale && <span style={{fontSize:9,fontWeight:700}}>STALE</span>}
                 </span>
               );
@@ -4156,7 +4172,9 @@ export default function Dashboard() {
                   <button onClick={()=>{ try { navigator.clipboard.writeText((narrativeAI||narrativeLocal).join("\n\n")); } catch {} }} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Copy</button>
                 </div>
               </div>
-              {(narrativeAI || narrativeLocal).map((p,i) => (
+              {!pmsConn ? (
+                <p style={{fontSize:13,color:C.muted,lineHeight:1.6}}>{pmsLoad ? "Waiting for Res Harmonics to finish loading — the summary is written once the long-stay data is in, so it never quotes partial figures." : "Res Harmonics is not connected, so the weekly summary can't be written from complete data."}</p>
+              ) : (narrativeAI || narrativeLocal).map((p,i) => (
                 <p key={i} style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:i<2?10:0}}>{p}</p>
               ))}
             </div>
@@ -4381,6 +4399,12 @@ export default function Dashboard() {
                   const bkMtd  = history.sum(history.newBk, mStart, history.today) + history.sum(history.ssBooked, mStart, history.today);
                   const adrMtd = history.ratio(history.ssRev, history.ssOcc, mStart, history.today);
                   const occTargetRooms = Math.ceil(usable * (T.occPct / 100));
+                  if (!pmsConn) return (
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Pacing — {mLabel}</h3>
+                      <p style={{fontSize:12,color:C.muted,marginTop:4}}>{pmsLoad ? "Waiting for Res Harmonics to finish loading before showing month-to-date figures." : "Res Harmonics is not connected — pacing needs the long-stay data."}</p>
+                    </div>
+                  );
                   const rows = [
                     { key:"rev", label:"Revenue", actual:revMtd, target:T.revenue, fmtV:v=>fmt(v), color:C.gold, kind:"cumulative" },
                     { key:"bk",  label:"New bookings", actual:bkMtd, target:T.bookings, fmtV:v=>Math.round(v).toString(), color:C.blue, kind:"cumulative" },
@@ -4460,7 +4484,7 @@ export default function Dashboard() {
                         {w: Math.max(0, vacancy-ssBlocked)/usable*100, bg: C.bg, label: `${Math.max(0,vacancy-ssBlocked)} open`, min: 10},
                       ];
                       return segs.map((s,i) => (
-                        <div key={i} style={{width:`${s.w}%`,background:s.bg,display:"flex",alignItems:"center",justifyContent:"center",transition:"width 0.4s"}} title={s.label}>
+                        <div key={i} style={{width:`${s.w}%`,background:s.bg,display:"flex",alignItems:"center",justifyContent:"center",transition:"width 0.4s",overflow:"hidden",whiteSpace:"nowrap"}} title={s.label}>
                           {s.w > s.min && <span style={{fontSize:10,color:i<2?"#fff":C.text,fontWeight:600}}>{s.label}</span>}
                         </div>
                       ));
@@ -4659,7 +4683,7 @@ export default function Dashboard() {
                             const isHouse = b.start < todayStr && b.end > todayStr;
                             return (
                               <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                                <td style={{padding:"6px 10px",color:C.text,fontWeight:500}}>{b.guest}</td>
+                                <td style={{padding:"6px 10px",color:C.text,fontWeight:500}}>{investor ? "Guest" : b.guest}</td>
                                 <td style={{padding:"6px 10px",color:C.text,fontSize:11}}>{new Date(b.start+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
                                 <td style={{padding:"6px 10px",color:C.text,fontSize:11}}>{new Date(b.end+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
                                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace"}}>{b.nights}</td>
@@ -7379,7 +7403,7 @@ export default function Dashboard() {
                 const todayStr = new Date().toISOString().slice(0,10);
                 const maxUnits = lavandaData.kpis.units;
                 return (
-                  <div style={{overflowX:"auto"}}>
+                  <div style={{overflowX:"auto"}} ref={el => { if (!el || el.dataset.scrolled) return; const ti = days.findIndex(d => d.date === todayStr); if (ti > 0) { el.scrollLeft = Math.max(0, ti * 12 - el.clientWidth * 0.6); el.dataset.scrolled = "1"; } }}>
                     <div style={{display:"flex",gap:1,alignItems:"flex-end",minWidth:days.length*12,height:160}}>
                       {days.map((d,i) => {
                         const bookedH = (d.booked/maxUnits)*140;
