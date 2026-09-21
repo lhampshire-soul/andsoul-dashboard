@@ -2126,6 +2126,340 @@ const PerformanceInsights = ({ analytics, propertyLabel, hideAdvice = false }) =
 };
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
+// ─── REPUTATION ────────────────────────────────────────────────────────────
+// TrustYou-style reputation view built only from connected sources. Category
+// sentiment is keyword-based (v1) over the review text we hold — labelled as
+// such in the UI. Nothing is estimated when a source is not connected.
+const REP_CATEGORIES = [
+  { key: "staff",       label: "Staff & Service",     re: /\b(staff|reception|team|yasm[ie]n|tamika|security|helpful|welcoming|professional|management|manager|front of house)\b/i },
+  { key: "cleanliness", label: "Cleanliness",         re: /\b(clean|dirty|filthy|hygien|black marks|dust|murky|razor)\w*/i },
+  { key: "room",        label: "Room & Comfort",      re: /\b(room|bed|tiny|spacious|comfort|comfy|studio)\w*/i },
+  { key: "climate",     label: "Air Con & Ventilation", re: /\b(air ?con|ac\b|ventilat|vents?|breathe|air quality|hot|heatwave|degrees|windows? (don't|do not|can't|sealed)|temperature|cold)\w*/i },
+  { key: "maintenance", label: "Maintenance & Lifts", re: /\b(lift|lifts|broken|maintenance|repair|electric|tripping|leak|oven|gate|malfunction)\w*/i },
+  { key: "facilities",  label: "Facilities & Wellness", re: /\b(sauna|cold plunge|gym|spa|pilates|yoga|trx|co-?working|studio|terrace|garden|pool|meditation|podcast|laundry|kitchen|facilit)\w*/i },
+  { key: "community",   label: "Community & Events",  re: /\b(community|friends|connections|events|dinner|vibe|atmosphere|social|welcome)\w*/i },
+  { key: "location",    label: "Location & Transport", re: /\b(location|heathrow|airport|transport|shuttle|links|local area|view)\w*/i },
+  { key: "value",       label: "Value & Price",       re: /\b(price|pricing|value|expensive|cheap|fees?|exchange rate|£\d+)\w*/i },
+  { key: "deposit",     label: "Deposit & Contract",  re: /\b(deposit|contract|licen[cs]e|refund|withh[eo]ld|cancel)\w*/i },
+  { key: "pests",       label: "Pests",               re: /\b(rat|rats|rodent|pest|infestation|droppings)\b/i },
+  { key: "food",        label: "Food & Breakfast",    re: /\b(breakfast|food|meal|toast|cafe|bar|fridge)\w*/i },
+];
+const REP_WINDOWS = [
+  { key: "7d",  label: "Last 7 days",  days: 7 },
+  { key: "30d", label: "Last 30 days", days: 30 },
+  { key: "3m",  label: "Previous 3 months", days: 92 },
+  { key: "6m",  label: "Previous 6 months", days: 183 },
+  { key: "12m", label: "Previous 12 months", days: 365 },
+];
+const repPct = (rating, scale) => rating != null && scale ? Math.round((rating / scale) * 100) : null;
+const repCol = (p) => p == null ? C.muted : p >= 80 ? C.sage : p >= 60 ? C.gold : C.rose;
+const SRC_META = {
+  trustpilot: { color: "#00b67a", glyph: "★" },
+  google:     { color: "#4285f4", glyph: "G" },
+  booking:    { color: "#003580", glyph: "B" },
+  airbnb:     { color: "#ff5a5f", glyph: "A" },
+  tripadvisor:{ color: "#34e0a1", glyph: "T" },
+};
+
+function computeReputation(data, windowKey) {
+  const sources = (data?.sources || []);
+  const connected = sources.filter(s => s.connected && s.rating != null);
+  const win = REP_WINDOWS.find(w => w.key === windowKey) || REP_WINDOWS[4];
+  const now = new Date(); const from = new Date(now.getTime() - win.days * 864e5);
+  const prevFrom = new Date(from.getTime() - win.days * 864e5);
+  const iso = d => d.toISOString().slice(0, 10);
+  const allReviews = connected.flatMap(s => (s.reviews || []).map(r => ({ ...r, source: s.key, sourceName: s.name, scale: s.scale || 5 })));
+  const inWin = allReviews.filter(r => r.date >= iso(from) && r.date <= iso(now));
+  const inPrev = allReviews.filter(r => r.date >= iso(prevFrom) && r.date < iso(from));
+
+  // Overall score: count-weighted average of each source's lifetime rating, on /100
+  const wSum = connected.reduce((a, s) => a + (s.count || 0), 0);
+  const overall = wSum ? Math.round(connected.reduce((a, s) => a + repPct(s.rating, s.scale) * (s.count || 0), 0) / wSum) : null;
+  // Performance in window: average star of reviews in window (/100) vs previous window
+  const avg = (list) => list.length ? list.reduce((a, r) => a + (r.rating / r.scale) * 100, 0) / list.length : null;
+  const perf = avg(inWin), perfPrev = avg(inPrev);
+
+  // Categories over the window
+  const cats = REP_CATEGORIES.map(c => {
+    const hits = inWin.filter(r => c.re.test(`${r.title || ""} ${r.text || ""}`));
+    const prevHits = inPrev.filter(r => c.re.test(`${r.title || ""} ${r.text || ""}`));
+    const pos = hits.filter(r => r.rating / r.scale >= 0.8).length, neg = hits.filter(r => r.rating / r.scale <= 0.4).length;
+    const score = hits.length ? Math.round(hits.reduce((a, r) => a + (r.rating / r.scale) * 10, 0) / hits.length * 10) / 10 : null;
+    const prevScore = prevHits.length ? prevHits.reduce((a, r) => a + (r.rating / r.scale) * 10, 0) / prevHits.length : null;
+    return { ...c, mentions: hits.length, pos, neg, neu: hits.length - pos - neg, score, trend: score != null && prevScore != null ? score - prevScore : null };
+  }).filter(c => c.mentions > 0).sort((a, b) => b.mentions - a.mentions);
+  const rated = cats.filter(c => c.mentions >= 2);
+  const best = rated.length ? [...rated].sort((a, b) => b.score - a.score)[0] : null;
+  const worst = rated.length ? [...rated].sort((a, b) => a.score - b.score)[0] : null;
+
+  // Volume + responses in window
+  const bySource = {};
+  inWin.forEach(r => { bySource[r.sourceName] = (bySource[r.sourceName] || 0) + 1; });
+  const topSource = Object.entries(bySource).sort((a, b) => b[1] - a[1])[0] || null;
+  const replied = inWin.filter(r => r.replied).length;
+  const negWin = inWin.filter(r => r.rating / r.scale <= 0.4);
+  const negReplied = negWin.filter(r => r.replied).length;
+
+  // Comparison: our Trustpilot vs named peers (public Trustpilot figures)
+  const tp = connected.find(s => s.key === "trustpilot");
+  const peers = tp?.competitors || [];
+  const peerAvg = peers.length ? peers.reduce((a, p) => a + p.rating, 0) / peers.length : null;
+  const compIndex = tp && peerAvg ? Math.round((tp.rating / peerAvg) * 100) / 100 : null;
+
+  return { win, connected, overall, perf: perf != null ? Math.round(perf) : null, perfPrev: perfPrev != null ? Math.round(perfPrev) : null,
+           cats, best, worst, inWin, inPrev, topSource, replied, negWin: negWin.length, negReplied, peers, peerAvg, compIndex, tp, allReviews };
+}
+
+const ScoreRing = ({ pct, size = 92, color, label }) => {
+  const r = 40, c = 2 * Math.PI * r, d = pct == null ? 0 : (pct / 100) * c;
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r={r} fill="none" stroke={C.border} strokeWidth="9"/>
+      <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="9" strokeDasharray={`${d} ${c}`} strokeDashoffset={c * 0.25} strokeLinecap="round"/>
+      <text x="50" y="48" textAnchor="middle" fill={C.text} fontSize="24" fontWeight="800" fontFamily="DM Mono,monospace">{pct == null ? "—" : pct}</text>
+      {label && <text x="50" y="64" textAnchor="middle" fill={C.muted} fontSize="8">{label}</text>}
+    </svg>
+  );
+};
+
+const RepCard = ({ title, children, right, style }) => (
+  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, ...style }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 8 }}>
+      <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{title}</p>
+      {right}
+    </div>
+    {children}
+  </div>
+);
+
+function ReputationTab({ data, loading, propertyName, investor }) {
+  const [win, setWin] = useState("12m");
+  const [expanded, setExpanded] = useState(null);
+  const [filterCat, setFilterCat] = useState(null);
+  const R = useMemo(() => computeReputation(data, win), [data, win]);
+  const sources = data?.sources || [];
+  const notConnected = sources.filter(s => !s.connected);
+  const overallCol = repCol(R.overall);
+  const label = (p) => p == null ? "No data" : p >= 90 ? "Excellent" : p >= 80 ? "Very good" : p >= 70 ? "Good" : p >= 60 ? "Fair" : "Poor";
+  const sentBar = (c) => {
+    const tot = c.mentions || 1;
+    return (
+      <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", width: 90, background: C.border }} title={`${c.pos} positive · ${c.neu} neutral · ${c.neg} negative`}>
+        <div style={{ width: `${c.pos / tot * 100}%`, background: C.sage }}/>
+        <div style={{ width: `${c.neu / tot * 100}%`, background: C.gold }}/>
+        <div style={{ width: `${c.neg / tot * 100}%`, background: C.rose }}/>
+      </div>
+    );
+  };
+  const reviewsShown = (filterCat ? R.inWin.filter(r => REP_CATEGORIES.find(c => c.key === filterCat).re.test(`${r.title || ""} ${r.text || ""}`)) : R.inWin)
+    .slice().sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <div style={{ padding: "22px 26px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+        <div>
+          <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>{propertyName} · Guest reviews across platforms{loading ? " · loading…" : ""}</p>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: "4px 0 0" }}>Reputation</h2>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 4 }}>Timeframe</span>
+          {REP_WINDOWS.map(w => (
+            <button key={w.key} onClick={() => setWin(w.key)} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${win === w.key ? C.gold : C.border}`, background: win === w.key ? C.gold + "22" : "transparent", color: win === w.key ? C.gold : C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{w.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {!R.connected.length && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, marginBottom: 16 }}>
+          <p style={{ fontSize: 13, color: C.text, fontWeight: 700 }}>No review platform is connected for {propertyName} yet.</p>
+          <p style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Scores appear here only from live or collected platform data — nothing is estimated.</p>
+        </div>
+      )}
+
+      {/* Row 1: Overall · Performance · Comparison · Sentiment */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12, marginBottom: 12 }}>
+        <RepCard title="Overall score" right={<span style={{ fontSize: 9, color: C.muted }}>lifetime · all connected sources</span>}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ width: 64, height: 64, borderRadius: 12, background: overallCol + "22", border: `1px solid ${overallCol}55`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: 28, fontWeight: 800, color: overallCol, fontFamily: "DM Mono,monospace" }}>{R.overall ?? "—"}</span>
+            </div>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{label(R.overall)}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{R.connected.length ? `${R.connected.map(s => s.name).join(" + ")} · ${R.connected.reduce((a, s) => a + (s.count || 0), 0)} reviews` : "no connected sources"}</p>
+              <p style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Count-weighted average of each platform's rating, on a 0–100 scale</p>
+            </div>
+          </div>
+        </RepCard>
+        <RepCard title="Performance" right={<span style={{ fontSize: 9, color: C.muted }}>{R.win.label.toLowerCase()}</span>}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <ScoreRing pct={R.perf} color={repCol(R.perf)} label="/100"/>
+            <div>
+              <p style={{ fontSize: 12, color: C.text }}>{R.inWin.length} review{R.inWin.length === 1 ? "" : "s"} in period</p>
+              {R.perfPrev != null && R.perf != null && (
+                <p style={{ fontSize: 11, color: R.perf >= R.perfPrev ? C.sage : C.rose, marginTop: 4 }}>{R.perf >= R.perfPrev ? "↑" : "↓"} {Math.abs(R.perf - R.perfPrev)} pts vs previous {R.win.days}d ({R.perfPrev})</p>
+              )}
+              {R.worst && <p style={{ fontSize: 10, color: C.rose, marginTop: 6 }}>↓ {R.worst.score} {R.worst.label} · {R.worst.neg} complaint{R.worst.neg === 1 ? "" : "s"}</p>}
+              {R.best && <p style={{ fontSize: 10, color: C.sage, marginTop: 2 }}>↑ {R.best.score} {R.best.label} · {R.best.pos} compliment{R.best.pos === 1 ? "" : "s"}</p>}
+            </div>
+          </div>
+        </RepCard>
+        <RepCard title="Comparison" right={<span style={{ fontSize: 9, color: C.muted }}>Trustpilot peers</span>}>
+          {R.compIndex != null ? (
+            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 800, color: R.compIndex >= 1 ? C.sage : C.rose, fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{R.compIndex.toFixed(2)}</p>
+                <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>CompIndex</p>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {[{ n: propertyName, v: R.tp.rating, c: C.gold }, { n: "Peer average", v: R.peerAvg, c: C.muted }].map(x => (
+                  <div key={x.n} style={{ marginBottom: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted }}><span>{x.n}</span><span style={{ color: x.c, fontFamily: "DM Mono,monospace" }}>{repPct(x.v, 5)}/100</span></div>
+                    <div style={{ height: 5, background: C.border, borderRadius: 3, marginTop: 3 }}><div style={{ width: `${repPct(x.v, 5)}%`, height: "100%", background: x.c, borderRadius: 3 }}/></div>
+                  </div>
+                ))}
+                <p style={{ fontSize: 9, color: C.muted }} title={R.peers.map(p => `${p.name} ${p.rating} (${p.count})`).join(" · ")}>{R.peers.map(p => p.name).join(", ")}</p>
+              </div>
+            </div>
+          ) : <p style={{ fontSize: 12, color: C.muted }}>Needs a connected Trustpilot profile.</p>}
+        </RepCard>
+        <RepCard title="Sentiment" right={<span style={{ fontSize: 9, color: C.muted }}>keyword-based · {R.win.label.toLowerCase()}</span>}>
+          {R.best || R.worst ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <p style={{ fontSize: 10, color: C.muted, marginBottom: 4 }}>Best rated</p>
+                {R.best ? <><span style={{ fontSize: 11, background: C.sage + "22", color: C.sage, padding: "3px 8px", borderRadius: 8, fontWeight: 600 }}>{R.best.label}</span><p style={{ fontSize: 10, color: C.muted, marginTop: 6 }}><b style={{ color: C.sage }}>{R.best.mentions}</b> mentions · {R.best.score}/10</p></> : <p style={{ fontSize: 11, color: C.muted }}>—</p>}
+              </div>
+              <div>
+                <p style={{ fontSize: 10, color: C.muted, marginBottom: 4 }}>Worst rated</p>
+                {R.worst ? <><span style={{ fontSize: 11, background: C.rose + "22", color: C.rose, padding: "3px 8px", borderRadius: 8, fontWeight: 600 }}>{R.worst.label}</span><p style={{ fontSize: 10, color: C.muted, marginTop: 6 }}><b style={{ color: C.rose }}>{R.worst.mentions}</b> mentions · {R.worst.score}/10</p></> : <p style={{ fontSize: 11, color: C.muted }}>—</p>}
+              </div>
+            </div>
+          ) : <p style={{ fontSize: 12, color: C.muted }}>Not enough reviews in this period.</p>}
+        </RepCard>
+      </div>
+
+      {/* Row 2: Sources overview · Volume · Responses */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 12 }}>
+        <RepCard title="Sources overview" right={<span style={{ fontSize: 9, color: C.muted }}>{R.connected.length} of {sources.length} connected</span>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {sources.map(s => {
+              const m = SRC_META[s.key] || { color: C.muted, glyph: "•" };
+              const p = s.connected ? repPct(s.rating, s.scale) : null;
+              return (
+                <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 10, opacity: s.connected ? 1 : 0.7 }}>
+                  <span style={{ width: 26, height: 26, borderRadius: 7, background: m.color + "33", color: m.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{m.glyph}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{s.name}{s.url && s.connected && <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 9, color: C.muted, marginLeft: 6, textDecoration: "none" }}>open ↗</a>}</span>
+                      {s.connected
+                        ? <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", color: repCol(p), fontWeight: 700 }}>{p}<span style={{ color: C.muted, fontWeight: 400 }}>/100</span> <span style={{ fontSize: 10, color: C.muted }}>· {s.rating}/{s.scale} · {s.count}</span></span>
+                        : <span style={{ fontSize: 10, color: C.muted }}>○ not connected</span>}
+                    </div>
+                    <p style={{ fontSize: 9, color: C.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={s.connected ? `${s.method || ""} · fetched ${s.fetchedAt || ""}${s.scope ? " · " + s.scope : ""}` : s.needs}>
+                      {s.connected ? `${s.scope || s.method || ""}${s.fetchedAt ? " · " + new Date(s.fetchedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}` : (investor ? "Awaiting connection" : `Needs: ${s.needs}`)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </RepCard>
+        <RepCard title="Volume" right={<span style={{ fontSize: 9, color: C.muted }}>{R.win.label.toLowerCase()}</span>}>
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+            <div>
+              <p style={{ fontSize: 30, fontWeight: 800, color: C.text, fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{R.inWin.length}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>reviews</p>
+              {R.inPrev.length > 0 && <p style={{ fontSize: 10, color: R.inWin.length >= R.inPrev.length ? C.sage : C.rose, marginTop: 2 }}>{R.inWin.length >= R.inPrev.length ? "↑" : "↓"} vs {R.inPrev.length} previous period</p>}
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 10, color: C.muted }}>Highest volume</p>
+              <p style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{R.topSource ? `${R.topSource[0]} · ${R.topSource[1]}` : "—"}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 8 }}>Rating mix in period</p>
+              <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                {[5, 4, 3, 2, 1].map(st => { const n = R.inWin.filter(r => Math.round(r.rating / r.scale * 5) === st).length; return <span key={st} style={{ fontSize: 10, color: n ? C.text : C.muted, fontFamily: "DM Mono,monospace" }}>{st}★ {n}</span>; })}
+              </div>
+            </div>
+          </div>
+        </RepCard>
+        <RepCard title="Responses" right={<span style={{ fontSize: 9, color: C.muted }}>{R.win.label.toLowerCase()}</span>}>
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+            <div>
+              <p style={{ fontSize: 30, fontWeight: 800, color: R.inWin.length ? repCol(Math.round(R.replied / R.inWin.length * 100)) : C.muted, fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{R.inWin.length ? Math.round(R.replied / R.inWin.length * 100) : "—"}{R.inWin.length ? "%" : ""}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>reviews replied to</p>
+              <div style={{ height: 5, background: C.border, borderRadius: 3, marginTop: 6, width: 90 }}><div style={{ width: `${R.inWin.length ? R.replied / R.inWin.length * 100 : 0}%`, height: "100%", background: C.sage, borderRadius: 3 }}/></div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 10, color: C.muted }}>Negative reviews replied to</p>
+              <p style={{ fontSize: 12, color: R.negWin && R.negReplied < R.negWin ? C.rose : C.text, fontWeight: 600 }}>{R.negWin ? `${R.negReplied} of ${R.negWin}` : "none in period"}</p>
+              {R.tp?.response && <>
+                <p style={{ fontSize: 10, color: C.muted, marginTop: 8 }}>Trustpilot says</p>
+                <p style={{ fontSize: 11, color: C.text }}>Replied to {R.tp.response.negativeRepliedPct}% of negative reviews · {R.tp.response.typicalReplyTime}</p>
+              </>}
+            </div>
+          </div>
+        </RepCard>
+      </div>
+
+      {/* Category table */}
+      <RepCard title="Categories" right={<span style={{ fontSize: 9, color: C.muted }}>score = avg rating of reviews mentioning the topic (/10) · keyword-based v1 · click a row to filter reviews</span>} style={{ marginBottom: 12 }}>
+        {R.cats.length ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                {["Category", "Score", "Trend", "Sentiment", "Mentions"].map(h => <th key={h} style={{ padding: "6px 10px", textAlign: h === "Category" ? "left" : "right", color: C.muted, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {R.cats.map(c => (
+                  <tr key={c.key} onClick={() => setFilterCat(filterCat === c.key ? null : c.key)} style={{ borderBottom: `1px solid ${C.border}22`, cursor: "pointer", background: filterCat === c.key ? C.gold + "11" : "transparent" }}>
+                    <td style={{ padding: "8px 10px", color: C.text, fontWeight: 600 }}>{c.label}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "DM Mono,monospace", color: c.score == null ? C.muted : c.score >= 8 ? C.sage : c.score >= 6 ? C.gold : C.rose, fontWeight: 700 }}>{c.score ?? "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, color: c.trend == null ? C.muted : c.trend > 0.2 ? C.sage : c.trend < -0.2 ? C.rose : C.muted }}>{c.trend == null ? "—" : c.trend > 0.2 ? "↑" : c.trend < -0.2 ? "↓" : "→"}</td>
+                    <td style={{ padding: "8px 10px" }}><div style={{ display: "flex", justifyContent: "flex-end" }}>{sentBar(c)}</div></td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "DM Mono,monospace", color: C.text }}>{c.mentions}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p style={{ fontSize: 12, color: C.muted }}>No review text in this period.</p>}
+      </RepCard>
+
+      {/* Reviews */}
+      <RepCard title={`Reviews${filterCat ? ` · ${REP_CATEGORIES.find(c => c.key === filterCat).label}` : ""}`} right={filterCat ? <button onClick={() => setFilterCat(null)} style={{ fontSize: 10, padding: "3px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, cursor: "pointer" }}>Clear filter</button> : <span style={{ fontSize: 9, color: C.muted }}>{reviewsShown.length} in period · newest first</span>}>
+        {reviewsShown.length ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reviewsShown.map(r => {
+              const p = r.rating / r.scale; const col = p >= 0.8 ? C.sage : p <= 0.4 ? C.rose : C.gold; const m = SRC_META[r.source] || {};
+              const open = expanded === r.id;
+              return (
+                <div key={r.id} onClick={() => setExpanded(open ? null : r.id)} style={{ background: C.bg, border: `1px solid ${col}33`, borderLeft: `3px solid ${col}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0 }}>
+                      <span style={{ fontSize: 12, color: col, fontFamily: "DM Mono,monospace", fontWeight: 700 }}>{"★".repeat(Math.round(p * 5))}<span style={{ opacity: 0.25 }}>{"★".repeat(5 - Math.round(p * 5))}</span></span>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{r.title || (r.text || "").slice(0, 60)}</span>
+                    </div>
+                    <span style={{ fontSize: 10, color: C.muted, whiteSpace: "nowrap" }}>
+                      <span style={{ color: m.color || C.muted, fontWeight: 700 }}>{r.sourceName}</span> · {new Date(r.date + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}{!investor && r.author ? ` · ${r.author}` : ""} · {r.replied ? <span style={{ color: C.sage }}>replied{r.replyDate ? " " + new Date(r.replyDate + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}</span> : <span style={{ color: p <= 0.4 ? C.rose : C.muted }}>no reply</span>}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5, ...(open ? {} : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }) }}>{r.text}</p>
+                </div>
+              );
+            })}
+          </div>
+        ) : <p style={{ fontSize: 12, color: C.muted }}>No reviews in this period{filterCat ? " for this category" : ""}.</p>}
+      </RepCard>
+
+      {!investor && notConnected.length > 0 && (
+        <div style={{ marginTop: 12, background: C.card, border: `1px solid ${C.gold}44`, borderRadius: 14, padding: 16 }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: C.gold, marginBottom: 6 }}>To connect the remaining platforms</p>
+          {notConnected.map(s => <p key={s.key} style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}><b style={{ color: C.text }}>{s.name}:</b> {s.needs}</p>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [tab, setTab] = useState("summary");
   // Investor view: facts only. Hides internal tools (annotations, target editing,
@@ -3841,21 +4175,22 @@ export default function Dashboard() {
     finally{setPmsLoad(false);}
   },[cid,csec]);
 
-  // Reputation — live only. No manual defaults: a platform is shown only when
-  // /api/reputation returns a real rating for it.
-  const [reputation, setReputation] = useState({ google: null, airbnb: null, trustpilot: null, fetchedAt: null });
+  // Reputation — per property, from /api/reputation (bundled collector data +
+  // Redis ingest + live Google Places when configured). Never estimated.
+  const [repData, setRepData] = useState({ southall: null, shoreditch: null });
   const [repLoading, setRepLoading] = useState(false);
   useEffect(() => {
     setRepLoading(true);
-    fetch("/api/reputation")
-      .then(r => r.json())
-      .then(data => {
-        const pick = k => (data?.[k] && !data[k].error && data[k].rating != null) ? { rating: +data[k].rating, count: +(data[k].count || 0), source: data[k].source || "" } : null;
-        setReputation({ google: pick("google"), airbnb: pick("airbnb"), trustpilot: pick("trustpilot"), fetchedAt: data?.fetchedAt || null });
-      })
-      .catch(e => console.log("Reputation fetch error:", e.message))
+    Promise.all(["southall", "shoreditch"].map(pr => fetch(`/api/reputation?property=${pr}`).then(r => r.json()).then(d => [pr, d]).catch(() => [pr, null])))
+      .then(pairs => setRepData(Object.fromEntries(pairs)))
       .finally(() => setRepLoading(false));
   }, []);
+  // Summary card shape: { google, airbnb, trustpilot, booking } → {rating,count} | null
+  const reputation = useMemo(() => {
+    const out = { google: null, airbnb: null, trustpilot: null, booking: null };
+    (repData.southall?.sources || []).forEach(src => { if (src.connected && src.rating != null) out[src.key] = { rating: src.rating, scale: src.scale || 5, count: src.count || 0 }; });
+    return out;
+  }, [repData]);
 
   // Shoreditch
   const [sdGhlLoading, setSdGhlLoad] = useState(false);
@@ -4189,11 +4524,12 @@ export default function Dashboard() {
               <button key={p.k} onClick={()=>setProperty(p.k)} style={{padding:"7px 14px",border:`1px solid ${property===p.k?C.gold:C.border}`,cursor:"pointer",fontWeight:700,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",borderRadius:8,background:property===p.k?C.gold+"22":"transparent",color:property===p.k?C.gold:C.muted}}>{p.l}</button>
             ))}
           </div>
-          {property==="southall"&&<>{tabBtn("summary","Summary")}{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{!investor&&tabBtn("forecast","Forecast",C.purple)}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}</>}
+          {property==="southall"&&<>{tabBtn("summary","Summary")}{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{!investor&&tabBtn("forecast","Forecast",C.purple)}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation",(repData.southall?.sources||[]).some(x=>x.connected)?"#00b67a":null)}</>}
           {property==="shoreditch"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setSdTab("marketing")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="marketing"?C.gold:"transparent",color:sdTab==="marketing"?"#000":C.muted}}>Marketing</button>
             <button onClick={()=>setSdTab("crm")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="crm"?C.gold:"transparent",color:sdTab==="crm"?"#000":C.muted}}>CRM</button>
             <button onClick={()=>setSdTab("occupancy")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="occupancy"?C.gold:"transparent",color:sdTab==="occupancy"?"#000":C.muted}}>Occupancy</button>
+            <button onClick={()=>setSdTab("reputation")} className="tabbtn" style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="reputation"?C.gold:"transparent",color:sdTab==="reputation"?"#000":C.muted}}>Reputation</button>
           </div>}
         </div>
 
@@ -4911,17 +5247,18 @@ export default function Dashboard() {
                 {/* ── Guest Ratings (live only — no manual fallbacks) ── */}
                 {(() => {
                   const plats = [
-                    { k:"google",     name:"Google",     color:C.blue },
-                    { k:"airbnb",     name:"Airbnb",     color:C.rose },
-                    { k:"trustpilot", name:"Trustpilot", color:C.sage },
+                    { k:"google",     name:"Google",      color:C.blue },
+                    { k:"booking",    name:"Booking.com", color:"#3d82c4" },
+                    { k:"airbnb",     name:"Airbnb",      color:C.rose },
+                    { k:"trustpilot", name:"Trustpilot",  color:C.sage },
                   ];
                   const liveN = plats.filter(p => reputation[p.k]).length;
                   return (
                     <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:12}}>
                         <div>
-                          <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Guest Ratings</h3>
-                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Public review platforms, fetched live on load. A platform only shows a score when its feed is reachable — nothing here is typed in by hand.</p>
+                          <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Guest Ratings <span onClick={()=>setTab("reputation")} style={{fontSize:10,color:C.gold,cursor:"pointer",marginLeft:8,fontWeight:600}}>Open Reputation →</span></h3>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Public review platforms. A platform only shows a score when its data has been collected — nothing here is typed in by hand.</p>
                         </div>
                         <span style={{fontSize:10,color:liveN?C.sage:C.muted,fontWeight:600}}>{repLoading ? "○ checking…" : liveN ? `● ${liveN} of ${plats.length} live` : "○ no live feeds"}</span>
                       </div>
@@ -4932,11 +5269,11 @@ export default function Dashboard() {
                             <div key={p.k} style={{background:C.bg,border:`1px solid ${r?p.color+"44":C.border}`,borderRadius:10,padding:"12px 14px"}}>
                               <p style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{p.name} <span style={{fontSize:9,color:r?C.sage:C.muted,marginLeft:4}}>{r?"● live":"○ not connected"}</span></p>
                               {r ? (<>
-                                <p style={{fontSize:24,fontWeight:800,color:p.color,fontFamily:"DM Mono,monospace",lineHeight:1}}>{r.rating.toFixed(1)}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/5</span></p>
-                                <div style={{display:"flex",gap:2,margin:"6px 0 4px"}}>{[1,2,3,4,5].map(x=><span key={x} style={{fontSize:13,opacity:x<=Math.floor(r.rating)?1:x<=r.rating?0.6:0.2}}>★</span>)}</div>
+                                <p style={{fontSize:24,fontWeight:800,color:p.color,fontFamily:"DM Mono,monospace",lineHeight:1}}>{r.rating.toFixed(1)}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/{r.scale}</span></p>
+                                <div style={{display:"flex",gap:2,margin:"6px 0 4px"}}>{[1,2,3,4,5].map(x=>{const st=r.rating/r.scale*5;return <span key={x} style={{fontSize:13,opacity:x<=Math.floor(st)?1:x<=st?0.6:0.2}}>★</span>;})}</div>
                                 <p style={{fontSize:11,color:C.muted}}>{r.count ? `${r.count.toLocaleString()} reviews` : "review count unavailable"}</p>
                               </>) : (
-                                <p style={{fontSize:11,color:C.muted,lineHeight:1.5}}>No live rating available — feed unreachable or not configured. Shown as blank rather than an estimate.</p>
+                                <p style={{fontSize:11,color:C.muted,lineHeight:1.5}}>Not connected yet — shown as blank rather than an estimate.</p>
                               )}
                             </div>
                           );
@@ -8637,6 +8974,15 @@ export default function Dashboard() {
             })()}
           </div>
         )}
+
+      {/* ════ REPUTATION · SOUTHALL ════ */}
+      {property==="southall"&&tab==="reputation"&&(
+        <ReputationTab data={repData.southall} loading={repLoading} propertyName="Southall &Soul" investor={investor}/>
+      )}
+      {/* ════ REPUTATION · SHOREDITCH ════ */}
+      {property==="shoreditch"&&sdTab==="reputation"&&(
+        <ReputationTab data={repData.shoreditch} loading={repLoading} propertyName="Shoreditch &Soul Residential" investor={investor}/>
+      )}
 
       {/* setSdTab("crm"), setSdTab("occupancy") - handled in button map above */}
 

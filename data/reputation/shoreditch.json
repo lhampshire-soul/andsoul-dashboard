@@ -1,0 +1,30 @@
+{
+ "property": "shoreditch",
+ "propertyName": "Shoreditch &Soul Residential",
+ "sources": [
+  {
+   "key": "trustpilot",
+   "name": "Trustpilot",
+   "connected": false,
+   "needs": "Trustpilot is one company-wide profile (andsoul.com). Shoreditch-specific reviews can be tagged by text once the Shoreditch tab is live; there is no separate profile."
+  },
+  {
+   "key": "google",
+   "name": "Google",
+   "connected": false,
+   "needs": "Google Business Profile access or Place ID for Shoreditch &Soul Residential."
+  },
+  {
+   "key": "booking",
+   "name": "Booking.com",
+   "connected": false,
+   "needs": "Booking.com property URL/ID for the Shoreditch villas listing (Lavanda workspace live since 1 Sept)."
+  },
+  {
+   "key": "airbnb",
+   "name": "Airbnb",
+   "connected": false,
+   "needs": "Airbnb listing URLs for Shoreditch."
+  }
+ ]
+}

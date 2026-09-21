@@ -1,0 +1,352 @@
+{
+ "property": "southall",
+ "propertyName": "Southall &Soul",
+ "sources": [
+  {
+   "key": "trustpilot",
+   "name": "Trustpilot",
+   "scope": "Company-wide (&Soul) — covers Southall, Shoreditch and the Sanctuary wellness space",
+   "url": "https://uk.trustpilot.com/review/andsoul.com",
+   "connected": true,
+   "method": "Public profile page, parsed",
+   "fetchedAt": "2026-09-21T09:00:00Z",
+   "rating": 3.8,
+   "scale": 5,
+   "count": 26,
+   "label": "Great",
+   "last12Months": 25,
+   "distribution": {
+    "5": 69,
+    "4": 0,
+    "3": 0,
+    "2": 8,
+    "1": 23
+   },
+   "response": {
+    "negativeRepliedPct": 28,
+    "typicalReplyTime": "within 24 hours",
+    "invitesRecently": false
+   },
+   "competitors": [
+    {
+     "name": "Gravity Co",
+     "rating": 3.9,
+     "count": 80
+    },
+    {
+     "name": "Node Living",
+     "rating": 3.3,
+     "count": 90
+    },
+    {
+     "name": "Cohabs",
+     "rating": 3.9,
+     "count": 124
+    },
+    {
+     "name": "Dandi Living",
+     "rating": 2.2,
+     "count": 15
+    }
+   ],
+   "reviews": [
+    {
+     "id": "tp-1",
+     "author": "Matiullah Khan",
+     "date": "2026-08-27",
+     "rating": 1,
+     "title": "Scam place and fraudulent team working",
+     "text": "Appalling service, unlawful deductions and negligent conditions. Tried to withhold £81 from my deposit for a portable over-the-door hook that caused no damage. Broken room air conditioner during the hottest days of summer, broken toilet shower that wouldn't flush properly. Emails about urgent issues completely ignored. Booking #20260508-00011.",
+     "replied": false,
+     "replyDate": null,
+     "lang": "en"
+    },
+    {
+     "id": "tp-2",
+     "author": "Freed",
+     "date": "2026-08-19",
+     "rating": 5,
+     "title": "The front of house staff Tamika was…",
+     "text": "The front of house staff Tamika was lively and efficient and let me know exactly what I needed to do to check in properly.",
+     "replied": false,
+     "replyDate": null,
+     "lang": "en"
+    },
+    {
+     "id": "tp-3",
+     "author": "Aziz Masood",
+     "date": "2026-08-13",
+     "rating": 1,
+     "title": "11th-Floor Rat Infestation, Unsafe Premises & Unlawfully Withheld Deposits",
+     "text": "Active rat infestation inside my room on the 11th floor; pest control took three days because there is no pest control on weekends. Reception refused to rehouse us immediately. AC failed during a heatwave with no in-room control, windows sealed shut. Out of three lifts at least one permanently out of service. Laundry facilities filthy, razor blade in a washing machine. Still chasing deposit and unused rent after the 14-working-day period. Licence agreement, not a tenancy.",
+     "replied": false,
+     "replyDate": null,
+     "lang": "en"
+    },
+    {
+     "id": "tp-4",
+     "author": "Esin Cansu Yilmaz",
+     "date": "2026-07-08",
+     "rating": 1,
+     "title": "One star",
+     "text": "Visited the wellness space, booked the £29 discovery package for sauna and cold plunge. Changing room packed with a muddy floor, twenty people sharing six cold plunge stations in un-rinsed water, no showering required, sauna dangerously overcrowded with no health screening. Raised it in detail afterwards and got no response — ghosted.",
+     "replied": false,
+     "replyDate": null,
+     "lang": "en"
+    },
+    {
+     "id": "tp-5",
+     "author": "Ben",
+     "date": "2026-07-03",
+     "rating": 1,
+     "title": "Disappointing does not begin to…",
+     "text": "Paid a deposit, signed a contract and passed referencing, then received a generic email at 3pm on a Friday four days before move-in saying the booking was cancelled due to a maintenance issue, with no alternative offered. Left effectively homeless and out of pocket. Deposit not refunded as promised; emails to the memberships team ignored. Booking 20260615-00006.",
+     "replied": true,
+     "replyDate": "2026-07-03",
+     "lang": "en"
+    },
+    {
+     "id": "tp-6",
+     "author": "ST",
+     "date": "2026-06-28",
+     "rating": 5,
+     "title": "Yasmeen",
+     "text": "Yasmeen is the most kind hearted individual. Extremely proactive and helpful, resolves problems immediately and is always there for a quick chat to put a smile on your face.",
+     "replied": true,
+     "replyDate": "2026-07-03",
+     "lang": "en"
+    },
+    {
+     "id": "tp-7",
+     "author": "Emma Goldie",
+     "date": "2026-06-28",
+     "rating": 5,
+     "title": "Yasmeen from Day 1 has been present…",
+     "text": "Yasmeen from day 1 has been present, kind, thoughtful, chatty, sensitive and gone above and beyond to make me feel comfortable. She's a blessing.",
+     "replied": true,
+     "replyDate": "2026-07-03",
+     "lang": "en"
+    },
+    {
+     "id": "tp-8",
+     "author": "Rai Khan",
+     "date": "2026-06-27",
+     "rating": 5,
+     "title": "Shes amazing charasmastic I loved…",
+     "text": "Yasmin is amazing and charismatic, I loved getting help from her, she's very professional. Definitely value added to Soul.",
+     "replied": true,
+     "replyDate": "2026-07-03",
+     "lang": "en"
+    },
+    {
+     "id": "tp-9",
+     "author": "Kamal qadir khan",
+     "date": "2026-06-27",
+     "rating": 5,
+     "title": "Yasmeen is an amazing person",
+     "text": "Yasmeen is an amazing person. She helped me with everything I needed.",
+     "replied": true,
+     "replyDate": "2026-07-03",
+     "lang": "en"
+    },
+    {
+     "id": "tp-10",
+     "author": "Maria Ranaldi",
+     "date": "2026-06-27",
+     "rating": 5,
+     "title": "Yasmeen",
+     "text": "Currently staying at &Soul Southall. A friendly place with a community vibe, a short distance from Heathrow airport. The staff are really helpful, especially Yasmeen in reception who is always welcoming, professional and kind.",
+     "replied": true,
+     "replyDate": "2026-07-03",
+     "lang": "en"
+    },
+    {
+     "id": "tp-11",
+     "author": "sahar",
+     "date": "2026-06-27",
+     "rating": 5,
+     "title": "Yasmin the great social host",
+     "text": "I love connecting with Yasmin since the beginning of my experience — always supportive and welcoming.",
+     "replied": true,
+     "replyDate": "2026-07-03",
+     "lang": "en"
+    },
+    {
+     "id": "tp-12",
+     "author": "Fathi Mohamoud",
+     "date": "2026-06-25",
+     "rating": 5,
+     "title": "Great company to work",
+     "text": "Great company to work for! Been here for 3 months, love it.",
+     "replied": true,
+     "replyDate": "2026-07-03",
+     "lang": "en"
+    },
+    {
+     "id": "tp-13",
+     "author": "Spurs Football team (Mini dele ali)",
+     "date": "2026-06-24",
+     "rating": 5,
+     "title": "Top of the line",
+     "text": "The sauna and cold plunge is unbelievable, as good as a 5 star hotel. The workers are super kind and the pilates and TRX studios are great exercise. Great vibe, super chill and cool.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-14",
+     "author": "Crypto Chev - Instagram",
+     "date": "2026-06-22",
+     "rating": 5,
+     "title": "The security team are so professional…",
+     "text": "The security team are so professional and ultra helpful — Christian especially is amazing and his knowledge always on point. Yasmin is so professional and helpful, often going far and beyond to guide and assist residents, always smiling and giving good advice.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-15",
+     "author": "Yoleme Efih",
+     "date": "2026-06-03",
+     "rating": 5,
+     "title": "Tamika",
+     "text": "Tamika was wonderful, very nice and sweet, she helped me understand the laundry room so well. A great asset to Southall &Soul.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-16",
+     "author": "Marcos de Freitas - Datta Büsi",
+     "date": "2026-05-23",
+     "rating": 5,
+     "title": "Everything is as they told me.",
+     "text": "Everything is as they told me. The rooms are good. The place is big and everything works as expected. The team is always ready to attend and helpful. A place to live and use as a member.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-17",
+     "author": "Julie Hardman",
+     "date": "2026-04-20",
+     "rating": 5,
+     "title": "Wow...wow....wow",
+     "text": "A truly magical place to stay with great links to Heathrow Airport (all terminals). Warm and friendly atmosphere. Never stayed anywhere with facilities like this: gym, sauna, outdoor gardens, meditation room, podcast room, pool and table tennis, bar, DJ.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-18",
+     "author": "adnan s",
+     "date": "2026-04-16",
+     "rating": 5,
+     "title": "I visited Andsoul South Hall yesterday…",
+     "text": "Visited to meet a friend — warm and welcoming atmosphere, comfortable without being crowded. Staff friendly and attentive, didn't feel rushed. Would come back, highly recommend as a chill and pleasant place to spend time with friends.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-19",
+     "author": "Sam Ellis",
+     "date": "2026-04-15",
+     "rating": 5,
+     "title": "Started hesitant but now can't see myself leaving!",
+     "text": "Moved in for a month to suss out London and have now signed up till the end of the year. Everything under one roof: sauna, gym, co-working, but mostly a great community — made many friends for life. Management are making regular improvements to the facilities and take on board feedback from residents.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-20",
+     "author": "Lucy Morgen",
+     "date": "2026-03-28",
+     "rating": 2,
+     "title": "I am extremely disappointed with how…",
+     "text": "Advertised very differently from the reality. General manager behaves unprofessionally and gives privileges to her partner and children. Vulnerable residents with mobility issues pushed out. Ventilation does not work properly, no windows, poor air quality. Lifts frequently break down and residents get stuck. Fire door checks handled rudely. Main gate broken. Question the authenticity of positive reviews from staff.",
+     "replied": true,
+     "replyDate": "2026-03-28",
+     "lang": "en"
+    },
+    {
+     "id": "tp-21",
+     "author": "Anders",
+     "date": "2026-03-25",
+     "rating": 5,
+     "title": "Southall &Soul has been a…",
+     "text": "A transformative living experience so far — three weeks in and loving it, have made so many connections and new friends. Staff supportive, present and kind. Great view from the 8th floor and the community food is a special treat. Would definitely recommend.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-22",
+     "author": "Erin",
+     "date": "2026-03-18",
+     "rating": 1,
+     "title": "WARNING: do not stay here",
+     "text": "Loved the concept — friendly community, coworking, sauna and cold plunge, free dinners, pilates and yoga — but basic broken amenities made it a negative experience. First room's air con and vents didn't work in 35+ degrees, windows don't open, couldn't move rooms until Monday. Broken ovens, malfunctioning lift with people stuck. Second room's electricity kept tripping and I was brushed off 12+ times before an electrician came. Third room was dirty with black marks in the shower and a hole in the wall. Brown murky water from the shower tap. Contract price didn't match the Airbnb price paid. Worst accommodation experience of my life.",
+     "replied": false,
+     "replyDate": null,
+     "lang": "en"
+    },
+    {
+     "id": "tp-23",
+     "author": "Kjær Dían",
+     "date": "2026-03-13",
+     "rating": 5,
+     "title": "This is a pretty unique and special place",
+     "text": "Obvious teething problems as highlighted by other reviews, but an ambitious venture. Spent just over a week and had a life-changingly awesome time; met around 20 new people and made friends for life. Yoga studio, saunas, terrace, cafe and communal area available to everyone. Shout outs to Nicola, Cody, Leyth and Jordi. Landed with a free delicious community meal. Pricing isn't bad either.",
+     "replied": true,
+     "replyDate": "2026-07-09",
+     "lang": "en"
+    },
+    {
+     "id": "tp-24",
+     "author": "Marie T Auckland",
+     "date": "2026-03-11",
+     "rating": 1,
+     "title": "Terrible and Health & Safety concern",
+     "text": "Staff lack experience troubleshooting; lovely but not a lot of common sense. Ventilation system a serious health and safety concern with windows that can't be opened — room reading at 26 degrees, had to seek urgent medical care as I was struggling to breathe. Large leak from the window area saturating the carpet on level 6. Took over two weeks to move me to another room, which was then extremely cold. Security guard harassed and belittled me during the room inspection. No workable solution from sales or management.",
+     "replied": false,
+     "replyDate": null,
+     "lang": "en"
+    },
+    {
+     "id": "tp-25",
+     "author": "Peter",
+     "date": "2025-09-23",
+     "rating": 2,
+     "title": "Stylish Branding Masks Poor Management, Awkward Community, and Deposit Delays",
+     "text": "Photographs well but rooms are tiny, ventilation poor, maintenance patchy. Kitchen almost unusable: filthy fridges, one working oven for ~300 guests. Three lifts very slow, usually only one working. Breakfast served late and mainly toast. Community vibe feels forced with pseudo-wellness programming. Reception staff friendly but frustrated with top-down management. Security deposit refunds delayed around two months, not protected by a government scheme, licensee rather than tenant.",
+     "replied": false,
+     "replyDate": null,
+     "lang": "en"
+    }
+   ]
+  },
+  {
+   "key": "google",
+   "name": "Google",
+   "scope": "Southall &Soul business profile",
+   "connected": false,
+   "needs": "Google Business Profile access (owner/manager invite to a Google account I can use) or a Places API key + Place ID. Business Profile gives every review and your replies; Places gives rating, count and only 5 reviews."
+  },
+  {
+   "key": "booking",
+   "name": "Booking.com",
+   "scope": "Nomad Ensuite listing(s) via Lavanda",
+   "connected": false,
+   "needs": "The Booking.com property URLs/IDs for the Southall listings (the 'Deluxe King Room' listing has no reviews yet; the Nomad listing that takes the bookings is a different page). Category scores (Staff, Cleanliness, Comfort, Location, Facilities, Value, WiFi) come from the public page."
+  },
+  {
+   "key": "airbnb",
+   "name": "Airbnb",
+   "scope": "Southall listings",
+   "connected": false,
+   "needs": "Airbnb listing URLs/IDs. Airbnb has no public API — reviews are read from the public listing page, which blocks server fetches, so this runs through the daily collector."
+  }
+ ]
+}
