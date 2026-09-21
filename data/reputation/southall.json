@@ -326,16 +326,106 @@
   {
    "key": "google",
    "name": "Google",
-   "scope": "Southall &Soul business profile",
-   "connected": false,
-   "needs": "Google Business Profile access (owner/manager invite to a Google account I can use) or a Places API key + Place ID. Business Profile gives every review and your replies; Places gives rating, count and only 5 reviews."
+   "scope": "Southall AndSoul (hotel listing, 27 Uxbridge Rd)",
+   "connected": true,
+   "method": "Google Business Profile public listing (Maps), read 21 Sept 2026",
+   "fetchedAt": "2026-09-21T10:00:00Z",
+   "url": "https://www.google.com/maps/search/Southall+AndSoul+27+Uxbridge+Road+Hayes/",
+   "mapsUrl": "https://www.google.com/maps/search/Southall+AndSoul+27+Uxbridge+Road+Hayes/",
+   "kgmid": "/g/11vlg37f5c",
+   "rating": 4.1,
+   "scale": 5,
+   "count": 94,
+   "distribution": {
+    "5": 72,
+    "4": 6,
+    "3": 2,
+    "2": 5,
+    "1": 15
+   },
+   "distributionNote": "read from the review-summary bar chart (approx. ±2%)",
+   "highlights": [
+    "Air conditioning, community dinners, pool tournaments, breath work, arts and crafts.",
+    "I love the facilities, the sauna, ice bath and beautiful terrace space.",
+    "The mini kitchen works well for small meals."
+   ],
+   "reviews": [],
+   "note": "Individual reviews and reply data need Google Business Profile access; headline figures only for now."
   },
   {
    "key": "booking",
    "name": "Booking.com",
-   "scope": "Nomad Ensuite listing(s) via Lavanda",
-   "connected": false,
-   "needs": "The Booking.com property URLs/IDs for the Southall listings (the 'Deluxe King Room' listing has no reviews yet; the Nomad listing that takes the bookings is a different page). Category scores (Staff, Cleanliness, Comfort, Location, Facilities, Value, WiFi) come from the public page."
+   "scope": "'Southall and Soul in West London' listing (Single Room with Private Bathroom)",
+   "connected": true,
+   "method": "Public property page, read 21 Sept 2026",
+   "fetchedAt": "2026-09-21T10:00:00Z",
+   "url": "https://www.booking.com/hotel/gb/wellness-space-in-southall-west-london-hayes.en-gb.html",
+   "rating": 7.9,
+   "scale": 10,
+   "count": 10,
+   "label": "Good",
+   "qualityRating": "3 of 5 (Booking.com quality rating)",
+   "categories": [
+    {
+     "name": "Staff",
+     "score": 8.5
+    },
+    {
+     "name": "Facilities",
+     "score": 9.2
+    },
+    {
+     "name": "Cleanliness",
+     "score": 8.7
+    },
+    {
+     "name": "Comfort",
+     "score": 9.0
+    },
+    {
+     "name": "Value for money",
+     "score": 8.7
+    },
+    {
+     "name": "Location",
+     "score": 8.0
+    },
+    {
+     "name": "Free WiFi",
+     "score": 10
+    }
+   ],
+   "topics": [
+    "Spa",
+    "Breakfast",
+    "Airport",
+    "Room",
+    "Parking"
+   ],
+   "highlights": [
+    {
+     "author": "Abdulrazak",
+     "country": "Switzerland",
+     "text": "Excellent location, Jasmin and Mohamed were good to me throughout my stay, they gave an excellent service as well. Breakfast was basic."
+    },
+    {
+     "author": "James",
+     "country": "United Kingdom",
+     "text": "I had family travelling into Heathrow for a few days and the property made sense with how close it was to the airport. Getting around was pretty easy with the Elizabeth line and the bus routes."
+    },
+    {
+     "author": "Suado",
+     "country": "United Kingdom",
+     "text": "The apartments are affordable and very high quality. It is also close to Heathrow airport. The staff were very welcoming."
+    },
+    {
+     "author": "Mylists",
+     "country": "United Kingdom",
+     "text": "Loved the sauna and the gym and the daily breakfast, it was great and affordable."
+    }
+   ],
+   "reviews": [],
+   "note": "Booking.com's review list is behind a client-side modal; per-review dates/scores will come via the collector. The 'Deluxe King Room' listing (amp-soul-community-spacious-room) has no reviews yet."
   },
   {
    "key": "airbnb",

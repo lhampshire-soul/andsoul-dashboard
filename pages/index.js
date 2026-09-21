@@ -2232,11 +2232,16 @@ const RepCard = ({ title, children, right, style }) => (
   </div>
 );
 
+const sourcesOf = (data) => (data?.sources || []);
 function ReputationTab({ data, loading, propertyName, investor }) {
   const [win, setWin] = useState("12m");
   const [expanded, setExpanded] = useState(null);
   const [filterCat, setFilterCat] = useState(null);
+  const [detail, setDetail] = useState(false);
   const R = useMemo(() => computeReputation(data, win), [data, win]);
+  const totalReviews = R.connected.reduce((a, s) => a + (s.count || 0), 0);
+  const booking = sourcesOf(data).find(s => s.key === "booking" && s.connected);
+  const unrepliedNeg = R.allReviews.filter(r => r.rating / r.scale <= 0.4 && !r.replied).sort((a, b) => b.date.localeCompare(a.date));
   const sources = data?.sources || [];
   const notConnected = sources.filter(s => !s.connected);
   const overallCol = repCol(R.overall);
@@ -2262,12 +2267,100 @@ function ReputationTab({ data, loading, propertyName, investor }) {
           <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: "4px 0 0" }}>Reputation</h2>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 4 }}>Timeframe</span>
-          {REP_WINDOWS.map(w => (
-            <button key={w.key} onClick={() => setWin(w.key)} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${win === w.key ? C.gold : C.border}`, background: win === w.key ? C.gold + "22" : "transparent", color: win === w.key ? C.gold : C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{w.label}</button>
-          ))}
+          <button onClick={() => setDetail(v => !v)} style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${detail ? C.gold : C.border}`, background: detail ? C.gold + "22" : "transparent", color: detail ? C.gold : C.muted, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{detail ? "Simple view" : "Detailed view"}</button>
+          {detail && <>
+            <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 4px 0 8px" }}>Timeframe</span>
+            {REP_WINDOWS.map(w => (
+              <button key={w.key} onClick={() => setWin(w.key)} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${win === w.key ? C.gold : C.border}`, background: win === w.key ? C.gold + "22" : "transparent", color: win === w.key ? C.gold : C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{w.label}</button>
+            ))}
+          </>}
         </div>
       </div>
+
+      {/* ── HERO: one score, one line per platform ── */}
+      {R.connected.length > 0 && (
+        <div style={{ background: `linear-gradient(135deg, ${C.card}, ${C.bg})`, border: `1px solid ${overallCol}55`, borderRadius: 16, padding: 20, marginBottom: 12, display: "grid", gridTemplateColumns: "minmax(220px, 300px) 1fr", gap: 20, alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <ScoreRing pct={R.overall} size={110} color={overallCol} label="/100"/>
+            <div>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>Overall reputation</p>
+              <p style={{ fontSize: 22, fontWeight: 800, color: overallCol, lineHeight: 1.1, marginTop: 2 }}>{label(R.overall)}</p>
+              <p style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{totalReviews} reviews across {R.connected.length} platform{R.connected.length === 1 ? "" : "s"}</p>
+              <p style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Weighted by review count · lifetime</p>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+            {sources.map(s => {
+              const m = SRC_META[s.key] || { color: C.muted, glyph: "•" };
+              const p = s.connected ? repPct(s.rating, s.scale) : null;
+              return (
+                <a key={s.key} href={s.connected && s.url ? s.url : undefined} target="_blank" rel="noreferrer" style={{ textDecoration: "none", background: C.bg, border: `1px solid ${s.connected ? m.color + "55" : C.border}`, borderRadius: 12, padding: "10px 12px", opacity: s.connected ? 1 : 0.6, cursor: s.connected ? "pointer" : "default" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ width: 22, height: 22, borderRadius: 6, background: m.color + "33", color: m.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 11 }}>{m.glyph}</span>
+                    <span style={{ fontSize: 11, color: C.text, fontWeight: 700 }}>{s.name}</span>
+                  </div>
+                  {s.connected ? (<>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: repCol(p), fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{s.rating}<span style={{ fontSize: 11, color: C.muted, fontWeight: 400 }}>/{s.scale}</span></p>
+                    <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>{s.count} reviews · {p}/100{s.label ? ` · ${s.label}` : ""}</p>
+                  </>) : (<>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: C.muted, lineHeight: 1 }}>—</p>
+                    <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>not connected</p>
+                  </>)}
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── SIMPLE VIEW: what guests rate + what needs a reply ── */}
+      {!detail && R.connected.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 12 }}>
+          {booking?.categories?.length > 0 && (
+            <RepCard title="What guests rate — Booking.com" right={<span style={{ fontSize: 9, color: C.muted }}>platform category scores · /10</span>}>
+              {[...booking.categories].sort((a, b) => b.score - a.score).map(c => (
+                <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+                  <span style={{ fontSize: 11, color: C.text, width: 110, flexShrink: 0 }}>{c.name}</span>
+                  <div style={{ flex: 1, height: 7, background: C.border, borderRadius: 4 }}><div style={{ width: `${c.score * 10}%`, height: "100%", background: c.score >= 9 ? C.sage : c.score >= 8 ? "#3d82c4" : C.gold, borderRadius: 4 }}/></div>
+                  <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", fontWeight: 700, color: C.text, width: 30, textAlign: "right" }}>{c.score}</span>
+                </div>
+              ))}
+            </RepCard>
+          )}
+          {R.cats.length > 0 && (
+            <RepCard title="What guests talk about — Trustpilot" right={<span style={{ fontSize: 9, color: C.muted }}>last 12 months · keyword-based · /10</span>}>
+              {[...R.cats].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 8).map(c => (
+                <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+                  <span style={{ fontSize: 11, color: C.text, width: 130, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.label}</span>
+                  <div style={{ flex: 1, height: 7, background: C.border, borderRadius: 4 }}><div style={{ width: `${(c.score || 0) * 10}%`, height: "100%", background: c.score >= 8 ? C.sage : c.score >= 6 ? C.gold : C.rose, borderRadius: 4 }}/></div>
+                  <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", fontWeight: 700, color: c.score >= 8 ? C.sage : c.score >= 6 ? C.gold : C.rose, width: 30, textAlign: "right" }}>{c.score}</span>
+                  <span style={{ fontSize: 9, color: C.muted, width: 22, textAlign: "right" }}>{c.mentions}×</span>
+                </div>
+              ))}
+            </RepCard>
+          )}
+          <RepCard title="Needs a reply" right={<span style={{ fontSize: 9, color: C.muted }}>negative reviews with no owner response</span>}>
+            {unrepliedNeg.length ? (<>
+              <p style={{ fontSize: 26, fontWeight: 800, color: C.rose, fontFamily: "DM Mono,monospace", lineHeight: 1, marginBottom: 8 }}>{unrepliedNeg.length}</p>
+              {unrepliedNeg.slice(0, 4).map(r => (
+                <div key={r.id} style={{ borderLeft: `3px solid ${C.rose}`, paddingLeft: 8, marginBottom: 6 }}>
+                  <p style={{ fontSize: 11, color: C.text, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title || r.text.slice(0, 60)}</p>
+                  <p style={{ fontSize: 9, color: C.muted }}>{r.sourceName} · {new Date(r.date + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · {Math.round(r.rating / r.scale * 5)}★</p>
+                </div>
+              ))}
+              {R.tp?.response && <p style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>Trustpilot: replied to {R.tp.response.negativeRepliedPct}% of negative reviews, {R.tp.response.typicalReplyTime}.</p>}
+            </>) : <p style={{ fontSize: 12, color: C.sage }}>Every negative review we hold has an owner reply.</p>}
+          </RepCard>
+          {(booking?.highlights?.length || sources.find(s => s.key === "google")?.highlights?.length) ? (
+            <RepCard title="Guests said" right={<span style={{ fontSize: 9, color: C.muted }}>platform-selected highlights</span>}>
+              {(booking?.highlights || []).slice(0, 3).map((h, i) => <p key={"b" + i} style={{ fontSize: 11, color: C.text, marginBottom: 6, lineHeight: 1.5 }}>“{h.text}” <span style={{ color: C.muted, fontSize: 9 }}>— {h.author}, Booking.com</span></p>)}
+              {(sources.find(s => s.key === "google")?.highlights || []).slice(0, 2).map((h, i) => <p key={"g" + i} style={{ fontSize: 11, color: C.text, marginBottom: 6, lineHeight: 1.5 }}>“{h}” <span style={{ color: C.muted, fontSize: 9 }}>— Google</span></p>)}
+            </RepCard>
+          ) : null}
+        </div>
+      )}
+
+      {detail && <>
 
       {!R.connected.length && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, marginBottom: 16 }}>
@@ -2449,6 +2542,8 @@ function ReputationTab({ data, loading, propertyName, investor }) {
           </div>
         ) : <p style={{ fontSize: 12, color: C.muted }}>No reviews in this period{filterCat ? " for this category" : ""}.</p>}
       </RepCard>
+
+      </>}
 
       {!investor && notConnected.length > 0 && (
         <div style={{ marginTop: 12, background: C.card, border: `1px solid ${C.gold}44`, borderRadius: 14, padding: 16 }}>
