@@ -2299,9 +2299,12 @@ function ReputationTab({ data, loading, propertyName, investor }) {
                     <span style={{ width: 22, height: 22, borderRadius: 6, background: m.color + "33", color: m.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 11 }}>{m.glyph}</span>
                     <span style={{ fontSize: 11, color: C.text, fontWeight: 700 }}>{s.name}</span>
                   </div>
-                  {s.connected ? (<>
+                  {s.connected && s.rating != null ? (<>
                     <p style={{ fontSize: 22, fontWeight: 800, color: repCol(p), fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{s.rating}<span style={{ fontSize: 11, color: C.muted, fontWeight: 400 }}>/{s.scale}</span></p>
                     <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>{s.count} reviews · {p}/100{s.label ? ` · ${s.label}` : ""}</p>
+                  </>) : s.connected ? (<>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: C.text, lineHeight: 1 }}>New</p>
+                    <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>listed · no reviews yet</p>
                   </>) : (<>
                     <p style={{ fontSize: 14, fontWeight: 700, color: C.muted, lineHeight: 1 }}>—</p>
                     <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>not connected</p>
@@ -2433,7 +2436,7 @@ function ReputationTab({ data, loading, propertyName, investor }) {
 
       {/* Row 2: Sources overview · Volume · Responses */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 12 }}>
-        <RepCard title="Sources overview" right={<span style={{ fontSize: 9, color: C.muted }}>{R.connected.length} of {sources.length} connected</span>}>
+        <RepCard title="Sources overview" right={<span style={{ fontSize: 9, color: C.muted }}>{sources.filter(s => s.connected).length} of {sources.length} connected</span>}>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {sources.map(s => {
               const m = SRC_META[s.key] || { color: C.muted, glyph: "•" };
@@ -2444,8 +2447,9 @@ function ReputationTab({ data, loading, propertyName, investor }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                       <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{s.name}{s.url && s.connected && <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 9, color: C.muted, marginLeft: 6, textDecoration: "none" }}>open ↗</a>}</span>
-                      {s.connected
+                      {s.connected && s.rating != null
                         ? <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", color: repCol(p), fontWeight: 700 }}>{p}<span style={{ color: C.muted, fontWeight: 400 }}>/100</span> <span style={{ fontSize: 10, color: C.muted }}>· {s.rating}/{s.scale} · {s.count}</span></span>
+                        : s.connected ? <span style={{ fontSize: 10, color: C.text }}>● connected · no reviews yet</span>
                         : <span style={{ fontSize: 10, color: C.muted }}>○ not connected</span>}
                     </div>
                     <p style={{ fontSize: 9, color: C.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={s.connected ? `${s.method || ""} · fetched ${s.fetchedAt || ""}${s.scope ? " · " + s.scope : ""}` : s.needs}>
@@ -4283,7 +4287,7 @@ export default function Dashboard() {
   // Summary card shape: { google, airbnb, trustpilot, booking } → {rating,count} | null
   const reputation = useMemo(() => {
     const out = { google: null, airbnb: null, trustpilot: null, booking: null };
-    (repData.southall?.sources || []).forEach(src => { if (src.connected && src.rating != null) out[src.key] = { rating: src.rating, scale: src.scale || 5, count: src.count || 0 }; });
+    (repData.southall?.sources || []).forEach(src => { if (src.connected) out[src.key] = src.rating != null ? { rating: src.rating, scale: src.scale || 5, count: src.count || 0 } : { empty: true }; });
     return out;
   }, [repData]);
 
@@ -5355,20 +5359,20 @@ export default function Dashboard() {
                           <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Guest Ratings <span onClick={()=>setTab("reputation")} style={{fontSize:10,color:C.gold,cursor:"pointer",marginLeft:8,fontWeight:600}}>Open Reputation →</span></h3>
                           <p style={{fontSize:12,color:C.muted,marginTop:2}}>Public review platforms. A platform only shows a score when its data has been collected — nothing here is typed in by hand.</p>
                         </div>
-                        <span style={{fontSize:10,color:liveN?C.sage:C.muted,fontWeight:600}}>{repLoading ? "○ checking…" : liveN ? `● ${liveN} of ${plats.length} live` : "○ no live feeds"}</span>
+                        <span style={{fontSize:10,color:liveN?C.sage:C.muted,fontWeight:600}}>{repLoading ? "○ checking…" : liveN ? `● ${liveN} of ${plats.length} with scores` : "○ no connected platforms"}</span>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:10}}>
                         {plats.map(p => {
-                          const r = reputation[p.k];
+                          const r0 = reputation[p.k]; const r = r0 && !r0.empty ? r0 : null;
                           return (
                             <div key={p.k} style={{background:C.bg,border:`1px solid ${r?p.color+"44":C.border}`,borderRadius:10,padding:"12px 14px"}}>
-                              <p style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{p.name} <span style={{fontSize:9,color:r?C.sage:C.muted,marginLeft:4}}>{r?"● live":"○ not connected"}</span></p>
+                              <p style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{p.name} <span style={{fontSize:9,color:r0?C.sage:C.muted,marginLeft:4}}>{r0?"● connected":"○ not connected"}</span></p>
                               {r ? (<>
                                 <p style={{fontSize:24,fontWeight:800,color:p.color,fontFamily:"DM Mono,monospace",lineHeight:1}}>{r.rating.toFixed(1)}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/{r.scale}</span></p>
                                 <div style={{display:"flex",gap:2,margin:"6px 0 4px"}}>{[1,2,3,4,5].map(x=>{const st=r.rating/r.scale*5;return <span key={x} style={{fontSize:13,opacity:x<=Math.floor(st)?1:x<=st?0.6:0.2}}>★</span>;})}</div>
                                 <p style={{fontSize:11,color:C.muted}}>{r.count ? `${r.count.toLocaleString()} reviews` : "review count unavailable"}</p>
                               </>) : (
-                                <p style={{fontSize:11,color:C.muted,lineHeight:1.5}}>Not connected yet — shown as blank rather than an estimate.</p>
+                                <p style={{fontSize:11,color:C.muted,lineHeight:1.5}}>{r0?.empty ? "Listed, no reviews yet." : "Not connected yet — shown as blank rather than an estimate."}</p>
                               )}
                             </div>
                           );

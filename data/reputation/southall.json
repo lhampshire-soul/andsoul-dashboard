@@ -430,9 +430,18 @@
   {
    "key": "airbnb",
    "name": "Airbnb",
-   "scope": "Southall listings",
-   "connected": false,
-   "needs": "Airbnb listing URLs/IDs. Airbnb has no public API — reviews are read from the public listing page, which blocks server fetches, so this runs through the daily collector."
+   "scope": "'Ensuite Studio West London 15 min to Heathrow' — hosted by Milena, listed ~Aug 2026",
+   "connected": true,
+   "method": "Public listing page, read 21 Sept 2026",
+   "fetchedAt": "2026-09-21T10:30:00Z",
+   "url": "https://www.airbnb.co.uk/rooms/1747066288990446726",
+   "listingId": "1747066288990446726",
+   "rating": null,
+   "scale": 5,
+   "count": 0,
+   "label": "New listing · no reviews yet",
+   "reviews": [],
+   "note": "Airbnb shows 'New · No reviews (yet)'. The listing starts contributing to the score with its first review."
   }
  ]
 }
