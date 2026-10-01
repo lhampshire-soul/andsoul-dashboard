@@ -2330,8 +2330,19 @@ function ReputationTab({ data, loading, propertyName, investor }) {
               ))}
             </RepCard>
           )}
+          {(() => { const g = sources.find(s => s.key === "google" && s.connected && s.topics?.length); if (!g || booking?.categories?.length) return null; return (
+            <RepCard title="What guests talk about — Google" right={<span style={{ fontSize: 9, color: C.muted }}>review topics Google surfaces · mentions</span>}>
+              {g.topics.map(tp => (
+                <div key={tp.name} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+                  <span style={{ fontSize: 11, color: C.text, width: 110, flexShrink: 0, textTransform: "capitalize" }}>{tp.name}</span>
+                  <div style={{ flex: 1, height: 7, background: C.border, borderRadius: 4 }}><div style={{ width: `${Math.min(100, tp.mentions / Math.max(...g.topics.map(x => x.mentions)) * 100)}%`, height: "100%", background: "#4285f4", borderRadius: 4 }}/></div>
+                  <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", fontWeight: 700, color: C.text, width: 30, textAlign: "right" }}>{tp.mentions}×</span>
+                </div>
+              ))}
+            </RepCard>
+          ); })()}
           {R.cats.length > 0 && (
-            <RepCard title="What guests talk about — Trustpilot" right={<span style={{ fontSize: 9, color: C.muted }}>last 12 months · keyword-based · /10</span>}>
+            <RepCard title={`What guests talk about — ${R.connected.filter(s => (s.reviews || []).length).map(s => s.name).join(" + ") || "reviews"}`} right={<span style={{ fontSize: 9, color: C.muted }}>last 12 months · keyword-based · /10</span>}>
               {[...R.cats].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 8).map(c => (
                 <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
                   <span style={{ fontSize: 11, color: C.text, width: 130, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.label}</span>
@@ -9080,7 +9091,7 @@ export default function Dashboard() {
       )}
       {/* ════ REPUTATION · SHOREDITCH ════ */}
       {property==="shoreditch"&&sdTab==="reputation"&&(
-        <ReputationTab data={repData.shoreditch} loading={repLoading} propertyName="Shoreditch &Soul Residential" investor={investor}/>
+        <ReputationTab data={repData.shoreditch} loading={repLoading} propertyName="Shoreditch &Soul Villas" investor={investor}/>
       )}
 
       {/* setSdTab("crm"), setSdTab("occupancy") - handled in button map above */}

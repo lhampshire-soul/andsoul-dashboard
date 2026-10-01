@@ -1,30 +1,112 @@
 {
  "property": "shoreditch",
- "propertyName": "Shoreditch &Soul Residential",
+ "propertyName": "Shoreditch &Soul Villas",
  "sources": [
-  {
-   "key": "trustpilot",
-   "name": "Trustpilot",
-   "connected": false,
-   "needs": "Trustpilot is one company-wide profile (andsoul.com). Shoreditch-specific reviews can be tagged by text once the Shoreditch tab is live; there is no separate profile."
-  },
   {
    "key": "google",
    "name": "Google",
-   "connected": false,
-   "needs": "Google Business Profile access or Place ID for Shoreditch &Soul Residential."
+   "connected": true,
+   "method": "Google Business Profile public listing (Maps), read 1 Oct 2026",
+   "fetchedAt": "2026-10-01T09:00:00Z",
+   "url": "https://www.google.com/maps/place/The+Villas+-+Shoreditch+AndSoul/@51.5238936,-0.0666577,17z/data=!4m6!3m5!1s0x48761d004a68399f:0xf245e1c873429556!8m2!3d51.5238936!4d-0.0666577!16s%2Fg%2F11xclmddnv",
+   "kgmid": "/g/11xclmddnv",
+   "scope": "The Villas - Shoreditch AndSoul (apartment building, 114 Cheshire St)",
+   "rating": 5.0,
+   "scale": 5,
+   "count": 14,
+   "distribution": {
+    "5": 100,
+    "4": 0,
+    "3": 0,
+    "2": 0,
+    "1": 0
+   },
+   "topics": [
+    {
+     "name": "sauna",
+     "mentions": 5
+    },
+    {
+     "name": "vibes",
+     "mentions": 4
+    },
+    {
+     "name": "yoga",
+     "mentions": 2
+    },
+    {
+     "name": "non-alcoholic",
+     "mentions": 2
+    },
+    {
+     "name": "space",
+     "mentions": 2
+    },
+    {
+     "name": "music",
+     "mentions": 2
+    }
+   ],
+   "highlights": [
+    "Amazing experience and the staff really helpful.",
+    "Food by Palm Greens is good.",
+    "And it's not just about variety—the quality is top-notch."
+   ],
+   "reviews": [
+    {
+     "id": "g-sd-1",
+     "author": "Benjamin Mitchell",
+     "date": "2025-09-01",
+     "dateApprox": true,
+     "rating": 5,
+     "title": "",
+     "text": "Such a unique and exciting space! The sauna is like nothing I've ever seen before, such amazing design. I've attended a number of classes and workshops in the sauna and the yoga space. Some really cool live events. Met some really lovely friendly people there too.",
+     "replied": false,
+     "lang": "en"
+    },
+    {
+     "id": "g-sd-2",
+     "author": "Muhammad Ashfaq",
+     "date": "2026-09-01",
+     "dateApprox": true,
+     "rating": 5,
+     "title": "",
+     "text": "I was living at Chapters Spitalfields, and Youcef was there as night security, and he worked really well and performed his duty very well — so much satisfied with the night security team.",
+     "replied": true,
+     "replyDate": "2026-09-17",
+     "lang": "en"
+    },
+    {
+     "id": "g-sd-3",
+     "author": "Heloisa Ferrage",
+     "date": "2025-09-01",
+     "dateApprox": true,
+     "rating": 5,
+     "title": "",
+     "text": "I had such an incredible experience during a sauna session with Big Sun. Her calm, soothing voice, the serene music and peaceful atmosphere made the whole session pure relaxation. I would love to come back for another session, highly recommend!",
+     "replied": false,
+     "lang": "en"
+    }
+   ],
+   "note": "Only the 3 reviews Google shows before 'More reviews' are captured (dates are approximate, 'a year ago' / 'a month ago'). Most reviews on this listing are about the Sanctuary sauna and classes rather than the villas themselves — the listing predates the residential opening."
   },
   {
    "key": "booking",
    "name": "Booking.com",
    "connected": false,
-   "needs": "Booking.com property URL/ID for the Shoreditch villas listing (Lavanda workspace live since 1 Sept)."
+   "needs": "Booking.com property URL for the Shoreditch villas listing (Lavanda workspace live since 1 Sept 2026). A search for the property on Booking.com returned no result, so it may not be published yet."
   },
   {
    "key": "airbnb",
    "name": "Airbnb",
    "connected": false,
-   "needs": "Airbnb listing URLs for Shoreditch."
+   "needs": "Airbnb listing URL for the Shoreditch villas. I found a 'Shoreditch | 3 King Beds | Fast Wi-Fi | Balcony' listing but could not confirm it is &Soul's — send the link and I'll wire it in."
+  },
+  {
+   "key": "trustpilot",
+   "name": "Trustpilot",
+   "connected": false,
+   "needs": "Trustpilot is one company-wide profile (andsoul.com, 3.8 from 26 reviews, shown under Southall). None of the current reviews mention Shoreditch; Shoreditch-specific reviews will be tagged here as they appear."
   }
  ]
 }
