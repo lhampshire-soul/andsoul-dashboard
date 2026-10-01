@@ -2307,7 +2307,7 @@ function ReputationTab({ data, loading, propertyName, investor }) {
                     <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>listed · no reviews yet</p>
                   </>) : (<>
                     <p style={{ fontSize: 14, fontWeight: 700, color: C.muted, lineHeight: 1 }}>—</p>
-                    <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>not connected</p>
+                    <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>{s.notListed ? "not listed yet" : "not connected"}</p>
                   </>)}
                 </a>
               );
@@ -2461,7 +2461,7 @@ function ReputationTab({ data, loading, propertyName, investor }) {
                       {s.connected && s.rating != null
                         ? <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", color: repCol(p), fontWeight: 700 }}>{p}<span style={{ color: C.muted, fontWeight: 400 }}>/100</span> <span style={{ fontSize: 10, color: C.muted }}>· {s.rating}/{s.scale} · {s.count}</span></span>
                         : s.connected ? <span style={{ fontSize: 10, color: C.text }}>● connected · no reviews yet</span>
-                        : <span style={{ fontSize: 10, color: C.muted }}>○ not connected</span>}
+                        : <span style={{ fontSize: 10, color: C.muted }}>○ {s.notListed ? "not listed yet" : "not connected"}</span>}
                     </div>
                     <p style={{ fontSize: 9, color: C.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={s.connected ? `${s.method || ""} · fetched ${s.fetchedAt || ""}${s.scope ? " · " + s.scope : ""}` : s.needs}>
                       {s.connected ? `${s.scope || s.method || ""}${s.fetchedAt ? " · " + new Date(s.fetchedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}` : (investor ? "Awaiting connection" : `Needs: ${s.needs}`)}
@@ -2560,10 +2560,10 @@ function ReputationTab({ data, loading, propertyName, investor }) {
 
       </>}
 
-      {!investor && notConnected.length > 0 && (
+      {!investor && notConnected.some(s => !s.notListed) && (
         <div style={{ marginTop: 12, background: C.card, border: `1px solid ${C.gold}44`, borderRadius: 14, padding: 16 }}>
           <p style={{ fontSize: 12, fontWeight: 700, color: C.gold, marginBottom: 6 }}>To connect the remaining platforms</p>
-          {notConnected.map(s => <p key={s.key} style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}><b style={{ color: C.text }}>{s.name}:</b> {s.needs}</p>)}
+          {notConnected.filter(s => !s.notListed).map(s => <p key={s.key} style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}><b style={{ color: C.text }}>{s.name}:</b> {s.needs}</p>)}
         </div>
       )}
     </div>

@@ -94,13 +94,15 @@
    "key": "booking",
    "name": "Booking.com",
    "connected": false,
-   "needs": "Booking.com property URL for the Shoreditch villas listing (Lavanda workspace live since 1 Sept 2026). A search for the property on Booking.com returned no result, so it may not be published yet."
+   "needs": "Not listed yet — Shoreditch Villas isn't live on this platform. Will be connected when the listing is published.",
+   "notListed": true
   },
   {
    "key": "airbnb",
    "name": "Airbnb",
    "connected": false,
-   "needs": "Airbnb listing URL for the Shoreditch villas. I found a 'Shoreditch | 3 King Beds | Fast Wi-Fi | Balcony' listing but could not confirm it is &Soul's — send the link and I'll wire it in."
+   "needs": "Not listed yet — Shoreditch Villas isn't live on this platform. Will be connected when the listing is published.",
+   "notListed": true
   },
   {
    "key": "trustpilot",
