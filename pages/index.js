@@ -4142,7 +4142,7 @@ export default function Dashboard() {
         const j = await r.json();
         setSnapInfo(i => ({ ...(i || {}), refreshing: true, stage: j.stage, progress: j.progress }));
         if (j.done) break;
-        if (j.stage === "error") { console.warn("Snapshot build error:", j.error); break; }
+        if (j.stage === "error") { console.warn("Snapshot build error:", j.error); setSnapInfo(i => ({ ...(i || {}), buildError: j.error })); break; }
         if (j.stage === "locked") await new Promise(res => setTimeout(res, 4000));
       }
       const snap = await (await fetch("/api/snapshot")).json();
@@ -4657,6 +4657,14 @@ export default function Dashboard() {
                 {!pmsConn && !lavandaConn && <span style={{fontSize:10,color:C.muted}}>○ Not connected</span>}
               </div>
             </div>
+
+            {/* ── RH FROZEN BANNER ── */}
+            {pmsConn && snapInfo?.builtAt && (Date.now() - new Date(snapInfo.builtAt).getTime()) > 24 * 3600e3 && (
+              <div style={{background:C.rose+"14",border:`1px solid ${C.rose}66`,borderRadius:14,padding:"12px 16px",margin:"16px 0 0"}}>
+                <p style={{fontSize:13,fontWeight:700,color:C.rose}}>Res Harmonics data is frozen — last successful pull {new Date(snapInfo.builtAt).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
+                <p style={{fontSize:11,color:C.muted,marginTop:3}}>{snapInfo.buildError ? `Refresh is failing (${snapInfo.buildError}). ` : ""}Every long-stay figure on this dashboard (occupancy, revenue, AWR, renewals, new bookings) is as of that moment, not today. Short-stay figures from Lavanda are live.</p>
+              </div>
+            )}
 
             {/* ── NEEDS ATTENTION ── */}
             {(() => {
