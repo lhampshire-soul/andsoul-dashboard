@@ -372,7 +372,9 @@ export default async function handler(req, res) {
         conflicts,
         // Individual forward short-stay stays keyed by room number, so the
         // frontend can cross-check them against Res Harmonics long-stay tenants
-        ssStays: Object.entries(byUnit).flatMap(([uid, list]) =>
+        // Nomad (short-stay estate) only — long-stay rooms are served by the
+        // snapshot, so including them here would make each tenancy clash with itself.
+        ssStays: Object.entries(byUnit).filter(([uid]) => ssChildIds.has(uid)).flatMap(([uid, list]) =>
           list.map(s => ({ room: unitRoomNo[uid] || null, ...s }))
         ).filter(s => s.room),
         // Every confirmed booking with its CREATION date, so the Recent Booking
@@ -390,6 +392,7 @@ export default async function handler(req, res) {
             value: Number(a.total_cost) || 0,
             platform: a.platform || null,
             room: uid ? (unitRoomNo[uid] || null) : null,
+            nomad: uid ? ssChildIds.has(uid) : false,
             guest: `${a.lead_guest_first_name || ""} ${a.lead_guest_last_name || ""}`.trim(),
           };
         }),

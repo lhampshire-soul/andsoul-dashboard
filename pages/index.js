@@ -3433,6 +3433,7 @@ export default function Dashboard() {
     const lavCandidates = [];
     if (lavandaConn && lavandaData?.bookingsLite) {
       lavandaData.bookingsLite.forEach(b => {
+        if (b.nomad === false) return; // long-stay rooms come via the snapshot — avoid double counting
         if (!b.created || b.created < activityFrom || b.created > activityTo) return;
         if (!b.nights || b.nights < 1) return;
         lavCandidates.push({
@@ -3875,7 +3876,7 @@ export default function Dashboard() {
     if (lavandaConn && lavandaData?.daily) {
       lavandaData.daily.forEach(d => { const i2 = idx[d.date]; if (i2 == null) return;
         S.ssOcc[i2] = d.booked || 0; S.ssRev[i2] = d.rev || 0; });
-      (lavandaData.bookingsLite||[]).forEach(b => { const i2 = idx[b.created]; if (i2 != null) S.ssBooked[i2]++; });
+      (lavandaData.bookingsLite||[]).forEach(b => { if (b.nomad === false) return; const i2 = idx[b.created]; if (i2 != null) S.ssBooked[i2]++; });
     }
     S.ssAdr = S.ssRev.map((r,i)=> S.ssOcc[i] > 0 ? r / S.ssOcc[i] : null);
     // helpers
@@ -3934,7 +3935,7 @@ export default function Dashboard() {
 
   // Short-stay arrivals/departures: next 7 days vs the 7 before today
   const ssMove = useMemo(() => {
-    const bl = lavandaData?.bookingsLite || [];
+    const bl = (lavandaData?.bookingsLite || []).filter(b => b.nomad !== false);
     const d0 = history.today;
     const plus = (n) => new Date(new Date(d0+"T00:00:00Z").getTime() + n*864e5).toISOString().slice(0,10);
     const inWin = (x, a, b) => x >= a && x < b;
