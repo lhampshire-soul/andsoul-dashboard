@@ -244,9 +244,10 @@ export default async function handler(req, res) {
       // too, and a room is only genuinely open if neither system has it booked.
       const unitRoomNo = {};
       propGroups.forEach(p => {
-        if (!ssChildIds.has(p.id)) return;
-        const m = (p?.attributes?.name || "").match(/(\d{3,4})\s*$/);
-        if (m) unitRoomNo[p.id] = m[1];
+        // Room number for every Southall unit (Nomad and long-stay alike) so
+        // conflicts and stays are labelled by room, never by unit UUID.
+        const m = (p?.attributes?.name || "").match(/(\d{1,4}(?:\s*&\s*\d{1,4})?)\s*$/);
+        if (m && (ssChildIds.has(p.id) || /^Southall/i.test(p?.attributes?.name || ""))) unitRoomNo[p.id] = m[1].replace(/\s+/g, "");
       });
       const ssBusyUnits = new Set(), ssBookedRooms = new Set();
       let ssForwardBookings = 0, ssForwardOutsideGroup = 0;
