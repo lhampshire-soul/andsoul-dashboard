@@ -4126,7 +4126,7 @@ export default function Dashboard() {
     setPmsConn(true); setPmsErr("");
     const at = snap.builtAt ? new Date(snap.builtAt).getTime() : Date.now();
     stamp("rh", at);
-    setSnapInfo(i => ({ ...(i || {}), builtAt: snap.builtAt, ageMin: Math.round((Date.now() - at) / 60000), refreshing: false }));
+    setSnapInfo(i => ({ ...(i || {}), builtAt: snap.builtAt, source: snap.source || "rh", ageMin: Math.round((Date.now() - at) / 60000), refreshing: false }));
     console.log(`Snapshot applied: ${bookings.length} bookings, built ${snap.builtAt}`);
     return true;
   }, [stamp]);
@@ -4577,7 +4577,7 @@ export default function Dashboard() {
               { k:"google",  on:googleIsLive, name:"Google Ads",   col:C.blue,   bg:"#3d82c422", off:"Google Ads · static" },
               { k:"ga4",     on:!!analyticsData, name:"GA4",       col:C.blue,   bg:"#3d82c422", off:"GA4" },
               { k:"ghl",     on:ghlConn,      name:"GHL CRM",      col:C.purple, bg:"#9b72cf22", off:"GHL CRM" },
-              { k:"rh",      on:pmsConn,      name:"Res Harmonics",col:C.sage,   bg:"#3d9e7522", off:"Res Harmonics" },
+              { k:"rh",      on:pmsConn,      name:snapInfo?.source==="lavanda"?"Lavanda · long-stay":"Res Harmonics",col:C.sage,   bg:"#3d9e7522", off:snapInfo?.source==="lavanda"?"Lavanda · long-stay":"Res Harmonics" },
               { k:"lavanda", on:lavandaConn,  name:"Lavanda",      col:C.blue,   bg:"#3d82c422", off:"Lavanda" },
             ].map(src => {
               const f = freshness(src.k);
@@ -4652,7 +4652,7 @@ export default function Dashboard() {
                 <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 0"}}>Property Overview</h2>
               </div>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                {pmsConn && <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● RH Live</span>}
+                {pmsConn && <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● {snapInfo?.source==="lavanda"?"Lavanda long-stay":"RH"} Live</span>}
                 {lavandaConn && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● Lavanda Live</span>}
                 {!pmsConn && !lavandaConn && <span style={{fontSize:10,color:C.muted}}>○ Not connected</span>}
               </div>
@@ -4661,7 +4661,7 @@ export default function Dashboard() {
             {/* ── RH FROZEN BANNER ── */}
             {pmsConn && snapInfo?.builtAt && (Date.now() - new Date(snapInfo.builtAt).getTime()) > 24 * 3600e3 && (
               <div style={{background:C.rose+"14",border:`1px solid ${C.rose}66`,borderRadius:14,padding:"12px 16px",margin:"16px 0 0"}}>
-                <p style={{fontSize:13,fontWeight:700,color:C.rose}}>Res Harmonics data is frozen — last successful pull {new Date(snapInfo.builtAt).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
+                <p style={{fontSize:13,fontWeight:700,color:C.rose}}>{snapInfo.source==="lavanda"?"Lavanda long-stay":"Res Harmonics"} data is frozen — last successful pull {new Date(snapInfo.builtAt).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
                 <p style={{fontSize:11,color:C.muted,marginTop:3}}>{snapInfo.buildError ? `Refresh is failing (${snapInfo.buildError}). ` : ""}Every long-stay figure on this dashboard (occupancy, revenue, AWR, renewals, new bookings) is as of that moment, not today. Short-stay figures from Lavanda are live.</p>
               </div>
             )}
@@ -4857,7 +4857,7 @@ export default function Dashboard() {
                       <div style={{width:`${usable>0?Math.round(ssOcc/usable*100):0}%`,background:C.blue,transition:"width 0.4s"}}/>
                     </div>
                     <div style={{display:"flex",gap:12,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap"}}>
-                      <span><span style={{color:C.sage,fontWeight:700}}>{lsOcc}</span> via RH{pmsData?.occupiedShortBreak>0?` (${pmsData.occupiedLongStay} long-stay + ${pmsData.occupiedShortBreak} short break)`:" long-stay"}</span>
+                      <span><span style={{color:C.sage,fontWeight:700}}>{lsOcc}</span> via {snapInfo?.source==="lavanda"?"Lavanda":"RH"}{pmsData?.occupiedShortBreak>0?` (${pmsData.occupiedLongStay} long-stay + ${pmsData.occupiedShortBreak} short break)`:" long-stay"}</span>
                       <span><span style={{color:C.blue,fontWeight:700}}>{ssOcc}</span> short-stay</span>
                       <span><span style={{fontWeight:700}}>{vacancy}</span> vacant</span>
                     </div>
@@ -5104,7 +5104,7 @@ export default function Dashboard() {
                 {pmsConn && pmsData && pmsData.forecast && (
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
                     <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Monthly Occupancy — Combined</h3>
-                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Active rooms by month (long-stay from RH{lavandaConn?" + short-stay from Lavanda":""})</p>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Active rooms by month (long-stay from {snapInfo?.source==="lavanda"?"Lavanda":"RH"}{lavandaConn?" + short-stay from Lavanda":""})</p>
                     {(() => {
                       const lavMonthly = {};
                       const ssRevByMonth = {};
