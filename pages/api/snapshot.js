@@ -130,6 +130,11 @@ function adaptLavanda(rawBookings, rawProps, today) {
     const groupId = b.relationships?.property?.data?.id;
     const u = unitById[unitId];
     const groupName = propById[groupId]?.name || "";
+    // Nomad units are the short-stay estate: they are already covered, with
+    // their own occupancy / ADR / revenue, by the Lavanda short-stay feed.
+    // Keeping them out here prevents the same booking appearing on both sides
+    // (which would read as a double booking and inflate occupancy).
+    if (/Nomad/i.test(groupName) || /Nomad/i.test(u?._lavName || "")) return;
     const unit = u ? { id: u.id, unitName: u.unitName, unitTypeName: u.unitTypeName, buildingName: "Southall &Soul" }
                    : { id: unitId || groupId, unitName: `Room: ${roomNoFromName(groupName) || "unassigned"}`, unitTypeName: unitTypeFromName(groupName), buildingName: "Southall &Soul" };
     const days = Math.max(0, Math.round((new Date(end) - new Date(start)) / 864e5));
