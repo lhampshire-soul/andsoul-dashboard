@@ -398,7 +398,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     if (bedroomIds.size > 0 && !bedroomIds.has(g.unitId)) return;
     const f = (g.dateFrom ?? "").slice(0, 10);
     const t = (g.dateTo ?? "").slice(0, 10);
-    if (!f || !t || !(f <= today && t > today)) return;
+    if (!f || !t || !(f <= today && t >= today)) return; // Lavanda definition: in house until checked out
     checkedInUnits.add(g.unitId);
     inHouseGuestCount++;
     if (Math.round((new Date(t) - new Date(f)) / 864e5) >= MIN_STAY_DAYS) checkedInUnitsLongStay.add(g.unitId);
@@ -3611,10 +3611,18 @@ export default function Dashboard() {
     const rhRooms = new Set(pmsData.occupiedRoomNumbers || []);
     const d = new Date().toISOString().slice(0, 10);
     const ssRooms = (lavandaConn && lavandaData?.ssStays)
-      ? [...new Set(lavandaData.ssStays.filter(s => s.start <= d && s.end > d).map(s => s.room))]
+      ? [...new Set(lavandaData.ssStays.filter(s => s.start <= d && s.end >= d).map(s => s.room))]
       : [];
     const extra = ssRooms.filter(r => !rhRooms.has(r)).length;
     return pmsData.occupied + extra;
+  })();
+  // Guests in house right now (stays, Lavanda's "Active stays" definition)
+  const inHouseGuests = (() => {
+    if (!(pmsConn && pmsData)) return 0;
+    const rhRooms = new Set(pmsData.occupiedRoomNumbers || []);
+    const d = new Date().toISOString().slice(0, 10);
+    const ssStays = (lavandaConn && lavandaData?.ssStays) ? lavandaData.ssStays.filter(s => s.start <= d && s.end >= d && !rhRooms.has(s.room)).length : 0;
+    return (pmsData.inHouseGuests || pmsData.occupied) + ssStays;
   })();
   // Real bedroom count from Res Harmonics (302) rather than the legacy 300
   // constant, so "usable" ties to the room list the tiles are built from.
@@ -4603,13 +4611,16 @@ export default function Dashboard() {
               const todaySum = new Date().toISOString().slice(0,10);
               const rhOccRooms = new Set((pmsConn && pmsData?.occupiedRoomNumbers) || []);
               const ssRoomsTonight = (lavandaConn && lavandaData?.ssStays)
-                ? [...new Set(lavandaData.ssStays.filter(s => s.start <= todaySum && s.end > todaySum).map(s => s.room))]
+                ? [...new Set(lavandaData.ssStays.filter(s => s.start <= todaySum && s.end >= todaySum).map(s => s.room))]
                 : [];
               const ssDuplicated = ssRoomsTonight.filter(r => rhOccRooms.has(r)).length;
               const ssOcc = ssRoomsTonight.length > 0 ? ssRoomsTonight.length - ssDuplicated : ssOccRaw;
               const ssBlocked = lavandaConn && lavandaData ? lavandaData.kpis.blocked_tonight : 0;
               const ssUnits = lavandaConn && lavandaData ? lavandaData.kpis.units : 0;
               const totalOcc = lsOcc + ssOcc;
+              // Guests in house right now (stays, not rooms) — matches Lavanda's "Active stays"
+              const ssStaysNow = (lavandaConn && lavandaData?.ssStays) ? lavandaData.ssStays.filter(s => s.start <= todaySum && s.end >= todaySum && !rhOccRooms.has(s.room)).length : ssOcc;
+              const inHouseNow = (pmsConn && pmsData ? (pmsData.inHouseGuests || lsOcc) : 0) + ssStaysNow;
               const usable = Math.max(1, lsTotal - offlineRooms); // rooms held per the offline register
               const totalPct = usable > 0 ? Math.round(totalOcc / usable * 100) : 0;
               const lsPct = usable > 0 ? Math.round(lsOcc / usable * 100) : 0;
@@ -4634,10 +4645,11 @@ export default function Dashboard() {
                 {/* Top-level combined numbers */}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:14,margin:"18px 0"}}>
                   <div style={{background:`linear-gradient(135deg, ${C.card}, ${C.bg})`,border:`1px solid ${C.gold}44`,borderRadius:14,padding:20}}>
-                    <p style={{fontSize:10,color:C.gold,fontWeight:600,marginBottom:6}}>TOTAL OCCUPIED</p>
+                    <p style={{fontSize:10,color:C.gold,fontWeight:600,marginBottom:6}}>IN HOUSE NOW <span style={{color:C.muted,fontWeight:400}}>· guests in the building (Lavanda active stays)</span></p>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:10}}>
                       <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
-                        <p style={{fontSize:36,fontWeight:800,color:C.gold,fontFamily:"DM Mono,monospace",lineHeight:1}}>{totalOcc}</p>
+                        <p style={{fontSize:36,fontWeight:800,color:C.gold,fontFamily:"DM Mono,monospace",lineHeight:1}}>{inHouseNow}</p>
+                        {inHouseNow !== totalOcc && <span style={{fontSize:11,color:C.muted}}>in {totalOcc} rooms</span>}
                         <DeltaChip delta={mkDelta(totalOcc, (history.at(history.occ, history.daysAgo(30))||0) + (history.at(history.ssOcc, history.daysAgo(30))||0), {label:"30 days ago"})} size={11}/>
                       </div>
                       <Spark data={history.last30(history.occ).map((v,i)=>v + history.last30(history.ssOcc)[i])} color={C.gold} width={110} height={30}/>
@@ -5749,11 +5761,11 @@ export default function Dashboard() {
                   <OccRing pct={occPct}/>
                   <div>
                     <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-                      <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> / {usableRooms}</span></p>
+                      <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{inHouseGuests || occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> in house{inHouseGuests !== occupied ? ` · ${occupied} / ${usableRooms} rooms` : ` / ${usableRooms}`}</span></p>
                       <DeltaChip delta={mkDelta(occupied, (history.at(history.occ, history.daysAgo(30))||0) + (history.at(history.ssOcc, history.daysAgo(30))||0), {label:"30 days ago"})}/>
                     </div>
                     <Spark data={history.last30(history.occ).map((v,i)=>v + history.last30(history.ssOcc)[i])} color={C.gold} width={120} height={24}/>
-                    <p style={{fontSize:12,color:C.muted}}>rooms occupied today{pmsData?.inHouseGuests > occupied ? ` (${pmsData.inHouseGuests} guests)` : ""}</p>
+                    <p style={{fontSize:12,color:C.muted}}>guests in the building now — Lavanda active stays (incl. anyone checking out today)</p>
                   </div>
                 </div>
                 <div style={{flex:"1 1 200px",display:"flex",flexDirection:"column",gap:8}}>

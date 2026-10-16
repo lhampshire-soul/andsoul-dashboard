@@ -86,7 +86,9 @@ function adaptLavanda(rawBookings, rawProps, today) {
     let status;
     if (st === "canceled" || a.canceled) status = "CANCELLED";
     else if (st === "tentative") status = "PENDING";
-    else if (end <= today) status = "CHECKED_OUT";
+    // "In house" follows Lavanda's own definition: a guest counts until they
+    // have checked out, so a stay ending today is still in the building today.
+    else if (end < today) status = "CHECKED_OUT";
     else if (start <= today) status = "CHECKED_IN";
     else status = "CONFIRMED";
     const unitId = b.relationships?.unit?.data?.id;
