@@ -1066,10 +1066,11 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   //    (catches pending renewals that chain-matching misses)
   // Creation date is parsed from bookingReference (YYYYMMDD-NNNNN format).
   const weeklyRenewals = (() => {
-    const parseCreated = (ref) => {
-      if (!ref || ref.length < 8) return null;
+    const parseCreated = (ref, b) => {
+      if (b?.created) return b.created.slice(0,10);
+      if (!ref || ref.length < 8 || !/^\d{8}-/.test(ref)) return null;
       return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
-    };
+      };
     const getWeekMonday = (dateStr) => {
       const d = new Date(dateStr);
       const day = d.getDay();
@@ -1086,7 +1087,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
     Object.entries(renewalFollowOnRoomStayId).forEach(([expiringRsId, followOnRsId]) => {
       const followOnBooking = bookingByRoomStayId[followOnRsId];
       if (!followOnBooking) return;
-      const created = parseCreated(followOnBooking.bookingReference);
+      const created = parseCreated(followOnBooking.bookingReference, followOnBooking);
       if (!created) return;
       const followOnStatus = (followOnBooking.roomStayStatus ?? "").toUpperCase();
       if (!["PENDING","CONFIRMED","CHECKED_IN","CHECKED_OUT"].includes(followOnStatus)) return;
@@ -1127,7 +1128,7 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       if (!cid || !checkedInContactIds.has(cid)) return; // only for in-house contacts
       const bld = (b.unit?.buildingName || "").toLowerCase();
       if (!bld.includes("southall")) return;
-      const created = parseCreated(b.bookingReference);
+      const created = parseCreated(b.bookingReference, b);
       if (!created) return;
       // Find the contact's current checked-in booking as the "expiring" reference
       const currentStay = allBookings.find(cb =>
@@ -1189,17 +1190,18 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       if (!cid || !ciContactIds.has(cid)) return;
       const bld = (b.unit?.buildingName || "").toLowerCase();
       if (!bld.includes("southall")) return;
-      const parseCreated = (ref) => {
-        if (!ref || ref.length < 8) return null;
+      const parseCreated = (ref, b) => {
+        if (b?.created) return b.created.slice(0,10);
+        if (!ref || ref.length < 8 || !/^\d{8}-/.test(ref)) return null;
         return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
-      };
+        };
       const currentStay = allBookings.find(cb =>
         (cb.contactId || cb.bookingContact?.id) === cid &&
         (cb.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN" &&
         (cb.unit?.buildingName || "").toLowerCase().includes("southall")
       );
       results.push({
-        created: parseCreated(b.bookingReference) || "—",
+        created: parseCreated(b.bookingReference, b) || "—",
         status: "PENDING",
         name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
         email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
@@ -1236,17 +1238,18 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
       if (!cid || !ciContactIds.has(cid)) return;
       const bld = (b.unit?.buildingName || "").toLowerCase();
       if (!bld.includes("southall")) return;
-      const parseCreated = (ref) => {
-        if (!ref || ref.length < 8) return null;
+      const parseCreated = (ref, b) => {
+        if (b?.created) return b.created.slice(0,10);
+        if (!ref || ref.length < 8 || !/^\d{8}-/.test(ref)) return null;
         return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
-      };
+        };
       const currentStay = allBookings.find(cb =>
         (cb.contactId || cb.bookingContact?.id) === cid &&
         (cb.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN" &&
         (cb.unit?.buildingName || "").toLowerCase().includes("southall")
       );
       results.push({
-        created: parseCreated(b.bookingReference) || "—",
+        created: parseCreated(b.bookingReference, b) || "—",
         status: "CONFIRMED",
         name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
         email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
@@ -1502,29 +1505,7 @@ async function exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leaving
   XLSX.writeFile(wb, `AndSoul_Renewals_${today}.xlsx`);
 }
 
-async function getRHToken(cid, sec) {
-  const r = await fetch(`/api/rh?action=token&client_id=${encodeURIComponent(cid)}&client_secret=${encodeURIComponent(sec)}`);
-  const data = await r.json();
-  if(!r.ok) throw new Error(data?.error ?? `Auth ${r.status}`);
-  return data.access_token;
-}
-async function rhFetch(tok,path) {
-  const r = await fetch(`/api/rh?action=fetch&path=${encodeURIComponent(path)}`,{headers:{"x-rh-token":tok}});
-  const data = await r.json();
-  if(!r.ok) throw new Error(data?.error ?? `${r.status}`);
-  return data;
-}
 
-async function rhUpdate(tok, path, body) {
-  const r = await fetch(`/api/rh?action=update&path=${encodeURIComponent(path)}`, {
-    method: "POST",
-    headers: { "x-rh-token": tok, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data?.error ?? `${r.status}`);
-  return data;
-}
 
 // ─── TRUE CONTRACTED PCM ──────────────────────────────────────────────────────
 // Res Harmonics holds the real contracted rate on the roomStay DETAIL endpoint:
@@ -1644,94 +1625,16 @@ function classifyLeadSource(contact) {
   return "direct";
 }
 
-async function rhFetchAll(tok, basePath, maxPages=50) {
-  let all = [];
-  let page = 0;
-  while (page < maxPages) {
-    const sep = basePath.includes("?") ? "&" : "?";
-    // Retry each page up to 3 times — a single transient failure must not
-    // silently truncate the dataset (causes wildly wrong revenue/occupancy)
-    let data = null, lastErr = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        data = await rhFetch(tok, `${basePath}${sep}page=${page}&size=100`);
-        lastErr = null;
-        break;
-      } catch (e) {
-        lastErr = e;
-        await new Promise(r => setTimeout(r, 700 * (attempt + 1)));
-      }
-    }
-    if (lastErr) throw lastErr;
-    const content = data.content ?? data.data ?? data.results ?? (Array.isArray(data) ? data : []);
-    all = all.concat(content);
-    const pageInfo = data.page ?? {};
-    const totalPages = pageInfo.totalPages ?? 1;
-    const totalElements = pageInfo.totalElements ?? all.length;
-    if (page + 1 >= totalPages || all.length >= totalElements) break;
-    page++;
-  }
-  return all;
-}
 
 // ─── Enrich bookings with the TRUE contracted rate from the roomStay detail ───
 // The bookings list endpoint has no rate fields, so PCM used to be derived from
 // total value ÷ days and then snapped to a price list — which mis-stated ~34% of
 // bookings (e.g. a contracted £1,225 displayed as £1,200). We fetch the detail
 // for each active long-stay room booking and attach the real rate.
-async function enrichBookingsWithRates(tok, bookings) {
-  const targets = bookings.filter(b => {
-    const s = (b.roomStayStatus ?? "").toUpperCase();
-    if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(s)) return false;
-    if (!b.roomStayId) return false;
-    const f = (b.startDate ?? "").slice(0, 10), t = (b.endDate ?? "").slice(0, 10);
-    if (!f || !t) return false;
-    return Math.round((new Date(t) - new Date(f)) / 864e5) >= MIN_STAY_DAYS;
-  });
-  const BATCH = 25;
-  let ok = 0;
-  for (let i = 0; i < targets.length; i += BATCH) {
-    const batch = targets.slice(i, i + BATCH);
-    await Promise.all(batch.map(async (b) => {
-      try {
-        const d = await rhFetch(tok, `/api/v3/roomStays/${b.roomStayId}`);
-        if (!d || d.error) return;
-        b._rateType = d.rate?.rateType ?? null;
-        // discountDailyRate = agreed rate for the rate period (gross / VAT-inclusive)
-        b._trueRatePcm = d.discountDailyRate ?? d.originalRate ?? null;
-        b._originalRatePcm = d.originalRate ?? null;
-        b._rateName = d.rate?.name ?? null;
-        b._rateCode = d.rate?.rateCode ?? null;
-        ok++;
-      } catch {}
-    }));
-  }
-  console.log(`Rate enrichment: ${ok}/${targets.length} bookings got true contracted rates`);
-  return ok;
-}
 
 // ─── Enrich renewal objects with status change dates from individual roomStay ─
 // The list endpoint doesn't include conversionDate/confirmedDate/contractSignedDate.
 // We must fetch /api/v3/roomStays/{id} for each renewal to get these timestamps.
-async function enrichRenewalsWithDates(tok, renewals) {
-  const BATCH = 10; // concurrency limit
-  for (let i = 0; i < renewals.length; i += BATCH) {
-    const batch = renewals.slice(i, i + BATCH);
-    await Promise.all(batch.map(async (r) => {
-      if (!r.roomStayId) return;
-      try {
-        const detail = await rhFetch(tok, `/api/v3/roomStays/${r.roomStayId}`);
-        r.conversionDate = detail.conversionDate ? detail.conversionDate.slice(0, 10) : null;
-        r.confirmedDate = detail.confirmedDate ? detail.confirmedDate.slice(0, 10) : null;
-        r.contractSignedDate = detail.contractSignedDate ? detail.contractSignedDate.slice(0, 10) : null;
-        r.lastStatusChangeDate = detail.lastStatusChangeDate ? detail.lastStatusChangeDate.slice(0, 10) : null;
-      } catch (e) {
-        console.log(`Failed to enrich roomStay ${r.roomStayId}:`, e.message);
-      }
-    }));
-  }
-  return renewals;
-}
 
 // ─── UI COMPONENTS ────────────────────────────────────────────────────────────
 const Tip = ({active,payload,label}) => {
@@ -2935,7 +2838,7 @@ export default function Dashboard() {
   useEffect(()=>{ if(ghlConn) runGHL(from,to); },[from,to]);
 
   // PMS
-  const [cid,setCid]=useState("5n3lgu73rc3jqus4fur3c58fbb"), [csec,setCsec]=useState("1bfob7es3ge16bmjs8t4i0ah2ica4t1ujt8aeqa4b3rs9cmsa7uh");
+  // (Res Harmonics credentials removed — Lavanda is the only PMS)
   const [pmsLoad,setPmsLoad]=useState(false), [pmsErr,setPmsErr]=useState("");
   const [pmsConn,setPmsConn]=useState(false), [pmsData,setPmsData]=useState(null);
   const [mOcc,setMOcc]=useState(72), [mRate,setMRate]=useState(1450);
@@ -3152,20 +3055,7 @@ export default function Dashboard() {
       }).catch(() => {});
       return prev;
     });
-    // Attempt to update RH API if we have credentials
-    if (cid && csec && bookingId) {
-      (async () => {
-        try {
-          const tok = await getRHToken(cid, csec);
-          await rhUpdate(tok, `/api/v3/bookings/${bookingId}`, { customerReference: value });
-          console.log(`RH: Updated customerReference for booking ${bookingId} to "${value}"`);
-        } catch (e) {
-          console.log(`RH: Could not update customerReference for ${bookingId}:`, e.message);
-          // Still saved locally — will show in dashboard regardless
-        }
-      })();
-    }
-  }, [cid, csec]);
+  }, []);
 
   // Helper: save both sets + leaving reasons to Redis + localStorage
   const persistRenewalState = useCallback((newLeaving, newPending, newReasons, newEarlyTerm) => {
@@ -3350,12 +3240,13 @@ export default function Dashboard() {
 
     const bookings = rhAllBookings;
     // Parse creation date from booking reference "YYYYMMDD-NNNNN"
-    const parseCreated = (ref) => {
-      if (!ref || ref.length < 8) return null;
+    const parseCreated = (ref, b) => {
+      if (b?.created) return b.created.slice(0,10);
+      if (!ref || ref.length < 8 || !/^\d{8}-/.test(ref)) return null;
       return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
     };
 
-    // Build unit ID → room type map from rhAllUnits
+    // Build unit ID → room type map from the unit list
     const unitTypeMap = {};
     for (const u of (rhAllUnits || [])) {
       const tn = (u.unitTypeName || "").toLowerCase();
@@ -3387,7 +3278,7 @@ export default function Dashboard() {
       // Short breaks (<28 nights) are now kept and shown in their own band
       // rather than being dropped, so the totals reconcile.
       if (losDays < 1) continue;
-      const created = parseCreated(b.bookingReference);
+      const created = parseCreated(b.bookingReference, b);
       if (!created) continue;
       if (created < activityFrom || created > activityTo) continue;
       // Classify room type from unit ID → unitTypeName map
@@ -3801,7 +3692,7 @@ export default function Dashboard() {
         // Investor view: no guest names or booking references — facts about the clash only.
         m.aLabel = m.kind === "cross" ? "Long-stay tenant" : "Short-stay guest";
         m.bLabel = "Short-stay guest";
-        m.aMeta = m.kind === "cross" ? "Res Harmonics · long-stay" : (m.aMeta.split(" · ")[1] || "short-stay");
+        m.aMeta = m.kind === "cross" ? "Lavanda · long-stay" : (m.aMeta.split(" · ")[1] || "short-stay");
         m.bMeta = m.bMeta.split(" · ")[1] || "short-stay";
       }
     });
@@ -4002,8 +3893,8 @@ export default function Dashboard() {
     }));
     // 2. Held rooms still bookable in the PMS
     if (F.heldStillBookable > 0) items.push({
-      sev: 2, kind: "PMS mismatch", title: `${F.heldStillBookable} held room${F.heldStillBookable!==1?"s":""} still marked bookable in Res Harmonics`,
-      detail: "Sales can sell a linen/staff/maintenance room without anything stopping them. Block them in RH.", tab: "bookings",
+      sev: 2, kind: "PMS mismatch", title: `${F.heldStillBookable} held room${F.heldStillBookable!==1?"s":""} still open on the Lavanda calendar`,
+      detail: "Sales can sell a linen/staff/maintenance room without anything stopping them. Close them on the Lavanda calendar.", tab: "bookings",
     });
     // 3. Holds expiring this week
     F.heldExpiring.forEach(h => items.push({
@@ -4011,7 +3902,7 @@ export default function Dashboard() {
       detail: h.reason, tab: "bookings",
     }));
     // 4. Stale / disconnected sources
-    [["rh","Res Harmonics",pmsConn],["lavanda","Lavanda",lavandaConn],["ghl","GHL CRM",ghlConn],["meta","Meta",metaIsLive],["google","Google Ads",googleIsLive]].forEach(([k,name,on]) => {
+    [["rh","Lavanda bookings",pmsConn],["lavanda","Lavanda short-stay",lavandaConn],["ghl","GHL CRM",ghlConn],["meta","Meta",metaIsLive],["google","Google Ads",googleIsLive]].forEach(([k,name,on]) => {
       const f = freshness(k);
       if (!on) items.push({ sev: 2, kind: "Source down", title: `${name} not connected`, detail: "Figures depending on it are stale or missing.", tab: null });
       else if (f.stale) items.push({ sev: 1, kind: "Stale data", title: `${name} last refreshed ${f.label} (${f.ageMin} min ago)`, detail: "Feed hasn't updated in over an hour.", tab: null });
@@ -4047,7 +3938,7 @@ export default function Dashboard() {
       return `Southall is at ${F.totalOccNow} of ${F.usable} usable rooms tonight (${F.occPct}%), ${d ? d + " on 30 days ago" : "with no 30-day comparison yet"} — ${F.occNow} long-stay${F.ssRoomsNow?` and ${F.ssRoomsNow} short-stay`:""}.`;
     })();
     const stockLine = F.emptyRooms === 0 ? "There is no empty stock." :
-      `${F.emptyRooms} rooms are empty, but only ${F.sellableRooms} can actually be sold — the other ${F.heldEmpty} are held on the offline register${F.heldStillBookable?` (${F.heldStillBookable} of the held rooms are still marked bookable in Res Harmonics, which is a risk)`:""}.`;
+      `${F.emptyRooms} rooms are empty, but only ${F.sellableRooms} can actually be sold — the other ${F.heldEmpty} are held on the offline register${F.heldStillBookable?` (${F.heldStillBookable} of the held rooms are still open on the Lavanda calendar, which is a risk)`:""}.`;
     const dbLine = F.doubleBookings.length ? ` ${F.doubleBookings.length} double booking${F.doubleBookings.length!==1?"s":""} need${F.doubleBookings.length===1?"s":""} resolving: ${F.doubleBookings.map(c=>`room ${c.room} (${c.from}→${c.to})`).join(", ")}.` : " No double bookings are open.";
     const p1 = `${occLine} ${stockLine}${dbLine}`;
     const revD = pctStr(F.revCur, F.revPrev), awrD = pctStr(F.awrNow, F.awr30), adrD = pctStr(F.adrCur, F.adrPrev);
@@ -4082,19 +3973,6 @@ export default function Dashboard() {
   const adjConfirmedValue = ghlConn && ghlData ? ghlData.confirmedValue + manualValue : ghlData?.confirmedValue ?? 0;
   const adjConvRate = ghlConn && ghlData && ghlData.toursBooked > 0 ? Math.round(adjConfirmed/ghlData.toursBooked*100) : ghlData?.convRate;
 
-  // Load RH credentials from localStorage on mount
-  useEffect(()=>{
-    const saved = typeof window !== "undefined" && localStorage.getItem("rh_creds");
-    if (saved) {
-      try {
-        const { cid: c, csec: s } = JSON.parse(saved);
-        setCid(c);
-        setCsec(s);
-      } catch (e) {
-        console.log("Failed to load RH creds from localStorage:", e);
-      }
-    }
-  }, []);
 
   // ── Server snapshot (fast path) ─────────────────────────────────────────
   // /api/snapshot holds a Redis copy of the full RH dataset (bookings, stays,
@@ -4165,7 +4043,7 @@ export default function Dashboard() {
           if (ageMin >= SNAPSHOT_MAX_AGE_MIN) refreshSnapshot(`snapshot ${ageMin} min old`);
         } else {
           setSnapState("none");
-          // No snapshot yet: seed it in the background so the next visitor is fast.
+          // No snapshot yet: build it now (Lavanda pull takes ~20s server-side).
           refreshSnapshot("no snapshot");
         }
       } catch (e) { if (!cancelled) setSnapState("none"); }
@@ -4174,60 +4052,17 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, []);
 
-  // Auto-connect PMS directly (slow path) only when no snapshot could be applied
-  useEffect(()=>{
-    if (cid && csec && !pmsConn && snapState === "none") {
-      connectPMS();
-    }
-  }, [cid, csec, snapState]);
+  // No direct PMS pull any more — Lavanda is read via the server snapshot only.
 
-  // Silent background refresh — re-fetches PMS data without showing loading spinner
-  const silentPmsRefresh = useCallback(async()=>{
-    if(!cid||!csec) return;
-    try{
-      console.log("PMS silent refresh started");
-      const tok=await getRHToken(cid,csec);
-      let allGuestStays = [];
-      try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { console.log("silent refresh guestStays error:", e.message); }
-      let allBookings = [];
-      try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) {}
-      // RH API excludes PENDING bookings by default — fetch them separately and merge
-      let pendingBookings = [];
-      try { pendingBookings = await rhFetchAll(tok, "/api/v3/bookings?statuses=PENDING"); } catch(e) {}
-      const pendingRefs = new Set(pendingBookings.map(b => `${b.bookingReference}-${b.roomStayId}`));
-      const mergedBookings = [...allBookings.filter(b => !pendingRefs.has(`${b.bookingReference}-${b.roomStayId}`)), ...pendingBookings];
-      let allUnits = [];
-      try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) {}
-
-      // Sanity guard: never overwrite good data with an obviously-truncated load
-      if (mergedBookings.length < 50 || allGuestStays.length < 50) {
-        console.warn(`PMS silent refresh: partial load detected (bookings=${mergedBookings.length}, stays=${allGuestStays.length}) — keeping previous data`);
-        return;
-      }
-
-      await enrichBookingsWithRates(tok, mergedBookings);
-
-      const metrics = computePmsMetrics(allGuestStays, mergedBookings, allUnits);
-
-      // Enrich renewal objects with status change dates
-      const allRenewals = [...(metrics.pendingRenewals || []), ...(metrics.confirmedRenewals || [])];
-      await enrichRenewalsWithDates(tok, allRenewals);
-
-      setPmsData(metrics); stamp("rh");
-      setRhAllBookings(mergedBookings);
-      setRhAllUnits(allUnits);
-      console.log("PMS silent refresh complete, bookings:", mergedBookings.length, "(incl", pendingBookings.length, "pending)");
-    }catch(e){ console.log("PMS silent refresh error:", e.message); }
-  },[cid,csec]);
 
   // Auto-refresh PMS data every 5 minutes so new bookings appear live.
   // Snapshot path: nudge the server builder (cheap for the browser) and re-apply.
   useEffect(()=>{
     if (!pmsConn) return;
-    const tick = () => { if (snapState === "applied") refreshSnapshot("periodic"); else if (cid && csec) silentPmsRefresh(); };
+    const tick = () => { refreshSnapshot("periodic"); };
     const interval = setInterval(tick, 5 * 60 * 1000);
     return ()=> clearInterval(interval);
-  }, [pmsConn, cid, csec, silentPmsRefresh, snapState, refreshSnapshot]);
+  }, [pmsConn, snapState, refreshSnapshot]);
 
   // Auto-refresh GA4 analytics every 5 minutes
   useEffect(()=>{
@@ -4240,51 +4075,6 @@ export default function Dashboard() {
     return ()=> clearInterval(interval);
   }, [analyticsData, sdAnalyticsData, from, to, fetchAnalytics]);
 
-  const connectPMS = useCallback(async()=>{
-    if(!cid||!csec){setPmsErr("Enter both fields.");return;}
-    setPmsLoad(true);setPmsErr("");
-    try{
-      const tok=await getRHToken(cid,csec);
-      localStorage.setItem("rh_creds", JSON.stringify({ cid, csec }));
-
-      let allGuestStays = [];
-      try { allGuestStays = await rhFetchAll(tok, "/api/v3/guestStays"); } catch(e) { console.log("guestStays error:", e.message); }
-      let allBookings = [];
-      try { allBookings = await rhFetchAll(tok, "/api/v3/bookings"); } catch(e) { console.log("bookings error:", e.message); }
-      // RH API excludes PENDING bookings by default — fetch them separately and merge
-      let pendingBookings = [];
-      try { pendingBookings = await rhFetchAll(tok, "/api/v3/bookings?statuses=PENDING"); } catch(e) { console.log("pending bookings error:", e.message); }
-      const pendingRefSet = new Set(pendingBookings.map(b => `${b.bookingReference}-${b.roomStayId}`));
-      allBookings = [...allBookings.filter(b => !pendingRefSet.has(`${b.bookingReference}-${b.roomStayId}`)), ...pendingBookings];
-      console.log("Bookings loaded:", allBookings.length, "(incl", pendingBookings.length, "pending)");
-      let allUnits = [];
-      try { allUnits = await rhFetchAll(tok, "/api/v3/units"); } catch(e) { console.log("units error:", e.message); }
-
-      // Sanity guard: a truncated bookings load produces wildly wrong revenue/AWR.
-      // Fail loudly instead of showing bad numbers.
-      if (allBookings.length < 50 || allGuestStays.length < 50) {
-        throw new Error(`Partial data from Res Harmonics (bookings=${allBookings.length}, stays=${allGuestStays.length}) — retry connection`);
-      }
-
-      // Attach true contracted rates BEFORE computing metrics so PCM is exact
-      await enrichBookingsWithRates(tok, allBookings);
-
-      const metrics = computePmsMetrics(allGuestStays, allBookings, allUnits);
-      console.log(`RH: occupied=${metrics.occupied}, checkIns=${metrics.checkInsWeek}, checkOuts=${metrics.checkOutsWeek}, monthRev=${metrics.revenue}, awr=${metrics.globalAwr}`);
-
-      // Enrich renewal objects with status change dates (conversionDate, confirmedDate, contractSignedDate)
-      const allRenewals = [...(metrics.pendingRenewals || []), ...(metrics.confirmedRenewals || [])];
-      console.log(`Enriching ${allRenewals.length} renewals with status dates...`);
-      await enrichRenewalsWithDates(tok, allRenewals);
-      console.log("Renewal date enrichment complete");
-
-      setPmsData(metrics); stamp("rh");
-      setRhAllBookings(allBookings);
-      setRhAllUnits(allUnits);
-      setPmsConn(true);
-    }catch(e){setPmsErr(`Failed: ${e.message}`); console.log("PMS Error:", e.message);}
-    finally{setPmsLoad(false);}
-  },[cid,csec]);
 
   // Reputation — per property, from /api/reputation (bundled collector data +
   // Redis ingest + live Google Places when configured). Never estimated.
@@ -4578,8 +4368,8 @@ export default function Dashboard() {
               { k:"google",  on:googleIsLive, name:"Google Ads",   col:C.blue,   bg:"#3d82c422", off:"Google Ads · static" },
               { k:"ga4",     on:!!analyticsData, name:"GA4",       col:C.blue,   bg:"#3d82c422", off:"GA4" },
               { k:"ghl",     on:ghlConn,      name:"GHL CRM",      col:C.purple, bg:"#9b72cf22", off:"GHL CRM" },
-              { k:"rh",      on:pmsConn,      name:snapInfo?.source==="lavanda"?"Lavanda · long-stay":"Res Harmonics",col:C.sage,   bg:"#3d9e7522", off:snapInfo?.source==="lavanda"?"Lavanda · long-stay":"Res Harmonics" },
-              { k:"lavanda", on:lavandaConn,  name:"Lavanda",      col:C.blue,   bg:"#3d82c422", off:"Lavanda" },
+              { k:"rh",      on:pmsConn,      name:"Lavanda · bookings",col:C.sage,   bg:"#3d9e7522", off:"Lavanda · bookings" },
+              { k:"lavanda", on:lavandaConn,  name:"Lavanda · short-stay",      col:C.blue,   bg:"#3d82c422", off:"Lavanda · short-stay" },
             ].map(src => {
               const f = freshness(src.k);
               const stale = src.on && f.stale;
@@ -4598,10 +4388,10 @@ export default function Dashboard() {
               );
             })}
             {snapInfo?.refreshing && (
-              <span title={`Refreshing the Res Harmonics snapshot on the server (${snapInfo.stage || "…"}${snapInfo.progress ? " · " + snapInfo.progress : ""}). Current figures stay on screen until the new data is in.`}
+              <span title={`Refreshing the Lavanda snapshot on the server (${snapInfo.stage || "…"}${snapInfo.progress ? " · " + snapInfo.progress : ""}). Current figures stay on screen until the new data is in.`}
                 style={{fontSize:10,color:C.muted,display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px"}}>
                 <span style={{width:9,height:9,border:`2px solid ${C.sage}`,borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"spin 0.9s linear infinite"}}/>
-                updating RH{snapInfo.stage ? ` · ${snapInfo.stage}` : ""}
+                updating Lavanda{snapInfo.stage ? ` · ${snapInfo.stage}` : ""}
               </span>
             )}
             <button onClick={()=>{ setInvestor(!investor); if(!investor && tab==="forecast") setTab("summary"); }}
@@ -4653,8 +4443,8 @@ export default function Dashboard() {
                 <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 0"}}>Property Overview</h2>
               </div>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                {pmsConn && <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● {snapInfo?.source==="lavanda"?"Lavanda long-stay":"RH"} Live</span>}
-                {lavandaConn && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● Lavanda Live</span>}
+                {pmsConn && <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● Lavanda Live</span>}
+                {lavandaConn && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● Short-stay Live</span>}
                 {!pmsConn && !lavandaConn && <span style={{fontSize:10,color:C.muted}}>○ Not connected</span>}
               </div>
             </div>
@@ -4662,7 +4452,7 @@ export default function Dashboard() {
             {/* ── RH FROZEN BANNER ── */}
             {pmsConn && snapInfo?.builtAt && (Date.now() - new Date(snapInfo.builtAt).getTime()) > 24 * 3600e3 && (
               <div style={{background:C.rose+"14",border:`1px solid ${C.rose}66`,borderRadius:14,padding:"12px 16px",margin:"16px 0 0"}}>
-                <p style={{fontSize:13,fontWeight:700,color:C.rose}}>{snapInfo.source==="lavanda"?"Lavanda long-stay":"Res Harmonics"} data is frozen — last successful pull {new Date(snapInfo.builtAt).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
+                <p style={{fontSize:13,fontWeight:700,color:C.rose}}>Lavanda data is frozen — last successful pull {new Date(snapInfo.builtAt).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
                 <p style={{fontSize:11,color:C.muted,marginTop:3}}>{snapInfo.buildError ? `Refresh is failing (${snapInfo.buildError}). ` : ""}Every long-stay figure on this dashboard (occupancy, revenue, AWR, renewals, new bookings) is as of that moment, not today. Short-stay figures from Lavanda are live.</p>
               </div>
             )}
@@ -4718,7 +4508,7 @@ export default function Dashboard() {
                 </div>
               </div>
               {(!pmsConn || lavandaLoad) ? (
-                <p style={{fontSize:13,color:C.muted,lineHeight:1.6}}>{(pmsLoad || lavandaLoad) ? "Waiting for Res Harmonics and Lavanda to finish loading — the summary is written once both feeds are in, so it never quotes partial figures." : "Res Harmonics is not connected, so the weekly summary can't be written from complete data."}</p>
+                <p style={{fontSize:13,color:C.muted,lineHeight:1.6}}>{(pmsLoad || lavandaLoad) ? "Waiting for Lavanda to finish loading — the summary is written once the full booking set is in, so it never quotes partial figures." : "Lavanda is not connected, so the weekly summary can't be written from complete data."}</p>
               ) : (narrativeAI || narrativeLocal).map((p,i) => (
                 <p key={i} style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:i<2?10:0}}>{p}</p>
               ))}
@@ -4765,7 +4555,7 @@ export default function Dashboard() {
                   <p style={{fontSize:13,color:C.rose,fontWeight:700}}>
                     ⚠ {doubleBookings.length} double booking{doubleBookings.length!==1?"s":""} — same room, overlapping dates
                   </p>
-                  <p style={{fontSize:10,color:C.muted}}>Res Harmonics ↔ Lavanda · needs resolving before arrival</p>
+                  <p style={{fontSize:10,color:C.muted}}>Same room, overlapping Lavanda bookings · needs resolving before arrival</p>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(330px,1fr))",gap:8}}>
                   {doubleBookings.map((c,i) => {
@@ -4798,8 +4588,8 @@ export default function Dashboard() {
               <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:16,margin:"16px 0 0",display:"flex",alignItems:"center",gap:12}}>
                 <span style={{width:14,height:14,border:`2px solid ${C.gold}`,borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"spin 0.9s linear infinite"}}/>
                 <div>
-                  <p style={{fontSize:13,fontWeight:700,color:C.text}}>Loading Res Harmonics…</p>
-                  <p style={{fontSize:11,color:C.muted,marginTop:2}}>Long-stay occupancy, revenue and rates appear once the full booking set is in (usually under a minute). Figures below are short-stay only until then.</p>
+                  <p style={{fontSize:13,fontWeight:700,color:C.text}}>Loading Lavanda bookings…</p>
+                  <p style={{fontSize:11,color:C.muted,marginTop:2}}>Occupancy, revenue and rates appear once the full booking set is in (a few seconds). Figures below are short-stay only until then.</p>
                 </div>
                 <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
               </div>
@@ -4858,7 +4648,7 @@ export default function Dashboard() {
                       <div style={{width:`${usable>0?Math.round(ssOcc/usable*100):0}%`,background:C.blue,transition:"width 0.4s"}}/>
                     </div>
                     <div style={{display:"flex",gap:12,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap"}}>
-                      <span><span style={{color:C.sage,fontWeight:700}}>{lsOcc}</span> via {snapInfo?.source==="lavanda"?"Lavanda":"RH"}{pmsData?.occupiedShortBreak>0?` (${pmsData.occupiedLongStay} long-stay + ${pmsData.occupiedShortBreak} short break)`:" long-stay"}</span>
+                      <span><span style={{color:C.sage,fontWeight:700}}>{lsOcc}</span> long-stay{pmsData?.occupiedShortBreak>0?` (${pmsData.occupiedLongStay} long-stay + ${pmsData.occupiedShortBreak} short break)`:" long-stay"}</span>
                       <span><span style={{color:C.blue,fontWeight:700}}>{ssOcc}</span> short-stay</span>
                       <span><span style={{fontWeight:700}}>{vacancy}</span> vacant</span>
                     </div>
@@ -4880,7 +4670,7 @@ export default function Dashboard() {
                     </div>
                     <p style={{fontSize:12,color:C.muted,marginTop:8}}>
                       <span style={{color:C.sage}}>{fmt(lsRevGross)}</span> long-stay gross <span style={{fontSize:10}}>({fmt(lsRev)} net)</span>
-                      {shortBreakRev > 0 && <> · <span style={{color:C.gold}}>{fmt(shortBreakRev)}</span> short breaks <span style={{fontSize:10}}>(RH &lt;28n)</span></>}
+                      {shortBreakRev > 0 && <> · <span style={{color:C.gold}}>{fmt(shortBreakRev)}</span> short breaks <span style={{fontSize:10}}>(Lavanda &lt;28n)</span></>}
                       {ssRev > 0 && <> · <span style={{color:C.blue}}>{fmt(ssRev)}</span> short-stay</>}
                     </p>
                     {!ssRevCovered && <p style={{fontSize:9,color:C.muted,marginTop:4}}>⚠ Short-stay data starts {lavandaData?.daily?.[0]?.date} — earlier dates not included</p>}
@@ -4957,7 +4747,7 @@ export default function Dashboard() {
                   if (!pmsConn || lavandaLoad) return (
                     <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
                       <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Pacing — {mLabel}</h3>
-                      <p style={{fontSize:12,color:C.muted,marginTop:4}}>{pmsLoad ? "Waiting for Res Harmonics to finish loading before showing month-to-date figures." : "Res Harmonics is not connected — pacing needs the long-stay data."}</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:4}}>{pmsLoad ? "Waiting for Lavanda to finish loading before showing month-to-date figures." : "Lavanda is not connected — pacing needs the booking data."}</p>
                     </div>
                   );
                   const rows = [
@@ -5058,7 +4848,7 @@ export default function Dashboard() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
                     <div>
                       <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>Offline & Maintenance Rooms</h3>
-                      <p style={{fontSize:12,color:C.muted}}>{investor ? "From the operations offline register — these rooms are excluded from usable stock." : "Manual entry — RH doesn't track most maintenance blocks. Drives usable rooms & the 95% target model."}</p>
+                      <p style={{fontSize:12,color:C.muted}}>{investor ? "From the operations offline register — these rooms are excluded from usable stock." : "Manual entry — the offline register drives usable rooms. Drives usable rooms & the 95% target model."}</p>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{fontSize:11,color:C.muted}}>Rooms offline:</span>
@@ -5086,14 +4876,14 @@ export default function Dashboard() {
                       </p>
                     </div>
                     <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
-                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>RH flagged unbookable</p>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Closed on Lavanda calendar</p>
                       <p style={{fontSize:18,fontWeight:700,color:pmsConn&&pmsData?C.rose:C.muted,fontFamily:"DM Mono,monospace"}}>{pmsConn&&pmsData?(pmsData.rhOfflineUnits??"—"):"—"}</p>
                       <p style={{fontSize:10,color:C.rose}}>
-                        {pmsConn&&pmsData ? `${Math.max(0,Object.keys(offlineRoomMap).length-(pmsData.rhOfflineUnits||0))} held rooms NOT blocked in the PMS` : "bookable=false in Res Harmonics"}
+                        {pmsConn&&pmsData ? `${Math.max(0,Object.keys(offlineRoomMap).length-(pmsData.rhOfflineUnits||0))} held rooms NOT closed in Lavanda` : "closed units in Lavanda"}
                       </p>
                     </div>
                     <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
-                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Lavanda blocked tonight (Nomad)</p>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Nomad blocked tonight</p>
                       <p style={{fontSize:18,fontWeight:700,color:lavandaConn?C.blue:C.muted,fontFamily:"DM Mono,monospace"}}>{lavandaConn&&lavandaData?ssBlocked:"—"}</p>
                       <p style={{fontSize:10,color:C.muted}}>Incl. maintenance & unlisted nights on Booking.com</p>
                     </div>
@@ -5105,7 +4895,7 @@ export default function Dashboard() {
                 {pmsConn && pmsData && pmsData.forecast && (
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
                     <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Monthly Occupancy — Combined</h3>
-                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Active rooms by month (long-stay from {snapInfo?.source==="lavanda"?"Lavanda":"RH"}{lavandaConn?" + short-stay from Lavanda":""})</p>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Active rooms by month (long-stay + short-stay, from Lavanda)</p>
                     {(() => {
                       const lavMonthly = {};
                       const ssRevByMonth = {};
@@ -5288,7 +5078,7 @@ export default function Dashboard() {
                   return (
                   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
                     <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Room Tiers — Tonight</h3>
-                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>All Southall bedrooms by tier · occupancy from Res Harmonics{lavandaConn?" + Lavanda (Nomad)":""}</p>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>All Southall bedrooms by tier · occupancy from Lavanda{lavandaConn?" + Lavanda (Nomad)":""}</p>
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                         <thead>
@@ -5703,12 +5493,12 @@ export default function Dashboard() {
 
             {/* ── COST PER BOOKING ── */}
             <div style={{marginTop:24}}>
-              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall · {rangeLabel} · GHL × RH × Ad spend</p>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall · {rangeLabel} · GHL × Lavanda × Ad spend</p>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:18}}>
                 <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Cost Per Booking</h2>
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                   <span style={{fontSize:10,color:ghlConn?C.sage:C.muted,fontWeight:600}}>{ghlConn?"● GHL live":"○ GHL"}</span>
-                  <span style={{fontSize:10,color:pmsConn?C.sage:C.muted,fontWeight:600}}>{pmsConn?"● RH live":"○ RH"}</span>
+                  <span style={{fontSize:10,color:pmsConn?C.sage:C.muted,fontWeight:600}}>{pmsConn?"● Lavanda live":"○ Lavanda"}</span>
                   <span style={{fontSize:10,color:metaIsLive?C.sage:C.muted,fontWeight:600}}>{metaIsLive?"● Meta spend live":"○ Meta static"}</span>
                   <span style={{fontSize:10,color:googleIsLive?C.sage:C.muted,fontWeight:600}}>{googleIsLive?"● Google spend live":"○ Google static"}</span>
                 </div>
@@ -5721,7 +5511,7 @@ export default function Dashboard() {
               {!cacStats && (
                 <div style={{padding:"16px 18px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,color:C.muted,fontSize:13}}>
                   {!ghlData?.allOpps ? "Connect Go High Level to attribute bookings to channels." : ""}
-                  {!rhAllBookings?.length ? " Connect Res Harmonics to pull bookings." : ""}
+                  {!rhAllBookings?.length ? " Waiting for Lavanda bookings." : ""}
                 </div>
               )}
 
@@ -5941,7 +5731,7 @@ export default function Dashboard() {
         {/* ════ OCCUPANCY ════ */}
         {property==="southall"&&tab==="bookings"&&(
           <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Southall · rooms · live from Res Harmonics + Lavanda</p>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Southall · rooms · live from Lavanda (long-stay + Lavanda</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 4px"}}>Occupancy</h2>
             <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Hard facts only — what is occupied tonight, what is empty and sellable, what is held, and what rates are being achieved. Forecasts and rate modelling live on the Forecast tab.</p>
 
@@ -5950,7 +5740,7 @@ export default function Dashboard() {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                 <div>
                   <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Today · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</p>
-                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Rooms occupied tonight — long-stay (RH){lavandaConn?" + short-stay (Lavanda)":""}, against usable rooms</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Rooms occupied tonight — long-stay + short-stay (Nomad), all from Lavanda, against usable rooms</p>
                 </div>
                 {pmsConn&&<span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>}
               </div>
@@ -6050,10 +5840,10 @@ export default function Dashboard() {
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                       <div>
                         <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown</p>
-                        <p style={{fontSize:9,color:C.muted,marginTop:2}}>RH = long-stay · Lav = short-stay (Booking.com)</p>
+                        <p style={{fontSize:9,color:C.muted,marginTop:2}}>LS = long-stay · SS = short-stay (Nomad)</p>
                       </div>
                       <button onClick={()=>{
-                        const losRows = [["LoS Band","Res Harmonics","Lavanda","Total","Days"]];
+                        const losRows = [["LoS Band","Long-stay","Short-stay","Total","Days"]];
                         LOS_BANDS.forEach(b=>{
                           const rh = recentActivity.losBySource?.rh?.[b.short]||0;
                           const lav = recentActivity.losBySource?.lav?.[b.short]||0;
@@ -6073,8 +5863,8 @@ export default function Dashboard() {
                       <thead>
                         <tr style={{borderBottom:`1px solid ${C.border}44`}}>
                           <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
-                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.sage,fontWeight:600}} title="Res Harmonics — long-stay">RH</th>
-                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.blue,fontWeight:600}} title="Lavanda — short-stay">Lav</th>
+                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.sage,fontWeight:600}} title="Long-stay bookings">LS</th>
+                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.blue,fontWeight:600}} title="Short-stay (Nomad) bookings">SS</th>
                           <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Total</th>
                           <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
                         </tr>
@@ -6577,9 +6367,9 @@ export default function Dashboard() {
                                       ? `Room ${rm.room} — ${rm.reg.category}: ${rm.reg.reason}` +
                                         (rm.reg.until ? ` · held until ${rm.reg.until}` : "") +
                                         (rm.reg.note ? `\n${rm.reg.note}` : "") +
-                                        (rm.rhFlagged ? "\n(also flagged unbookable in Res Harmonics)" : "\n(NOT flagged in Res Harmonics — still sellable in the PMS)")
+                                        (rm.rhFlagged ? "\n(also flagged unbookable in Lavanda)" : "\n(NOT flagged in Lavanda — still sellable in the PMS)")
                                       : rm.offline
-                                        ? `Room ${rm.room} — flagged unbookable in Res Harmonics`
+                                        ? `Room ${rm.room} — flagged unbookable in Lavanda`
                                         : `Room ${rm.room} — sellable, nothing booked`;
                                     return (
                                       <span key={rm.room} title={tip}
@@ -6615,7 +6405,7 @@ export default function Dashboard() {
                               <p style={{fontSize:11,color:C.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>Offline Register · {held.length} rooms held</p>
                               {notFlagged > 0 && (
                                 <p style={{fontSize:10,color:C.rose}}>
-                                  ⚠ {notFlagged} of these are still marked bookable in Res Harmonics — sellable by mistake
+                                  ⚠ {notFlagged} of these are still open on the Lavanda calendar — sellable by mistake
                                 </p>
                               )}
                             </div>
@@ -6657,7 +6447,7 @@ export default function Dashboard() {
                             <p style={{fontSize:11,color:C.blue,fontWeight:700}}>Ensuite (Nomad) · {openSummary.ss.total} rooms · short-stay via Booking.com</p>
                             <p style={{fontSize:10,color:C.muted,marginTop:2}}>
                               {openSummary.hasSS
-                                ? <>These rooms are let both ways — long-stay tenants in Res Harmonics and short-stay guests in Lavanda. A room counts as open only when <em>neither</em> system has it booked.
+                                ? <>These rooms are let both ways — long-stay tenants and short-stay guests. A room counts as open only when <em>neither</em> system has it booked.
                                     {openSummary.ss.bothSystems > 0 && <> {openSummary.ss.bothSystems} room{openSummary.ss.bothSystems!==1?"s have":" has"} stays in both systems (mostly sequential, not clashes).</>}</>
                                 : "Lavanda not connected — short-stay rooms excluded from the total above"}
                             </p>
@@ -6673,7 +6463,7 @@ export default function Dashboard() {
                       {/* ── GENUINE DOUBLE BOOKINGS (real date overlaps) ── */}
                       {doubleBookings.length === 0 ? (
                         <p style={{fontSize:10,color:C.sage,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                          ✓ No overlapping bookings detected across Res Harmonics and Lavanda.
+                          ✓ No overlapping bookings detected in Lavanda.
                         </p>
                       ) : (
                         <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.rose}44`}}>
@@ -6918,7 +6708,7 @@ export default function Dashboard() {
                       <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current &amp; upcoming bookings by stay duration · bedrooms only (excludes parking &amp; bikes){ssLos?" · long-stay (RH) + short-stay (Lavanda)":""}</p>
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                      <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● RH LIVE</span>
+                      <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LAVANDA LIVE</span>
                       {ssLos && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● LAVANDA LIVE</span>}
                     </div>
                   </div>
@@ -6993,18 +6783,6 @@ export default function Dashboard() {
             })()}
 
 
-            {!pmsConn&&(
-              <div style={{background:C.card,border:`1px solid ${C.goldDim}`,borderRadius:14,padding:18,marginBottom:18}}>
-                <p style={{fontWeight:700,color:C.gold,fontSize:14,marginBottom:4}}>Connect Res Harmonics PMS</p>
-                <p style={{fontSize:12,color:C.muted,marginBottom:12}}>OAuth2 from Res Harmonics admin → Settings → API / Integrations</p>
-                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                  <input type="text" placeholder="Client ID" value={cid} onChange={e=>setCid(e.target.value)} style={{flex:1,minWidth:150,background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"9px 12px",fontSize:13}}/>
-                  <input type="password" placeholder="Client Secret" value={csec} onChange={e=>setCsec(e.target.value)} style={{flex:1,minWidth:150,background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"9px 12px",fontSize:13}}/>
-                  <button onClick={connectPMS} disabled={pmsLoad} style={{background:C.gold,color:"#000",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:"pointer",opacity:pmsLoad?0.6:1}}>{pmsLoad?"Connecting…":"Connect"}</button>
-                </div>
-                {pmsErr&&<p style={{color:C.rose,fontSize:12,marginTop:8}}>⚠ {pmsErr}</p>}
-              </div>
-            )}
 
 
           </div>
@@ -7027,7 +6805,7 @@ export default function Dashboard() {
               <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:14,padding:18,marginTop:16}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                   <p style={{fontSize:11,color:C.sage,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Future Occupancy · Month by Month</p>
-                  <span style={{fontSize:10,color:C.sage}}>● LIVE from Res Harmonics</span>
+                  <span style={{fontSize:10,color:C.sage}}>● LIVE from Lavanda</span>
                 </div>
                 <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Bookings 28+ days · occupancy by days and rooms / {BEDS}</p>
 
@@ -7483,7 +7261,7 @@ export default function Dashboard() {
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                         <div>
                           <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Predictive Revenue Model</p>
-                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Editable occupancy × AWR · live from Res Harmonics · adjust per month to model scenarios</p>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Editable occupancy × AWR · live from Lavanda · adjust per month to model scenarios</p>
                         </div>
                         <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
                       </div>
@@ -7505,7 +7283,7 @@ export default function Dashboard() {
                             onChange={e=>setForecastAwrOverride(+e.target.value)}
                             style={{width:"100%",accentColor:C.gold}}/>
                           <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginTop:4}}>
-                            <span>Live from RH: £{liveAwr}/wk net · £{liveAwrGross}/wk gross</span>
+                            <span>Live from Lavanda: £{liveAwr}/wk net · £{liveAwrGross}/wk gross</span>
                             {forecastAwrOverride && <button onClick={()=>setForecastAwrOverride(null)}
                               style={{background:"none",border:"none",color:C.blue,cursor:"pointer",fontSize:10,padding:0}}>Reset to live</button>}
                           </div>
@@ -8105,7 +7883,7 @@ export default function Dashboard() {
         {/* ════ RENEWALS ════ */}
         {property==="southall"&&tab==="renewals"&&(
           <div style={{padding:"22px 26px"}}>
-            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Contract Management · Res Harmonics{pmsConn?" · live":""}{canopyConn?" · Canopy ✓":""}</p>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Contract Management · Lavandaonics{pmsConn?" · live":""}{canopyConn?" · Canopy ✓":""}</p>
             <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Renewals Dashboard</h2>
 
             {/* ── Renewal Activity Tracker (date-filtered, reconciles with board below) ── */}
@@ -8491,7 +8269,7 @@ export default function Dashboard() {
 
             {!pmsConn ? (
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px 20px",textAlign:"center"}}>
-                <p style={{color:C.muted,fontSize:13}}>Connect Res Harmonics in the Occupancy tab to view renewal data.</p>
+                <p style={{color:C.muted,fontSize:13}}>Waiting for Lavanda bookings to load.</p>
               </div>
             ) : !pmsData?.renewalMonths ? (
               <p style={{color:C.muted,fontSize:13}}>Loading renewal data…</p>
@@ -9679,7 +9457,7 @@ export default function Dashboard() {
       })()}
 
       <div style={{padding:"10px 26px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
-          <p style={{fontSize:10,color:C.muted}}>Meta 296625156418426 · Google Ads 635-731-8686 · GHL {GHL_LOCATION} · Res Harmonics</p>
+          <p style={{fontSize:10,color:C.muted}}>Meta 296625156418426 · Google Ads 635-731-8686 · GHL {GHL_LOCATION} · Lavanda</p>
           <p style={{fontSize:10,color:C.muted}}>Southall &soul · {new Date().toLocaleDateString("en-GB")}</p>
         </div>
       </div>
