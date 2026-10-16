@@ -6705,7 +6705,7 @@ export default function Dashboard() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                     <div>
                       <p style={{fontSize:11,color:C.blue,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Length-of-Stay Breakdown</p>
-                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current &amp; upcoming bookings by stay duration · bedrooms only (excludes parking &amp; bikes){ssLos?" · long-stay (RH) + short-stay (Lavanda)":""}</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current &amp; upcoming bookings by stay duration · bedrooms only (excludes parking &amp; bikes){ssLos?" · long-stay + short-stay (Nomad), all from Lavanda":""}</p>
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
                       <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LAVANDA LIVE</span>
