@@ -60,19 +60,23 @@ const roomNoFromName = (n) => {
   return m ? m[1].replace(/\s+/g, "") : null;
 };
 const unitTypeFromName = (n) => {
+  // Map Lavanda unit names onto the dashboard's room-type vocabulary
+  // (ROOM_TYPES in index.js): Ensuite, Nook, Snug, Snug plus, Cosy, Roomy,
+  // Spacious, Deluxe, Deluxe Accessible, Deluxe Duo.
   const s = n || "";
-  if (/Nomad/i.test(s)) return "Nomad Ensuite";
+  if (/Nomad/i.test(s)) return "Ensuite";
+  if (/2-?Bed/i.test(s)) return "Deluxe Duo";
   const m = s.match(/Southall-([A-Za-z]+)-/);
   if (!m) return "Other";
   const t = m[1];
-  return ({ Deluxe: "Deluxe Studio", Spacious: "Spacious Studio", Roomy: "Roomy Studio", Cosy: "Cosy Studio", Snug: "Snug Studio", Nook: "Nook", Accessible: "Accessible Studio", Void: "Void" })[t] || t;
+  return ({ Deluxe: "Deluxe", Spacious: "Spacious", Roomy: "Roomy", Cosy: "Cosy", Snug: "Snug", Nook: "Nook", Accessible: "Deluxe Accessible", Void: "Void" })[t] || t;
 };
 function adaptLavanda(rawBookings, rawProps, today) {
   const propById = {};
   rawProps.forEach(p => { propById[p.id] = p.attributes || {}; });
   // Units: every Southall record that resolves to a room number
   const units = rawProps
-    .filter(p => /Southall/i.test(p.attributes?.name || "") && roomNoFromName(p.attributes?.name))
+    .filter(p => /Southall/i.test(p.attributes?.name || "") && !/DO NOT USE/i.test(p.attributes?.name || "") && roomNoFromName(p.attributes?.name))
     .map(p => ({ id: p.id, unitName: `Room: ${roomNoFromName(p.attributes.name)}`, unitTypeName: unitTypeFromName(p.attributes.name), bookable: !/Void/i.test(p.attributes.name), buildingName: "Southall &Soul", _lavName: p.attributes.name }));
   const unitById = {}; units.forEach(u => { unitById[u.id] = u; });
 
