@@ -468,11 +468,12 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   const nowDate = new Date();
   const forecastByRoom = [];
   const forecastMonths = [];
-  // Full calendar year: Jan through Dec of current year
+  // Rolling window: 2 months back (Lavanda only holds tenancies that were
+  // still live at migration, so earlier months are incomplete) → 9 months ahead
   const currentYear = nowDate.getFullYear();
-  const currentMonthIdx = nowDate.getMonth(); // 0-indexed (Apr = 3)
-  const FORECAST_START = -currentMonthIdx; // go back to Jan
-  const FORECAST_MONTHS = 12; // Jan through Dec
+  const currentMonthIdx = nowDate.getMonth();
+  const FORECAST_START = -2;
+  const FORECAST_MONTHS = 12;
   for (let m = FORECAST_START; m < FORECAST_START + FORECAST_MONTHS; m++) {
     const d = new Date(currentYear, currentMonthIdx + m, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -1040,10 +1041,12 @@ function computePmsMetrics(allGuestStays, allBookings, allUnits) {
   });
   Object.values(renewalsMap).forEach(arr => arr.sort((a, b) => a.endDate.localeCompare(b.endDate)));
 
-  // Build months from Jan of current year through 12 months ahead
+  // Build months from last month through 12 months ahead (earlier months are
+  // not in Lavanda — tenancies that ended before the October 2026 migration
+  // were never carried over)
   const renewalMonths = [];
-  const janStart = -now.getMonth(); // offset to reach January
-  const totalMonths = 12 + now.getMonth(); // Jan through 12 months from now
+  const janStart = -1;
+  const totalMonths = 14;
   for (let m = janStart; m < janStart + totalMonths; m++) {
     const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -6862,7 +6865,7 @@ export default function Dashboard() {
                         const roomsPct = Math.round((fm.activeStays / BEDS) * 100);
                         return (
                         <tr key={fm.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
-                          <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}{i===0?" (current)":""}</td>
+                          <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}{fm.key===new Date().toISOString().slice(0,7)?" (current)":""}</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{(fm.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontWeight:400}}>/ {(fm.totalBookableDays||0).toLocaleString()}</span></td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:fm.occupancyPct>=90?C.sage:fm.occupancyPct>=70?C.gold:C.rose}}>{fm.occupancyPct}%</td>
                           <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}><span style={{fontWeight:700}}>{fm.activeStays}</span> <span style={{color:C.muted,fontWeight:400}}>/ {BEDS}</span></td>
