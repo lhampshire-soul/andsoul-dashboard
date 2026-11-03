@@ -76,7 +76,9 @@ function adaptLavanda(rawBookings, rawProps, today) {
   rawProps.forEach(p => { propById[p.id] = p.attributes || {}; });
   // Units: every Southall record that resolves to a room number
   const units = rawProps
-    .filter(p => /Southall/i.test(p.attributes?.name || "") && !/DO NOT USE/i.test(p.attributes?.name || "") && roomNoFromName(p.attributes?.name))
+    // "Void" records are placeholders, not bedrooms — leaving them in inflates
+    // the building total (and therefore usable rooms) by 3.
+    .filter(p => /Southall/i.test(p.attributes?.name || "") && !/DO NOT USE|Void/i.test(p.attributes?.name || "") && roomNoFromName(p.attributes?.name))
     .map(p => ({ id: p.id, unitName: `Room: ${roomNoFromName(p.attributes.name)}`, unitTypeName: unitTypeFromName(p.attributes.name), bookable: !/Void/i.test(p.attributes.name), buildingName: "Southall &Soul", _lavName: p.attributes.name }));
   const unitById = {}; units.forEach(u => { unitById[u.id] = u; });
 
@@ -84,7 +86,10 @@ function adaptLavanda(rawBookings, rawProps, today) {
   rawBookings.forEach(b => {
     const a = b.attributes || {};
     const st = (a.status || "").toLowerCase();
-    if (st === "inquiry") return;
+    // Inquiries and expired holds are not bookings. "tentative_expired" is a
+    // hold that lapsed (£0, never confirmed) — Lavanda keeps the record, but the
+    // guest never arrives, so it must not count as in house or as a clash.
+    if (st === "inquiry" || st === "tentative_expired" || st.endsWith("_expired")) return;
     const start = (a.start_date || "").slice(0, 10), end = (a.end_date || "").slice(0, 10);
     if (!start || !end) return;
     let status;
