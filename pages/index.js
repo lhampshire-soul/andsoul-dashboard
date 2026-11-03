@@ -189,7 +189,14 @@ const SD_FLATS = [
 ];
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const BEDS = 300;
+// Building bedroom count is a confirmed constant (302), NOT Lavanda's record
+// count: Lavanda lists 303 bedroom records for Southall (three "x & y" Cosy
+// pairs are each one record) and the extra one has not been found yet.
+const BEDS = 302;
+// Rooms offline today that are not yet itemised in OFFLINE_ROOMS below.
+// Leyth, 3 Nov 2026: 16 rooms offline; the register lists 11. Move these into
+// the register (with room numbers) as they are identified, and reduce this.
+const OFFLINE_UNLISTED = 5;
 const TARGET_OCC = 0.9;
 const TARGET_RATE = 300;
 const TARGET_ROOMS = Math.round(BEDS * TARGET_OCC);
@@ -2886,7 +2893,7 @@ export default function Dashboard() {
       label={{ value: a.label, position: "insideTopRight", fill: a.color || C.gold, fontSize: 9, fontWeight: 700 }} />
   );
 
-  const REGISTER_OFFLINE = Object.keys(offlineRoomMap).length;
+  const REGISTER_OFFLINE = Object.keys(offlineRoomMap).length + OFFLINE_UNLISTED;
   const [offlineRooms, setOfflineRoomsRaw] = useState(REGISTER_OFFLINE);
   const [offlineIsManual, setOfflineIsManual] = useState(false);
   const setOfflineRooms = (v) => {
@@ -3627,12 +3634,9 @@ export default function Dashboard() {
     const ssStays = (lavandaConn && lavandaData?.ssStays) ? lavandaData.ssStays.filter(s => s.start <= d && s.end >= d && !rhRooms.has(s.room)).length : 0;
     return (pmsData.inHouseGuests || pmsData.occupied) + ssStays;
   })();
-  // Real bedroom count from Res Harmonics (302) rather than the legacy 300
-  // constant, so "usable" ties to the room list the tiles are built from.
-  const totalBedrooms = (() => {
-    const n = (rhAllUnits || []).filter(u => /^Room:/i.test((u.unitName || "").trim())).length;
-    return n > 0 ? n : BEDS;
-  })();
+  // BEDS (302) is the confirmed building count; Lavanda's record count (303) is
+  // only used if the constant were ever unset.
+  const totalBedrooms = BEDS || (rhAllUnits || []).filter(u => /^Room:/i.test((u.unitName || "").trim())).length;
   const usableRooms = Math.max(1, totalBedrooms - offlineRooms);
 
   // ─── DOUBLE BOOKINGS ─────────────────────────────────────────────────────────
@@ -4880,7 +4884,7 @@ export default function Dashboard() {
                       <p style={{fontSize:9,color:offlineIsManual?C.gold:C.sage,marginTop:3}}>
                         {offlineIsManual
                           ? `Manual override — register has ${REGISTER_OFFLINE}`
-                          : `From the offline register (${REGISTER_OFFLINE} rooms)`}
+                          : `From the offline register (${REGISTER_OFFLINE} rooms incl. ${OFFLINE_UNLISTED} not yet itemised)`}
                       </p>
                     </div>
                     <div style={{background:C.bg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"10px 14px"}}>
