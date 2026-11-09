@@ -12,7 +12,6 @@ const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
   "/api/canopy-webhook", // Canopy sends webhooks here — must stay open
-  "/api/lav-probe", // TEMPORARY token-gated structure probe — remove after Shoreditch setup
 ];
 
 function isPublicPath(pathname) {
