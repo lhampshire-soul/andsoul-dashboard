@@ -83,8 +83,29 @@ function adaptLavanda(rawBookings, rawProps, today) {
   const unitById = {}; units.forEach(u => { unitById[u.id] = u; });
 
   const bookings = [], guestStays = [], details = {};
+  // `sales`: every Southall booking record (long-stay AND Nomad, every status,
+  // including enquiries and expired holds) in a compact form, for the simple
+  // dashboard's Sales and Snapshot views. Additive — nothing above reads it.
+  const sales = [];
+  const allUnitById = {};
+  rawProps.filter(p => /Southall/i.test(p.attributes?.name || "") && !/DO NOT USE|Void/i.test(p.attributes?.name || "") && roomNoFromName(p.attributes?.name))
+    .forEach(p => { allUnitById[p.id] = { room: roomNoFromName(p.attributes.name), type: /Nomad/i.test(p.attributes.name) ? "Nomad" : unitTypeFromName(p.attributes.name) }; });
   rawBookings.forEach(b => {
     const a = b.attributes || {};
+    const uid = b.relationships?.unit?.data?.id;
+    const au = allUnitById[uid];
+    if (au) {
+      const s0 = (a.start_date || "").slice(0, 10), e0 = (a.end_date || "").slice(0, 10);
+      sales.push({
+        id: a.booking_id || b.id, status: (a.status || "").toLowerCase(), canceled: !!a.canceled,
+        created: (a.booked_time || "").slice(0, 10), start: s0, end: e0,
+        days: s0 && e0 ? Math.max(0, Math.round((new Date(e0) - new Date(s0)) / 864e5)) : 0,
+        total: +a.total_cost || 0, room: au.room, type: au.type, nomad: au.type === "Nomad",
+        guest: `${a.lead_guest_first_name || ""} ${a.lead_guest_last_name || ""}`.trim(),
+        contact: (a.lead_guest_email || "").toLowerCase().trim() || `${(a.lead_guest_first_name || "").toLowerCase()}|${(a.lead_guest_last_name || "").toLowerCase()}`,
+        platform: a.platform || "Direct booking",
+      });
+    }
     const st = (a.status || "").toLowerCase();
     // Inquiries and expired holds are not bookings. "tentative_expired" is a
     // hold that lapsed (£0, never confirmed) — Lavanda keeps the record, but the
@@ -130,7 +151,8 @@ function adaptLavanda(rawBookings, rawProps, today) {
     if (days >= 28 && gross > 0) details[rsId] = { rateType: "MONTHLY", truePcm: Math.round(gross / days * 365 / 12), originalRate: null, rateName: "Lavanda total ÷ nights", rateCode: null,
       conversionDate: bk.created || null, confirmedDate: bk.created || null, contractSignedDate: null, lastStatusChangeDate: (a.last_modified || "").slice(0, 10) || null };
   });
-  return { bookings, guestStays, units, details };
+  const allUnits = Object.values(allUnitById);
+  return { bookings, guestStays, units, details, sales, allUnits };
 }
 
 
@@ -158,8 +180,8 @@ async function runStepLavanda(client) {
     if (b.stage === "finalize") {
       if (b.raw.length < 50 || b.props.length < 50) throw new Error(`Partial Lavanda data (bookings=${b.raw.length}, props=${b.props.length})`);
       const today = new Date().toISOString().slice(0, 10);
-      const { bookings, guestStays, units, details } = adaptLavanda(b.raw, b.props, today);
-      const snap = { ok: true, source: "lavanda", builtAt: new Date().toISOString(), startedAt: b.startedAt, log: [...b.log, `adapted: ${bookings.length} bookings, ${units.length} units`], bookings, guestStays, units, details };
+      const { bookings, guestStays, units, details, sales, allUnits } = adaptLavanda(b.raw, b.props, today);
+      const snap = { ok: true, source: "lavanda", builtAt: new Date().toISOString(), startedAt: b.startedAt, log: [...b.log, `adapted: ${bookings.length} bookings, ${units.length} units, ${sales.length} sales records`], bookings, guestStays, units, details, sales, allUnits };
       await client.set(KEY_DATA, JSON.stringify(snap));
       await client.del(KEY_BUILD);
       return { done: true, source: "lavanda", stage: "finalize", builtAt: snap.builtAt, log: snap.log, ms: Date.now() - t0 };
