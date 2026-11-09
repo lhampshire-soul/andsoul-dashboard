@@ -114,6 +114,7 @@ export default function Preview() {
   const [crm, setCrm] = useState(null);
   const [crmErr, setCrmErr] = useState(null);
   const [month, setMonth] = useState(null);
+  const [kindF, setKindF] = useState("All");
   const today = useMemo(() => iso(new Date()), []);
   const range = periodRange(period, today);
   const prev = prevRange(period, range);
@@ -227,7 +228,10 @@ export default function Preview() {
     const made = recs.filter((x) => x.st !== "Enquiry"), confd = made.filter((x) => x.st === "Confirmed");
     return { recs, made, confd, enq: recs.length - made.length, pend: made.filter((x) => x.st === "Pending").length, canc: made.filter((x) => x.st === "Cancelled").length, exp: made.filter((x) => x.st === "Expired hold").length,
       newLong: confd.filter((x) => x.kind === "Long stay — new").length, renew: confd.filter((x) => x.kind === "Long stay — renewal").length, short: confd.filter((x) => x.kind === "Short stay").length,
-      value: confd.reduce((a, x) => a + (badRecord(x) ? 0 : x.total), 0) };
+      value: confd.reduce((a, x) => a + (badRecord(x) ? 0 : x.total), 0),
+      by: Object.fromEntries(["Long stay — new", "Long stay — renewal", "Short stay"].map((k) => [k, {
+        made: made.filter((x) => x.kind === k).length, conf: confd.filter((x) => x.kind === k).length,
+        value: confd.filter((x) => x.kind === k).reduce((a, x) => a + (badRecord(x) ? 0 : x.total), 0) }])) };
   };
   const sale = useMemo(() => (snap ? salesFor(range) : null), [snap, range.from, range.to, ch]); // eslint-disable-line
   const saleP = useMemo(() => (snap ? salesFor(prev) : null), [snap, prev.from, prev.to, ch]); // eslint-disable-line
@@ -317,7 +321,7 @@ export default function Preview() {
             <Stat label="Monthly rent roll" value={gbp(rev.roll)} sub={`Long stay ${gbp(rev.rollLs)} · Nomad ${gbp(rev.rollNomad)}`} />
             <Stat label={`${rev.m0Label} revenue`} value={gbp(rev.thisM)} sub={`Long stay ${gbp(rev.thisLs)} · Nomad ${gbp(rev.thisNomad)}`} delta={<Delta cur={rev.thisM} prev={rev.lastM} fmt={gbp} label="last month" />} />
             <Stat label={`${rev.m1Label} booked so far`} value={gbp(rev.nextM)} />
-            <Stat label="Booking value (period)" value={gbp(sale.value)} sub="Confirmed bookings made" delta={<Delta cur={sale.value} prev={saleP.value} fmt={gbp} />} />
+            <Stat label="Booking value (period)" value={gbp(sale.value)} sub={`New ${gbp(sale.by["Long stay — new"].value)} · Renewal ${gbp(sale.by["Long stay — renewal"].value)} · Short ${gbp(sale.by["Short stay"].value)}`} delta={<Delta cur={sale.value} prev={saleP.value} fmt={gbp} />} />
           </Grid>
           {rev.excluded > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{rev.excluded} Lavanda record{rev.excluded > 1 ? "s" : ""} with a weekly rate above £1,000 excluded.</div>}
 
@@ -351,6 +355,7 @@ export default function Preview() {
           <Grid>
             <Stat label="New long-stay bookings" value={num(sale.newLong)} sub="Confirmed, excl. renewals" delta={<Delta cur={sale.newLong} prev={saleP.newLong} />} />
             <Stat label="Lead → booking" value={mk ? pct(mk.conv, 1) : "…"} sub="New long-stay ÷ CRM leads" delta={mk && mkP && <Delta cur={mk.conv} prev={mkP.conv} fmt={(v) => pct(v, 1)} />} />
+            <Stat label="Renewal bookings" value={num(sale.renew)} sub="Confirmed long-stay renewals" delta={<Delta cur={sale.renew} prev={saleP.renew} />} />
             <Stat label="Short-stay bookings" value={num(sale.short)} sub="Confirmed, Nomad & < 28 nights" delta={<Delta cur={sale.short} prev={saleP.short} />} />
           </Grid>
         </>)}
@@ -359,11 +364,18 @@ export default function Preview() {
           <H right={pills}>Bookings made</H>
           <Grid min={140}>
             <Stat label="Enquiries" value={num(sale.enq)} delta={<Delta cur={sale.enq} prev={saleP.enq} />} />
-            <Stat label="Bookings made" value={num(sale.made.length)} delta={<Delta cur={sale.made.length} prev={saleP.made.length} />} />
-            <Stat label="Confirmed" value={num(sale.confd.length)} color={C.good} sub={sale.made.length ? pct(sale.confd.length / sale.made.length) + " of made" : null} delta={<Delta cur={sale.confd.length} prev={saleP.confd.length} />} />
+            <Stat label="Bookings made" value={num(sale.made.length)} sub={`New ${sale.by["Long stay — new"].made} · Renewal ${sale.by["Long stay — renewal"].made} · Short ${sale.by["Short stay"].made}`} delta={<Delta cur={sale.made.length} prev={saleP.made.length} />} />
+            <Stat label="Confirmed" value={num(sale.confd.length)} color={C.good} sub={`New ${sale.by["Long stay — new"].conf} · Renewal ${sale.by["Long stay — renewal"].conf} · Short ${sale.by["Short stay"].conf}`} delta={<Delta cur={sale.confd.length} prev={saleP.confd.length} />} />
             <Stat label="Pending" value={num(sale.pend)} color={C.warn} delta={<Delta cur={sale.pend} prev={saleP.pend} />} />
             <Stat label="Cancelled" value={num(sale.canc)} color={C.bad} delta={<Delta cur={sale.canc} prev={saleP.canc} lowerIsBetter />} />
             <Stat label="Expired holds" value={num(sale.exp)} delta={<Delta cur={sale.exp} prev={saleP.exp} lowerIsBetter />} />
+          </Grid>
+
+          <H>New vs renewal (confirmed)</H>
+          <Grid min={180}>
+            <Stat label="New long-stay bookings" value={num(sale.newLong)} sub={`${sale.by["Long stay — new"].made} made · ${gbp(sale.by["Long stay — new"].value)}`} delta={<Delta cur={sale.newLong} prev={saleP.newLong} />} />
+            <Stat label="Renewal bookings" value={num(sale.renew)} sub={`${sale.by["Long stay — renewal"].made} made · ${gbp(sale.by["Long stay — renewal"].value)}`} delta={<Delta cur={sale.renew} prev={saleP.renew} />} />
+            <Stat label="Short-stay bookings" value={num(sale.short)} sub={`${sale.by["Short stay"].made} made · ${gbp(sale.by["Short stay"].value)}`} delta={<Delta cur={sale.short} prev={saleP.short} />} />
           </Grid>
 
           <H>Long stay vs short stay</H>
@@ -386,9 +398,9 @@ export default function Preview() {
             </div>
           </div>
 
-          <H>All bookings in period</H>
+          <H right={<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{[["All", "All"], ["Long stay — new", "New"], ["Long stay — renewal", "Renewal"], ["Short stay", "Short stay"]].map(([k, l]) => <Pill key={k} on={kindF === k} onClick={() => setKindF(k)}>{l}</Pill>)}</div>}>All bookings in period</H>
           <Table cols={["Booked", "Guest", "Room", "Type", "Arrives", "Nights", "£/week", "Kind", "Status"]}
-            rows={sale.recs.map((r) => [fmtDate(r.created), r.guest || "—", r.room, tl(r.type), fmtDate(r.start), r.days, weekly(r) ? gbp(weekly(r)) : "—", r.kind.replace("Long stay — ", "LS "), <Tag key={r.id} s={r.st} />])} />
+            rows={sale.recs.filter((r) => kindF === "All" || r.kind === kindF).map((r) => [fmtDate(r.created), r.guest || "—", r.room, tl(r.type), fmtDate(r.start), r.days, weekly(r) ? gbp(weekly(r)) : "—", ({ "Long stay — new": "New", "Long stay — renewal": "Renewal", "Short stay": "Short stay" })[r.kind], <Tag key={r.id} s={r.st} />])} />
         </>)}
 
         {snap && tab === "renewals" && (() => {
