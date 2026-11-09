@@ -9,9 +9,9 @@ import { loadCrm } from "../lib/ghlLeads";
 const C = { bg: "#F6F5F2", card: "#FFFFFF", text: "#1B1B1B", muted: "#7A7A7A", line: "#E7E4DE", accent: "#1F3864", good: "#2E7D4F", warn: "#B7791F", bad: "#B23B3B" };
 // Per-property set-up. Both properties read their own Lavanda account.
 const PROPERTIES = {
-  southall: { key: "southall", title: "Southall", crm: /southall/i, nomad: true, beds: BEDS, offline: OFFLINE_ROOMS, unlisted: OFFLINE_UNLISTED,
+  southall: { key: "southall", title: "Southall", crm: /southall/i, nomad: true, maxWeekly: 1000, beds: BEDS, offline: OFFLINE_ROOMS, unlisted: OFFLINE_UNLISTED,
     types: ["Nomad", "Nook", "Snug", "Cosy", "Roomy", "Spacious", "Deluxe Accessible", "Deluxe"] },
-  shoreditch: { key: "shoreditch", title: "Shoreditch", crm: /shoreditch/i, nomad: false, beds: null, offline: [], unlisted: 0,
+  shoreditch: { key: "shoreditch", title: "Shoreditch", crm: /shoreditch/i, nomad: false, maxWeekly: 2500, beds: null, offline: [], unlisted: 0,
     types: ["Cosy", "Spacious", "Deluxe", "Premium", "Loft"] },
 };
 const tl = (t) => ({ "Deluxe Accessible": "Accessible" }[t] || t);
@@ -113,6 +113,9 @@ const Tag = ({ s }) => <span style={{ color: SC[s] || C.text, fontWeight: 600 }}
 function PropertyView({ tab, setTab, period, setPeriod, property, setProperty }) {
   const cfg = PROPERTIES[property];
   const TYPES = cfg.types;
+  // Per-property rate sanity band (Shoreditch lofts let as a whole run well above £1,000/wk)
+  const sane = (w) => w != null && w >= 100 && w <= cfg.maxWeekly;
+  const badRecord = (s) => { const w = weekly(s); return w != null && w > cfg.maxWeekly; };
   const [snap, setSnap] = useState(null);
   const [err, setErr] = useState(null);
   const [rstate, setRstate] = useState({ leaving: [], pending: [] });
@@ -322,7 +325,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
             <Stat label={`${rev.m1Label} booked so far`} value={gbp(rev.nextM)} />
             <Stat label="Booking value (period)" value={gbp(sale.value)} sub={`New ${gbp(sale.by["Long stay — new"].value)} · Renewal ${gbp(sale.by["Long stay — renewal"].value)} · Short ${gbp(sale.by["Short stay"].value)}`} delta={<Delta cur={sale.value} prev={saleP.value} fmt={gbp} />} />
           </Grid>
-          {rev.excluded > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{rev.excluded} Lavanda record{rev.excluded > 1 ? "s" : ""} with a weekly rate above £1,000 excluded.</div>}
+          {rev.excluded > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{rev.excluded} Lavanda record{rev.excluded > 1 ? "s" : ""} with a weekly rate above {gbp(cfg.maxWeekly)} excluded.</div>}
 
           <H right={<span style={{ fontSize: 12, color: C.muted }}>Confirmed stays · {fmtDate(addDays(today, 1))} – {fmtDate(addDays(today, 30))}</span>}>Next 30 days</H>
           <Grid>
