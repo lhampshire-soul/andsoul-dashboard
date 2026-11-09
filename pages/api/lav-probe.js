@@ -1,7 +1,9 @@
 // TEMPORARY structure probe for the Shoreditch Lavanda account. Returns unit
 // names, counts and status mix only (no guest data). Remove after setup.
 const KEY = process.env.LAVANDA_API_KEY_SHOREDITCH || "6a13b2ba0b8544eda849bfebbac0fce8";
+export const config = { maxDuration: 60 };
 export default async function handler(req, res) {
+  if (req.query.ping) return res.status(200).json({ pong: true });
   if (req.query.t !== "f3502d29ebf57a9cf3abab7f") return res.status(404).end();
   const get = async (p) => { const r = await fetch("https://lavanda.azure-api.net" + p, { headers: { "Ocp-Apim-Subscription-Key": KEY, Accept: "application/json" } }); if (!r.ok) throw new Error(r.status + " " + p + " " + (await r.text()).slice(0, 200)); return r.json(); };
   try {
@@ -9,7 +11,7 @@ export default async function handler(req, res) {
     let props = [], cur = null;
     for (let i = 0; i < 20; i++) { const r = await get("/properties?page[size]=100" + (cur ? "&page[after]=" + encodeURIComponent(cur) : "")); props = props.concat(r.data || []); cur = r.meta?.page?.next; if (!cur) break; }
     let bk = [], c2 = null;
-    for (let i = 0; i < 40; i++) { const r = await get("/bookings?page[size]=50" + (c2 ? "&page[after]=" + encodeURIComponent(c2) : "")); bk = bk.concat(r.data || []); c2 = r.meta?.page?.next; if (!c2) break; }
+    for (let i = 0; i < +(req.query.pages || 6); i++) { const r = await get("/bookings?page[size]=100" + (c2 ? "&page[after]=" + encodeURIComponent(c2) : "")); bk = bk.concat(r.data || []); c2 = r.meta?.page?.next; if (!c2) break; }
     const st = {}; bk.forEach((b) => { const s = b.attributes?.status || "?"; st[s] = (st[s] || 0) + 1; });
     const unitUse = {}; bk.forEach((b) => { const u = b.relationships?.unit?.data?.id; if (u) unitUse[u] = (unitUse[u] || 0) + 1; });
     const today = new Date().toISOString().slice(0, 10);
