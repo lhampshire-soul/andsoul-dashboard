@@ -19,9 +19,12 @@ const LAV_KEY = process.env.LAVANDA_API_KEY || "75a866b799804d3baee167aa47644576
 const LAV_BASE = "https://lavanda.azure-api.net";
 // Lavanda is the only PMS (Res Harmonics was retired in October 2026).
 
-const KEY_DATA = "snapshot:rh:v1"; // key name kept so existing Redis data carries over
-const KEY_BUILD = "snapshot:rh:v1:build";
-const KEY_LOCK = "snapshot:rh:v1:lock";
+// One Lavanda account per property. Southall keeps its original Redis key so
+// existing data carries over; Shoreditch gets its own.
+const PROPS = {
+  southall:   { lavKey: LAV_KEY, data: "snapshot:rh:v1", min: 50 },
+  shoreditch: { lavKey: process.env.LAVANDA_API_KEY_SHOREDITCH || "6a13b2ba0b8544eda849bfebbac0fce8", data: "snapshot:sd:v1", min: 5 },
+};
 const STEP_BUDGET_MS = +(process.env.SNAPSHOT_STEP_BUDGET_MS || 7000);
 const PAGE_SIZE = 200;
 const DETAIL_BATCH = 20;
@@ -39,11 +42,11 @@ async function redis() {
 
 
 
-async function lavGet(path, tries = 3) {
+async function lavGet(path, key = LAV_KEY, tries = 3) {
   let last;
   for (let i = 0; i < tries; i++) {
     try {
-      const r = await fetch(`${LAV_BASE}${path}`, { headers: { "Ocp-Apim-Subscription-Key": LAV_KEY, Accept: "application/json" } });
+      const r = await fetch(`${LAV_BASE}${path}`, { headers: { "Ocp-Apim-Subscription-Key": key, Accept: "application/json" } });
       if (!r.ok) throw new Error(`Lavanda ${r.status} ${path}`);
       return await r.json();
     } catch (e) { last = e; await new Promise(res => setTimeout(res, 500 * (i + 1))); }
@@ -156,7 +159,43 @@ function adaptLavanda(rawBookings, rawProps, today) {
 }
 
 
-async function runStepLavanda(client) {
+// Shoreditch: units are "Villa-<flat>-<room>-<Type>" plus five "Villa-Loft - Flat N".
+// Whole-flat records ("Villa-03-4 Bedroom flat") and anything marked [remove]
+// are containers, not bedrooms.
+function sdUnit(name) {
+  const n = (name || "").trim();
+  if (/remove/i.test(n)) return null;
+  let m = n.match(/^Villa-(\d+)-(\d+)-([A-Za-z]+)$/);
+  if (m) return { room: `${+m[1]}.${+m[2]}`, type: m[3][0].toUpperCase() + m[3].slice(1).toLowerCase(), flat: `Villa ${+m[1]}` };
+  m = n.match(/^Villa-Loft\s*-\s*Flat\s*(\d+)$/i);
+  if (m) return { room: `Loft ${m[1]}`, type: "Loft", flat: "Lofts" };
+  return null;
+}
+function adaptShoreditch(rawBookings, rawProps) {
+  const unitById = {};
+  rawProps.forEach((p) => { const u = sdUnit(p.attributes?.name); if (u) unitById[p.id] = u; });
+  const sales = [];
+  rawBookings.forEach((b) => {
+    const a = b.attributes || {};
+    const u = unitById[b.relationships?.unit?.data?.id] || unitById[b.relationships?.property?.data?.id];
+    if (!u) return;
+    const s0 = (a.start_date || "").slice(0, 10), e0 = (a.end_date || "").slice(0, 10);
+    sales.push({
+      id: a.booking_id || b.id, status: (a.status || "").toLowerCase(), canceled: !!a.canceled,
+      created: (a.booked_time || "").slice(0, 10), start: s0, end: e0,
+      days: s0 && e0 ? Math.max(0, Math.round((new Date(e0) - new Date(s0)) / 864e5)) : 0,
+      total: +a.total_cost || 0, room: u.room, type: u.type, flat: u.flat, nomad: false,
+      guest: `${a.lead_guest_first_name || ""} ${a.lead_guest_last_name || ""}`.trim(),
+      contact: (a.lead_guest_email || "").toLowerCase().trim() || `${(a.lead_guest_first_name || "").toLowerCase()}|${(a.lead_guest_last_name || "").toLowerCase()}`,
+      platform: a.platform || "Direct booking",
+    });
+  });
+  return { sales, allUnits: Object.values(unitById) };
+}
+
+async function runStepLavanda(client, prop = "southall") {
+  const cfg = PROPS[prop];
+  const KEY_DATA = cfg.data, KEY_BUILD = cfg.data + ":build";
   const t0 = Date.now();
   const budgetLeft = () => STEP_BUDGET_MS - (Date.now() - t0);
   let b = JSON.parse((await client.get(KEY_BUILD)) || "null");
@@ -164,23 +203,25 @@ async function runStepLavanda(client) {
   const save = () => client.set(KEY_BUILD, JSON.stringify(b), { EX: 60 * 60 });
   while (budgetLeft() > 1500) {
     if (b.stage === "bookings") {
-      const r = await lavGet(`/bookings?page[size]=50${b.cursor ? `&page[after]=${encodeURIComponent(b.cursor)}` : ""}`);
+      const r = await lavGet(`/bookings?page[size]=50${b.cursor ? `&page[after]=${encodeURIComponent(b.cursor)}` : ""}`, cfg.lavKey);
       b.raw = b.raw.concat(r.data || []);
       b.cursor = r.meta?.page?.next || null;
       if (!b.cursor || b.raw.length > 20000) { b.log.push(`bookings: ${b.raw.length}`); b.stage = "props"; b.cursor = null; }
       await save(); continue;
     }
     if (b.stage === "props") {
-      const r = await lavGet(`/properties?page[size]=100${b.cursor ? `&page[after]=${encodeURIComponent(b.cursor)}` : ""}`);
+      const r = await lavGet(`/properties?page[size]=100${b.cursor ? `&page[after]=${encodeURIComponent(b.cursor)}` : ""}`, cfg.lavKey);
       b.props = b.props.concat(r.data || []);
       b.cursor = r.meta?.page?.next || null;
       if (!b.cursor) { b.log.push(`properties: ${b.props.length}`); b.stage = "finalize"; }
       await save(); continue;
     }
     if (b.stage === "finalize") {
-      if (b.raw.length < 50 || b.props.length < 50) throw new Error(`Partial Lavanda data (bookings=${b.raw.length}, props=${b.props.length})`);
+      if (b.raw.length < cfg.min || b.props.length < cfg.min) throw new Error(`Partial Lavanda data (bookings=${b.raw.length}, props=${b.props.length})`);
       const today = new Date().toISOString().slice(0, 10);
-      const { bookings, guestStays, units, details, sales, allUnits } = adaptLavanda(b.raw, b.props, today);
+      const { bookings, guestStays, units, details, sales, allUnits } = prop === "shoreditch"
+        ? { bookings: [], guestStays: [], units: [], details: {}, ...adaptShoreditch(b.raw, b.props) }
+        : adaptLavanda(b.raw, b.props, today);
       const snap = { ok: true, source: "lavanda", builtAt: new Date().toISOString(), startedAt: b.startedAt, log: [...b.log, `adapted: ${bookings.length} bookings, ${units.length} units, ${sales.length} sales records`], bookings, guestStays, units, details, sales, allUnits };
       await client.set(KEY_DATA, JSON.stringify(snap));
       await client.del(KEY_BUILD);
@@ -190,11 +231,13 @@ async function runStepLavanda(client) {
   return { done: false, source: "lavanda", stage: b.stage, progress: `${b.raw.length} bookings / ${b.props.length} props`, ms: Date.now() - t0 };
 }
 
-async function runStep(client) { return runStepLavanda(client); }
+async function runStep(client, prop) { return runStepLavanda(client, prop); }
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   const action = req.query.action || "get";
+  const prop = PROPS[req.query.property] ? req.query.property : "southall";
+  const KEY_DATA = PROPS[prop].data, KEY_BUILD = KEY_DATA + ":build", KEY_LOCK = KEY_DATA + ":lock";
   let client;
   try {
     client = await redis();
@@ -204,7 +247,7 @@ export default async function handler(req, res) {
       const got = await client.set(KEY_LOCK, String(Date.now()), { NX: true, PX: STEP_BUDGET_MS + 15000 });
       if (!got) return res.status(200).json({ done: false, stage: "locked", note: "another step is running" });
       try {
-        const out = await runStep(client);
+        const out = await runStep(client, prop);
         return res.status(200).json(out);
       } catch (e) {
         // Abandon a broken build so the next call starts clean

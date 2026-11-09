@@ -17,6 +17,17 @@ export default async function handler(req, res) {
     const today = new Date().toISOString().slice(0, 10);
     const active = bk.filter((b) => b.attributes?.status === "confirmed" && b.attributes.start_date <= today && b.attributes.end_date >= today).length;
     const days = bk.map((b) => Math.round((new Date(b.attributes.end_date) - new Date(b.attributes.start_date)) / 864e5)).filter((x) => x >= 0);
+    const sdUnit = (n) => { n = (n || "").trim(); if (/remove/i.test(n)) return null; let m = n.match(/^Villa-(\d+)-(\d+)-([A-Za-z]+)$/); if (m) return { room: +m[1] + "." + +m[2], type: m[3] }; m = n.match(/^Villa-Loft\s*-\s*Flat\s*(\d+)$/i); if (m) return { room: "Loft " + m[1], type: "Loft" }; return null; };
+    const uById = {}; props.forEach((p) => { const u = sdUnit(p.attributes?.name); if (u) uById[p.id] = u; });
+    const byType = {}; Object.values(uById).forEach((u) => { byType[u.type] = (byType[u.type] || 0) + 1; });
+    const conf = bk.filter((b) => b.attributes.status === "confirmed" && !b.attributes.canceled);
+    const inH = conf.filter((b) => b.attributes.start_date <= today && b.attributes.end_date >= today);
+    const unmapped = inH.filter((b) => !uById[b.relationships?.unit?.data?.id]).map((b) => (props.find((p) => p.id === b.relationships?.unit?.data?.id) || {}).attributes?.name || "no unit");
+    const occRooms = new Set(inH.map((b) => uById[b.relationships?.unit?.data?.id]?.room).filter(Boolean));
+    const occByType = {}; inH.forEach((b) => { const u = uById[b.relationships?.unit?.data?.id]; if (u) occByType[u.type] = (occByType[u.type] || 0) + 1; });
+    const wk = inH.map((b) => (+b.attributes.total_cost) / Math.max(1, (new Date(b.attributes.end_date) - new Date(b.attributes.start_date)) / 864e5) * 7);
+    const roll = inH.reduce((a, b) => a + (+b.attributes.total_cost) / Math.max(1, (new Date(b.attributes.end_date) - new Date(b.attributes.start_date)) / 864e5) * 365 / 12, 0);
+    if (req.query.summary) return res.status(200).json({ units: Object.keys(uById).length, byType, inHouse: inH.length, occRooms: occRooms.size, occByType, unmapped, awr: Math.round(wk.reduce((a, b) => a + b, 0) / Math.max(1, wk.length)), wkMin: Math.round(Math.min(...wk)), wkMax: Math.round(Math.max(...wk)), roll: Math.round(roll), createdRange: [bk.map((b) => (b.attributes.booked_time || "").slice(0, 10)).sort()[0], bk.map((b) => (b.attributes.booked_time || "").slice(0, 10)).sort().pop()], zeroCost: conf.filter((b) => !(+b.attributes.total_cost)).length });
     res.status(200).json({
       account: acct?.data?.attributes?.name || acct, props: props.map((p) => ({ id: p.id, type: p.type, name: p.attributes?.name, units: p.attributes?.total_units, children: (p.relationships?.properties?.data || []).length, bookings: unitUse[p.id] || 0 })),
       propAttrKeys: Object.keys(props[0]?.attributes || {}), bookingAttrKeys: Object.keys(bk[0]?.attributes || {}), bookingRel: Object.keys(bk[0]?.relationships || {}),
