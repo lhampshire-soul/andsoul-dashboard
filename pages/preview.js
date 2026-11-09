@@ -4,7 +4,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import { BEDS, OFFLINE_ROOMS, OFFLINE_UNLISTED } from "../lib/offline";
-import { loadCrmLeads } from "../lib/ghlLeads";
+import { loadCrm } from "../lib/ghlLeads";
+import { SD_FLATS } from "../lib/sdFlats";
 
 const C = { bg: "#F6F5F2", card: "#FFFFFF", text: "#1B1B1B", muted: "#7A7A7A", line: "#E7E4DE", accent: "#1F3864", good: "#2E7D4F", warn: "#B7791F", bad: "#B23B3B" };
 const TYPES = ["Nomad", "Nook", "Snug", "Cosy", "Roomy", "Spacious", "Deluxe Accessible", "Deluxe"];
@@ -104,9 +105,7 @@ const SC = { Renewed: C.good, Pending: C.warn, Leaving: C.bad, Undecided: C.mute
 const Tag = ({ s }) => <span style={{ color: SC[s] || C.text, fontWeight: 600 }}>{s}</span>;
 
 // ─── Page ───────────────────────────────────────────────────────────────────
-export default function Preview() {
-  const [tab, setTab] = useState("snapshot");
-  const [period, setPeriod] = useState("7d");
+function SouthallView({ tab, setTab, period, setPeriod, property, setProperty }) {
   const [snap, setSnap] = useState(null);
   const [err, setErr] = useState(null);
   const [rstate, setRstate] = useState({ leaving: [], pending: [] });
@@ -136,7 +135,7 @@ export default function Preview() {
       } catch (e) { if (!dead) setErr(e.message); }
       try { const r = await (await fetch("/api/renewal-state")).json(); if (!dead) setRstate(r); } catch {}
     })();
-    loadCrmLeads().then((l) => !dead && setCrm(l)).catch((e) => !dead && setCrmErr(e.message));
+    loadCrm(/southall/i).then((r) => !dead && setCrm(r.leads)).catch((e) => !dead && setCrmErr(e.message));
     return () => { dead = true; };
   }, []);
 
@@ -285,17 +284,9 @@ export default function Preview() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" }}>
-      <Head><title>&Soul Southall</title><meta name="viewport" content="width=device-width, initial-scale=1" /></Head>
+      <Head><title>&Soul · Southall</title><meta name="viewport" content="width=device-width, initial-scale=1" /></Head>
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "22px 18px 60px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 800 }}>&amp;Soul Southall</div>
-            <div style={{ fontSize: 12, color: C.muted }}>{snap ? `Lavanda · updated ${new Date(snap.builtAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Loading…"}{crmErr ? " · CRM unavailable" : ""}</div>
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {[["snapshot", "Snapshot"], ["sales", "Sales"], ["renewals", "Renewals"]].map(([k, l]) => <Pill key={k} on={tab === k} onClick={() => setTab(k)}>{l}</Pill>)}
-          </div>
-        </div>
+        <Header title="Southall" sub={(snap ? `Lavanda · updated ${new Date(snap.builtAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Loading…") + (crmErr ? " · CRM unavailable" : "")} tab={tab} setTab={setTab} property={property} setProperty={setProperty} />
 
         {err && <Card style={{ marginTop: 20, color: C.bad }}>{err}</Card>}
         {!snap && !err && <Card style={{ marginTop: 20, color: C.muted }}>Loading Lavanda data…</Card>}
@@ -426,6 +417,207 @@ export default function Preview() {
             <div style={{ height: 12 }} />
             <Table cols={["Guest", "Room", "Type", "Ends", "Current £/wk", "Status", "New £/wk", "Change"]}
               rows={sel.entries.map((e) => [e.guest || "—", e.room, tl(e.type), fmtDate(e.end), gbp(e.cur), <Tag key={e.id} s={e.st} />, e.nw ? gbp(e.nw) : "—", e.nw && e.cur ? pct(e.nw / e.cur - 1, 1) : "—"])} />
+          </>);
+        })()}
+      </div>
+    </div>
+  );
+}
+
+
+// ─── Shared header ──────────────────────────────────────────────────────────
+function Header({ title, sub, tab, setTab, property, setProperty }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+      <div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          {[["southall", "Southall"], ["shoreditch", "Shoreditch"]].map(([k, l]) => (
+            <button key={k} onClick={() => setProperty(k)} style={{ border: "none", background: "none", padding: "0 10px 0 0", fontSize: 20, fontWeight: 800, cursor: "pointer", color: property === k ? C.text : "#C4C0B8" }}>{l}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 12, color: C.muted }}>{sub}</div>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {[["snapshot", "Snapshot"], ["sales", "Sales"], ["renewals", "Renewals"]].map(([k, l]) => <Pill key={k} on={tab === k} onClick={() => setTab(k)}>{l}</Pill>)}
+      </div>
+    </div>
+  );
+}
+
+export default function Preview() {
+  const [property, setProperty] = useState("southall");
+  const [tab, setTab] = useState("snapshot");
+  const [period, setPeriod] = useState("7d");
+  const p = { tab, setTab, period, setPeriod, property, setProperty };
+  return property === "shoreditch" ? <ShoreditchView {...p} /> : <SouthallView {...p} />;
+}
+
+// ─── Shoreditch ─────────────────────────────────────────────────────────────
+// Rooms: the Shoreditch room register (/api/sd-occupancy, edited on the main
+// dashboard). Sales: the GHL "Shoreditch" pipeline. Spend: Meta + Google.
+const SD_BOOKED = /booking confirmed/i;
+const SD_TOUR = /^tour (confirmed|completed)/i;
+const SD_LOST = /^(lost|unresponsive|unqualified|follow up later)/i;
+const sdWeekly = (m) => (m || 0) * 12 / 52;
+const isOcc = (r) => r.s === "OCCUPIED" || r.s === "LEAVING";
+
+function ShoreditchView({ tab, setTab, period, setPeriod, property, setProperty }) {
+  const today = useMemo(() => iso(new Date()), []);
+  const range = periodRange(period, today), prev = prevRange(period, range);
+  const [flats, setFlats] = useState(null);
+  const [regAt, setRegAt] = useState(null);
+  const [crm, setCrm] = useState(null);
+  const [crmErr, setCrmErr] = useState(null);
+  const [ads, setAds] = useState({});
+
+  useEffect(() => {
+    let dead = false;
+    fetch("/api/sd-occupancy").then((r) => r.json()).then((j) => {
+      if (dead) return;
+      setFlats(Array.isArray(j.flats) && j.flats.length ? j.flats : SD_FLATS); setRegAt(j.updatedAt || null);
+    }).catch(() => !dead && setFlats(SD_FLATS));
+    loadCrm(/shoreditch/i).then((r) => !dead && setCrm(r)).catch((e) => !dead && setCrmErr(e.message));
+    return () => { dead = true; };
+  }, []);
+  useEffect(() => {
+    [range, prev].forEach((r) => {
+      const k = `${r.from}|${r.to}`;
+      if (ads[k]) return;
+      setAds((x) => ({ ...x, [k]: "loading" }));
+      const get = async (u) => { try { const j = await (await fetch(u)).json(); return j.data || null; } catch { return null; } };
+      Promise.all([get(`/api/meta?dateFrom=${r.from}&dateTo=${r.to}&property=shoreditch`), get(`/api/google?dateFrom=${r.from}&dateTo=${r.to}&property=shoreditch`)])
+        .then(([m, g]) => setAds((x) => ({ ...x, [k]: { meta: m?.totalSpend ?? null, google: g?.totalSpend ?? null } })));
+    });
+  }, [range.from, range.to]); // eslint-disable-line
+
+  const reg = useMemo(() => {
+    if (!flats) return null;
+    const rooms = flats.flatMap((f) => f.rooms.map((r) => ({ ...r, flat: f.name, floor: f.floor })));
+    const occ = rooms.filter(isOcc);
+    const w = occ.map((r) => sdWeekly(r.m)).filter((x) => x > 0);
+    const rows = flats.map((f) => {
+      const o = f.rooms.filter(isOcc), ww = o.map((r) => sdWeekly(r.m)).filter((x) => x > 0);
+      return [f.name, f.floor || "—", f.rooms.length, o.length, f.rooms.filter((r) => r.s === "AVAILABLE").length, f.rooms.filter((r) => r.s === "LEAVING").length, f.rooms.filter((r) => r.s === "INCOMING").length, pct(o.length / f.rooms.length), ww.length ? gbp(ww.reduce((a, b) => a + b, 0) / ww.length) : "—"];
+    });
+    const leaving = rooms.filter((r) => r.s === "LEAVING").sort((a, b) => (a.leave || "9").localeCompare(b.leave || "9"));
+    const incoming = rooms.filter((r) => r.s === "INCOMING");
+    const roll = occ.reduce((a, r) => a + (r.m || 0), 0);
+    const d30 = addDays(today, 30);
+    return { rooms, total: rooms.length, occ: occ.length, avail: rooms.filter((r) => r.s === "AVAILABLE").length, leaving, incoming, rows,
+      awr: w.length ? w.reduce((a, b) => a + b, 0) / w.length : null, roll,
+      rollAfter: roll - leaving.reduce((a, r) => a + (r.m || 0), 0) + incoming.reduce((a, r) => a + (r.m || 0), 0),
+      dep30: leaving.filter((r) => r.leave && r.leave <= d30), depUndated: leaving.filter((r) => !r.leave) };
+  }, [flats, today]);
+
+  const salesFor = (r) => {
+    if (!crm) return null;
+    const inR = (d) => d && d >= r.from && d <= r.to;
+    const leads = crm.leads.filter((l) => inR(l.created));
+    const booked = crm.opps.filter((o) => (SD_BOOKED.test(o.stage) && inR(o.stageAt)) || (o.status === "won" && inR(o.statusAt) && !SD_BOOKED.test(o.stage)));
+    const tours = crm.opps.filter((o) => SD_TOUR.test(o.stage) && inR(o.stageAt));
+    const lost = crm.opps.filter((o) => SD_LOST.test(o.stage) && inR(o.stageAt));
+    const n = (c) => leads.filter((l) => l.channel === c).length;
+    const a = ads[`${r.from}|${r.to}`];
+    const spendOk = a && a !== "loading";
+    const spend = spendOk ? (a.meta || 0) + (a.google || 0) : null;
+    return { leads, booked, tours, lost, lMeta: n("meta"), lGoogle: n("google"), lOther: n("other"), spendOk, spend, meta: spendOk ? a.meta : null, google: spendOk ? a.google : null,
+      cpl: spendOk && leads.length ? spend / leads.length : null, cplMeta: spendOk && n("meta") ? a.meta / n("meta") : null, cplGoogle: spendOk && n("google") ? a.google / n("google") : null,
+      cpa: spendOk && booked.length ? spend / booked.length : null, conv: leads.length ? booked.length / leads.length : null,
+      stageMix: Object.entries(leads.reduce((m, l) => { const o = crm.opps.find((x) => x.key === l.key && x.created === l.created) || l; m[o.stage || "—"] = (m[o.stage || "—"] || 0) + 1; return m; }, {})).sort((x, y) => y[1] - x[1]) };
+  };
+  const cur = useMemo(() => salesFor(range), [crm, ads, range.from, range.to]); // eslint-disable-line
+  const pre = useMemo(() => salesFor(prev), [crm, ads, prev.from, prev.to]); // eslint-disable-line
+
+  const pills = (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      <span style={{ fontSize: 12, color: C.muted, marginRight: 4 }}>{fmtDate(range.from)} – {fmtDate(range.to)} · vs {fmtDate(prev.from)} – {fmtDate(prev.to)}</span>
+      {[["7d", "7 days"], ["30d", "30 days"], ["mtd", "Month to date"], ["lm", "Last month"]].map(([k, l]) => <Pill key={k} on={period === k} onClick={() => setPeriod(k)}>{l}</Pill>)}
+    </div>
+  );
+  const D = (k, opts = {}) => (cur && pre ? <Delta cur={typeof k === "function" ? k(cur) : cur[k]} prev={typeof k === "function" ? k(pre) : pre[k]} {...opts} /> : null);
+  const sub = `Room register${regAt ? " · updated " + new Date(regAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""} · CRM ${crm ? "live" : crmErr ? "unavailable" : "loading…"}`;
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" }}>
+      <Head><title>&Soul · Shoreditch</title><meta name="viewport" content="width=device-width, initial-scale=1" /></Head>
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "22px 18px 60px" }}>
+        <Header title="Shoreditch" sub={sub} tab={tab} setTab={setTab} property={property} setProperty={setProperty} />
+        {!reg && <Card style={{ marginTop: 20, color: C.muted }}>Loading…</Card>}
+
+        {reg && tab === "snapshot" && (<>
+          <H right={<span style={{ fontSize: 12, color: C.muted }}>Today · {fmtDate(today)}</span>}>Property</H>
+          <Grid>
+            <Stat label="Occupancy" value={pct(reg.occ / reg.total, 1)} sub={`${reg.occ} of ${reg.total} bedrooms`} />
+            <Stat label="Residents in house" value={num(reg.occ)} sub={`${flats.length} villas`} />
+            <Stat label="Rooms empty" value={num(reg.avail)} />
+            <Stat label="Leaving" value={num(reg.leaving.length)} color={C.bad} />
+            <Stat label="Incoming" value={num(reg.incoming.length)} color={C.good} />
+            <Stat label="AWR" value={gbp(reg.awr)} sub="Avg weekly rate, occupied" />
+          </Grid>
+          <div style={{ height: 12 }} />
+          <Table cols={["Villa", "Floor", "Beds", "Occupied", "Empty", "Leaving", "Incoming", "Occupancy", "AWR"]} rows={reg.rows}
+            total={["Total", "", reg.total, reg.occ, reg.avail, reg.leaving.length, reg.incoming.length, pct(reg.occ / reg.total, 1), gbp(reg.awr)]} />
+
+          <H right={<span style={{ fontSize: 12, color: C.muted }}>Gross</span>}>Revenue</H>
+          <Grid>
+            <Stat label="Monthly rent roll" value={gbp(reg.roll)} sub="Occupied rooms" />
+            <Stat label="After leavers & incoming" value={gbp(reg.rollAfter)} sub={`−${reg.leaving.length} leaving · +${reg.incoming.length} incoming`} />
+            <Stat label="Rent roll at 100%" value={gbp(reg.rooms.reduce((a, r) => a + (r.m || 0), 0))} sub="All rooms at listed rate" />
+          </Grid>
+
+          <H right={<span style={{ fontSize: 12, color: C.muted }}>{fmtDate(addDays(today, 1))} – {fmtDate(addDays(today, 30))}</span>}>Next 30 days</H>
+          <Grid>
+            <Stat label="Departures" value={num(reg.dep30.length)} sub={reg.depUndated.length ? `+${reg.depUndated.length} leaving, no date set` : null} />
+            <Stat label="Incoming" value={num(reg.incoming.length)} sub="No arrival dates in register" />
+            <Stat label="Occupancy after leavers & incoming" value={pct((reg.occ - reg.leaving.length + reg.incoming.length) / reg.total, 1)} />
+          </Grid>
+          {reg.leaving.length > 0 && (<><div style={{ height: 12 }} />
+            <Table cols={["Villa", "Room", "Resident", "Leaves", "£/week"]} rows={reg.leaving.map((r) => [r.flat, r.label, r.member || "—", r.leave ? fmtDate(r.leave) : "—", gbp(sdWeekly(r.m))])} /></>)}
+
+          <H right={pills}>Marketing</H>
+          <Grid>
+            <Stat label="Marketing spend" value={cur?.spendOk ? gbp(cur.spend) : "…"} sub={cur?.spendOk ? `Meta ${gbp(cur.meta)} · Google ${gbp(cur.google)}` : null} delta={pre?.spendOk && D("spend", { fmt: gbp, lowerIsBetter: true })} />
+            <Stat label="Leads (CRM)" value={cur ? num(cur.leads.length) : "…"} sub={cur ? `Meta ${cur.lMeta} · Google ${cur.lGoogle} · Other ${cur.lOther}` : null} delta={D((x) => x.leads.length)} />
+            <Stat label="Cost per lead" value={cur?.spendOk ? gbp(cur.cpl) : "…"} sub="All CRM leads" delta={pre?.spendOk && D("cpl", { fmt: gbp, lowerIsBetter: true })} />
+            <Stat label="Cost per acquisition" value={cur?.spendOk ? gbp(cur.cpa) : "…"} sub={cur ? `Spend ÷ ${cur.booked.length} bookings confirmed` : null} delta={pre?.spendOk && D("cpa", { fmt: gbp, lowerIsBetter: true })} />
+          </Grid>
+          <div style={{ height: 12 }} />
+          <Table cols={["Channel", "Spend", "Leads (CRM)", "Cost per lead", "Prev cost per lead"]}
+            rows={cur?.spendOk ? [["Meta", gbp(cur.meta), cur.lMeta, gbp(cur.cplMeta), pre?.spendOk ? gbp(pre.cplMeta) : "…"], ["Google", gbp(cur.google), cur.lGoogle, gbp(cur.cplGoogle), pre?.spendOk ? gbp(pre.cplGoogle) : "…"], ["Other (organic, direct, referral)", "—", cur.lOther, "—", "—"]] : [["Loading…", "", "", "", ""]]}
+            total={cur?.spendOk ? ["Total", gbp(cur.spend), cur.leads.length, gbp(cur.cpl), pre?.spendOk ? gbp(pre.cpl) : "…"] : null} />
+        </>)}
+
+        {tab === "sales" && (<>
+          <H right={pills}>Pipeline</H>
+          {!cur ? <Card style={{ color: crmErr ? C.bad : C.muted }}>{crmErr || "Loading CRM…"}</Card> : (<>
+            <Grid min={150}>
+              <Stat label="Applications" value={num(cur.leads.length)} sub="New in CRM" delta={D((x) => x.leads.length)} />
+              <Stat label="Tours" value={num(cur.tours.length)} sub="Moved to tour stage" delta={D((x) => x.tours.length)} />
+              <Stat label="Bookings confirmed" value={num(cur.booked.length)} color={C.good} sub="All new — renewals not in CRM" delta={D((x) => x.booked.length)} />
+              <Stat label="Lost / unqualified" value={num(cur.lost.length)} color={C.bad} delta={D((x) => x.lost.length, { lowerIsBetter: true })} />
+              <Stat label="Lead → booking" value={pct(cur.conv, 1)} delta={D("conv", { fmt: (v) => pct(v, 1) })} />
+            </Grid>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
+              <div><H>Bookings confirmed in period</H>
+                <Table cols={["Confirmed", "Name", "Channel", "Applied"]} rows={cur.booked.length ? cur.booked.sort((a, b) => b.stageAt.localeCompare(a.stageAt)).map((o) => [fmtDate(o.stageAt), o.name, { meta: "Meta", google: "Google", other: "Other" }[o.channel], fmtDate(o.created)]) : [["—", "", "", ""]]} /></div>
+              <div><H>Where this period's applications are now</H>
+                <Table cols={["Stage", "Applications"]} rows={cur.stageMix.length ? cur.stageMix : [["—", 0]]} total={["Total", cur.leads.length]} /></div>
+            </div>
+          </>)}
+        </>)}
+
+        {reg && tab === "renewals" && (() => {
+          const byMonth = {}; reg.leaving.forEach((r) => { const k = r.leave ? r.leave.slice(0, 7) : "No date"; byMonth[k] = (byMonth[k] || 0) + 1; });
+          return (<>
+            <H>Leaving (room register)</H>
+            <Grid min={150}>
+              <Stat label="Leaving" value={reg.leaving.length} color={C.bad} />
+              <Stat label="Rent at risk / month" value={gbp(reg.leaving.reduce((a, r) => a + (r.m || 0), 0))} />
+              {Object.entries(byMonth).sort().map(([k, v]) => <Stat key={k} label={k === "No date" ? k : new Date(k + "-01T00:00:00Z").toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" })} value={v} />)}
+            </Grid>
+            <div style={{ height: 12 }} />
+            <Table cols={["Villa", "Room", "Resident", "Leaves", "£/month", "£/week"]} rows={reg.leaving.length ? reg.leaving.map((r) => [r.flat, r.label, r.member || "—", r.leave ? fmtDate(r.leave) : "—", gbp(r.m), gbp(sdWeekly(r.m))]) : [["—", "", "", "", "", ""]]} />
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Shoreditch contract end dates are not held in any connected system; renewal rates appear here once they are.</div>
           </>);
         })()}
       </div>
