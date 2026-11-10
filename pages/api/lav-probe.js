@@ -1,7 +1,9 @@
 // TEMPORARY token-gated weekly-report reconciliation (no guest names). Remove after use.
-export const config = { maxDuration: 30 };
+import { oppChannel } from "../../lib/ghlLeads";
+export const config = { maxDuration: 60 };
 const dd = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 864e5);
 export default async function handler(req, res) {
+  if (req.query.ghl && req.query.t === "251f49e5990cd15d2540b655") return ghl(req, res);
   if (req.query.t !== "251f49e5990cd15d2540b655") return res.status(404).end();
   const { createClient } = await import("redis");
   const c = createClient({ url: process.env.KV_REDIS_URL }); await c.connect();
@@ -33,3 +35,28 @@ export default async function handler(req, res) {
     cancelled: cancelled.length, cancelledAll: sales.filter((x) => x.canceled || x.status === "canceled").length, noFuture });
 }
 function addDay(d, n) { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); }
+
+async function ghl(req, res) {
+  const KEY = process.env.GHL_API_KEY || "pit-da675da7-68cd-4c4e-8693-c490f7f86f04";
+  const get = async (p) => (await fetch("https://services.leadconnectorhq.com" + p, { headers: { Authorization: "Bearer " + KEY, Version: "2021-07-28", Accept: "application/json" } })).json();
+  const pid = req.query.pid || "Kxo9AHQiTKlZoWoBojAl";
+  const pr = await get("/opportunities/pipelines?locationId=PwquLuIhIjj0D80e6jLU");
+  const pipe = pr.pipelines.find((x) => x.id === pid); const sn = {}; pipe.stages.forEach((x) => { sn[x.id] = x.name; });
+  let all = [], sa, sai;
+  for (let i = 0; i < 60; i++) {
+    const q = new URLSearchParams({ location_id: "PwquLuIhIjj0D80e6jLU", pipeline_id: pid, limit: "100" }); if (sa) q.set("startAfter", sa); if (sai) q.set("startAfterId", sai);
+    const r = await get("/opportunities/search?" + q); const o = r.opportunities || []; all = all.concat(o);
+    sa = r.meta?.startAfter; sai = r.meta?.startAfterId; if (!o.length || !sa || all.length >= (r.meta?.total || 0)) break;
+  }
+  const { from, to } = req.query; const inR = (d) => d && d.slice(0, 10) >= from && d.slice(0, 10) <= to;
+  const created = all.filter((o) => inR(o.createdAt));
+  const uniq = {}; created.forEach((o) => { uniq[o.contactId || o.id] = o; });
+  const leads = Object.values(uniq);
+  const ch = {}; leads.forEach((o) => { const c = oppChannel(o); ch[c] = (ch[c] || 0) + 1; });
+  const src = {}; leads.forEach((o) => { const k = (o.source || "—").slice(0, 40); src[k] = (src[k] || 0) + 1; });
+  const stageNow = {}; leads.forEach((o) => { const k = sn[o.pipelineStageId]; stageNow[k] = (stageNow[k] || 0) + 1; });
+  const movedTour = all.filter((o) => /tour (booked|completed)/i.test(sn[o.pipelineStageId] || "") && inR(o.lastStageChangeAt)).length;
+  const tagTour = leads.filter((o) => (o.contact?.tags || []).some((t) => /tour booked/i.test(t))).length;
+  const booked = all.filter((o) => /booking confirmed/i.test(sn[o.pipelineStageId] || "") && inR(o.lastStageChangeAt)).map((o) => ({ ch: oppChannel(o), at: o.lastStageChangeAt.slice(0, 10) }));
+  res.status(200).json({ total: all.length, oppsCreated: created.length, uniqueLeads: leads.length, channels: ch, sources: src, stageNow, movedToTourStage: movedTour, leadsTaggedTour: tagTour, bookedInRange: booked });
+}
