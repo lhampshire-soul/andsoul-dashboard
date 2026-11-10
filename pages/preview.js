@@ -272,7 +272,8 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   const salesFor = (r) => {
     const kind = (s) => (isShort(s) ? "Short stay" : ch.isRenewal.has(s.id) ? "Long stay — renewal" : "Long stay — new");
     const statusOf = (s) => (s.canceled || s.status === "canceled" ? "Cancelled" : s.status === "inquiry" ? "Enquiry" : s.status.endsWith("_expired") ? "Expired hold" : s.status === "tentative" ? "Pending" : "Confirmed");
-    const recs = sales.filter((s) => s.created && s.created >= r.from && s.created <= r.to).map((s) => ({ ...s, kind: kind(s), st: statusOf(s) })).sort((a, b) => b.created.localeCompare(a.created));
+    // £0 confirmed records are blocks/holds entered in Lavanda, not sales
+    const recs = sales.filter((s) => s.created && s.created >= r.from && s.created <= r.to && !(s.status === "confirmed" && !s.canceled && !(s.total > 0))).map((s) => ({ ...s, kind: kind(s), st: statusOf(s) })).sort((a, b) => b.created.localeCompare(a.created));
     const made = recs.filter((x) => x.st !== "Enquiry"), confd = made.filter((x) => x.st === "Confirmed");
     return { recs, made, confd, enq: recs.length - made.length, pend: made.filter((x) => x.st === "Pending").length, canc: made.filter((x) => x.st === "Cancelled").length, exp: made.filter((x) => x.st === "Expired hold").length,
       newLong: confd.filter((x) => x.kind === "Long stay — new").length, renew: confd.filter((x) => x.kind === "Long stay — renewal").length, short: confd.filter((x) => x.kind === "Short stay").length,
