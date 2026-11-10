@@ -315,7 +315,8 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   //    (confirmed). Extending only within the same month is NOT a renewal.
   const renewals = useMemo(() => {
     const leaving = new Set((rstate.leaving || []).map(String)), pending = new Set((rstate.pending || []).map(String));
-    const mo = (d) => d.slice(0, 7);
+    // Month a stay belongs to = month of its LAST NIGHT (a 1 Nov checkout is an October contract)
+    const mo = (d) => addDays(d, -1).slice(0, 7);
     const held = sales.filter((x) => !x.nomad && !x.canceled && (x.status === "confirmed" || x.status === "tentative") && x.total > 0);
     const byContact = {}; held.forEach((x) => { const k = x.contact && x.contact !== "|" ? x.contact : "id:" + x.id; (byContact[k] = byContact[k] || []).push(x); });
     const rows = [];
@@ -347,7 +348,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
           else if (x.end < today) st = "Leaving";
           else st = "Undecided";
           const extInMonth = x !== head && dayDiff(c.stays[Math.max(0, i - 1)].end, x.start) <= 14 && x.days < 28 && mo(c.stays[Math.max(0, i - 1)].end) === m;
-          rows.push({ ...x, m, st, cur: weekly(x), nw: st === "Renewed" && nextStay ? weekly(nextStay) : null, newEnd: st === "Renewed" ? confLater : null, firstDays: head.days, note: extInMonth ? "Short extension within the month — not a renewal" : null });
+          rows.push({ ...x, m, st, cur: weekly(x), nw: st === "Renewed" && nextStay ? weekly(nextStay) : null, newEnd: st === "Renewed" ? confLater : null, firstDays: head.days, note: extInMonth && st !== "Renewed" ? "Short extension within the month — not a renewal" : null });
         });
       });
     });
@@ -558,7 +559,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
             <div style={{ height: 12 }} />
             <Table cols={["Guest", "Room", "Type", "Ends", "Current £/wk", "Status", "Renewed to", "New £/wk", "Change", ""]}
               rows={sel.entries.map((e) => [e.guest || "—", e.room, tl(e.type), fmtDate(e.end), gbp(e.cur), <Tag key={e.id} s={e.st} />, e.newEnd ? fmtDate(e.newEnd) : "—", e.nw ? gbp(e.nw) : "—", e.nw && e.cur ? pct(e.nw / e.cur - 1, 1) : "—", e.note ? <span key="n" style={{ fontSize: 11, color: C.muted }}>{e.note}</span> : ""])} />
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Guests whose first stay was 28+ nights. Renewed = stay continues past the end of {sel.label}; extensions that finish within the month are not renewals.</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Guests whose first stay was 28+ nights. Contracts are placed in the month of their last night. Renewed = stay continues past the end of {sel.label}; extensions that finish within the month are not renewals.</div>
           </>);
         })()}
       </div>
