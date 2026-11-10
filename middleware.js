@@ -12,6 +12,7 @@ const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
   "/api/canopy-webhook", // Canopy sends webhooks here — must stay open
+  "/api/lav-probe", // TEMPORARY token-gated reconciliation — remove after use
 ];
 
 function isPublicPath(pathname) {
