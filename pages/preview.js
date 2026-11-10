@@ -125,7 +125,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   const [month, setMonth] = useState(null);
   const [kindF, setKindF] = useState("All");
   const [hz, setHz] = useState(30);
-  const [emptyF, setEmptyF] = useState("90");
+  const [emptyF, setEmptyF] = useState("all");
   // Refresh everything every 5 minutes while the page is open
   const [tick, setTick] = useState(0);
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 5 * 60 * 1000); return () => clearInterval(t); }, []);
@@ -378,18 +378,17 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
           <H right={<span style={{ fontSize: 12, color: C.muted }}>Usable rooms · confirmed or pending stays</span>}>Empty rooms</H>
           <Grid>
             <Stat label="Empty today" value={num(empty.emptyNow.length)} sub={`${empty.emptyNow.length - empty.freeAll.length} have a booking coming`} />
-            <Stat label="Nothing booked — next 90 days" value={num(empty.free90.length)} color={empty.free90.length ? C.bad : C.text} sub={`Empty today, free to ${fmtDate(addDays(today, 90))}`} />
             <Stat label="No future booking at all" value={num(empty.freeAll.length)} color={empty.freeAll.length ? C.bad : C.text} sub="Empty today, nothing booked ever" />
           </Grid>
           <div style={{ height: 12 }} />
-          <Table cols={["Room type", "Empty today", "Nothing booked 90 days", "No future booking"]}
-            rows={TYPES.map((t) => [tl(t), empty.emptyNow.filter((r) => r.type === t).length, empty.free90.filter((r) => r.type === t).length, empty.freeAll.filter((r) => r.type === t).length]).filter((r) => r[1])}
-            total={["Total", empty.emptyNow.length, empty.free90.length, empty.freeAll.length]} />
+          <Table cols={["Room type", "Empty today", "No future booking"]}
+            rows={TYPES.map((t) => [tl(t), empty.emptyNow.filter((r) => r.type === t).length, empty.freeAll.filter((r) => r.type === t).length]).filter((r) => r[1])}
+            total={["Total", empty.emptyNow.length, empty.freeAll.length]} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "12px 0" }}>
-            {[["90", "Nothing booked 90 days"], ["all", "No future booking"], ["now", "All empty today"]].map(([k, l]) => <Pill key={k} on={emptyF === k} onClick={() => setEmptyF(k)}>{l}</Pill>)}
+            {[["all", "No future booking"], ["now", "All empty today"]].map(([k, l]) => <Pill key={k} on={emptyF === k} onClick={() => setEmptyF(k)}>{l}</Pill>)}
           </div>
           {(() => {
-            const list = (emptyF === "90" ? empty.free90 : emptyF === "all" ? empty.freeAll : empty.emptyNow).slice().sort((a, b) => (a.lastOut || "0").localeCompare(b.lastOut || "0"));
+            const list = (emptyF === "all" ? empty.freeAll : empty.emptyNow).slice().sort((a, b) => (a.lastOut || "0").localeCompare(b.lastOut || "0"));
             return <Table cols={["Room", "Type", "Last checkout", "Empty for", "Next booking"]}
               rows={list.length ? list.map((r) => [r.room, tl(r.type), r.lastOut ? fmtDate(r.lastOut) : "No record", r.lastOut ? `${dayDiff(r.lastOut, today)} days` : "—", r.next ? `${fmtDate(r.next.start)} (${dayDiff(today, r.next.start)} days)` : "None"]) : [["—", "", "", "", ""]]} />;
           })()}
