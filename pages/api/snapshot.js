@@ -242,6 +242,28 @@ export default async function handler(req, res) {
   try {
     client = await redis();
 
+    if (action === "cron") {
+      // Rebuild every property end to end inside one invocation (Vercel Cron,
+      // every 15 min). Returns status only.
+      const out = {};
+      const t0 = Date.now();
+      for (const p of Object.keys(PROPS)) {
+        const kd = PROPS[p].data, kb = kd + ":build", kl = kd + ":lock";
+        out[p] = "skipped";
+        for (let i = 0; i < 12 && Date.now() - t0 < 50000; i++) {
+          const got = await client.set(kl, String(Date.now()), { NX: true, PX: STEP_BUDGET_MS + 15000 });
+          if (!got) { out[p] = "locked"; break; }
+          try {
+            const r = await runStep(client, p);
+            out[p] = r.done ? `built ${r.builtAt}` : r.stage;
+            if (r.done) break;
+          } catch (e) { await client.del(kb); out[p] = "error: " + e.message; break; }
+          finally { await client.del(kl); }
+        }
+      }
+      return res.status(200).json({ ok: true, ms: Date.now() - t0, out });
+    }
+
     if (action === "build") {
       // One step at a time across all callers
       const got = await client.set(KEY_LOCK, String(Date.now()), { NX: true, PX: STEP_BUDGET_MS + 15000 });

@@ -124,7 +124,12 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   const [crmErr, setCrmErr] = useState(null);
   const [month, setMonth] = useState(null);
   const [kindF, setKindF] = useState("All");
-  const today = useMemo(() => iso(new Date()), []);
+  // Refresh everything every 5 minutes while the page is open
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 5 * 60 * 1000); return () => clearInterval(t); }, []);
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => setNowMs(Date.now()), [tick, snap]);
+  const today = useMemo(() => iso(new Date()), [tick]); // eslint-disable-line
   const range = periodRange(period, today);
   const prev = prevRange(period, range);
 
@@ -133,7 +138,9 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
     (async () => {
       try {
         let s = await (await fetch(`/api/snapshot?property=${cfg.key}`)).json();
-        if (!s.ok || !s.sales) {
+        const age = s.ok ? (Date.now() - new Date(s.builtAt).getTime()) / 60000 : Infinity;
+        if (s.ok && s.sales && !dead) setSnap(s); // show what we have straight away
+        if (!s.ok || !s.sales || age > 20) {
           for (let i = 0; i < 30; i++) {
             const r = await (await fetch(`/api/snapshot?action=build&property=${cfg.key}`, { method: "POST" })).json();
             if (r.done || r.stage === "error") break;
@@ -145,9 +152,10 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
       } catch (e) { if (!dead) setErr(e.message); }
       try { const r = await (await fetch("/api/renewal-state")).json(); if (!dead) setRstate(r); } catch {}
     })();
-    loadCrm(cfg.crm).then((r) => !dead && setCrm(r.leads)).catch((e) => !dead && setCrmErr(e.message));
+    loadCrm(cfg.crm).then((r) => { if (!dead) { setCrm(r.leads); setCrmErr(null); } }).catch((e) => !dead && setCrmErr(e.message));
+    if (tick > 0) setAds({}); // re-pull spend
     return () => { dead = true; };
-  }, []);
+  }, [tick]); // eslint-disable-line
 
   // Ad spend for the period and the previous period
   useEffect(() => {
@@ -159,7 +167,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
       Promise.all([get(`/api/meta?dateFrom=${r.from}&dateTo=${r.to}&property=${cfg.key}`), get(`/api/google?dateFrom=${r.from}&dateTo=${r.to}&property=${cfg.key}`)])
         .then(([m, g]) => setAds((x) => ({ ...x, [k]: { meta: m?.totalSpend ?? null, google: g?.totalSpend ?? null } })));
     });
-  }, [range.from, range.to]); // eslint-disable-line
+  }, [range.from, range.to, ads]); // eslint-disable-line
 
   const sales = snap?.sales || [];
   const ch = useMemo(() => buildChains(sales), [snap]); // eslint-disable-line
@@ -297,7 +305,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" }}>
       <Head><title>{`&Soul · ${cfg.title}`}</title><meta name="viewport" content="width=device-width, initial-scale=1" /></Head>
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "22px 18px 60px" }}>
-        <Header title={cfg.title} sub={(snap ? `Lavanda · updated ${new Date(snap.builtAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Loading…") + (crmErr ? " · CRM unavailable" : "")} tab={tab} setTab={setTab} property={property} setProperty={setProperty} />
+        <Header title={cfg.title} sub={(snap ? `Lavanda · updated ${new Date(snap.builtAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} (${Math.max(0, Math.round((nowMs - new Date(snap.builtAt).getTime()) / 60000))} min ago)` : "Loading…") + (crmErr ? " · CRM unavailable" : "")} tab={tab} setTab={setTab} property={property} setProperty={setProperty} />
 
         {err && <Card style={{ marginTop: 20, color: C.bad }}>{err}</Card>}
         {!snap && !err && <Card style={{ marginTop: 20, color: C.muted }}>Loading Lavanda data…</Card>}

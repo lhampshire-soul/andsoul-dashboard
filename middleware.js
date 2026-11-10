@@ -34,6 +34,12 @@ async function getExpectedToken() {
 export async function middleware(request) {
   const { pathname } = request.nextUrl;
 
+  // Scheduled snapshot refresh (Vercel Cron). Only triggers a rebuild from
+  // Lavanda and returns build status — never any booking data.
+  if (pathname === "/api/snapshot" && request.nextUrl.searchParams.get("action") === "cron") {
+    return NextResponse.next();
+  }
+
   // Allow public paths through
   if (isPublicPath(pathname)) {
     return NextResponse.next();
