@@ -196,7 +196,7 @@ const BEDS = 302;
 // Rooms offline today that are not yet itemised in OFFLINE_ROOMS below.
 // Leyth, 3 Nov 2026: 16 rooms offline; the register lists 11. Move these into
 // the register (with room numbers) as they are identified, and reduce this.
-const OFFLINE_UNLISTED = 5;
+const OFFLINE_UNLISTED = 0;
 const TARGET_OCC = 0.9;
 const TARGET_RATE = 300;
 const TARGET_ROOMS = Math.round(BEDS * TARGET_OCC);
@@ -232,20 +232,21 @@ const MIN_STAY_DAYS = 28; // Only count bookings >= 28 days for occupancy & AWR
 // passes, so seasonal holds (showflat, summer contingency) self-expire.
 // Keep in sync with the ops offline-rooms tracker.
 const OFFLINE_ROOMS = [
-  { room: "7",    category: "Showflat",    reason: "Show flat / summer contingency", from: "2026-03-02", until: "2026-10-01", note: "Heatwave over — back to showflat, sell as needed" },
-  { room: "12",   category: "Structural",  reason: "Lift motor in room",             from: "2026-01-01", until: "2026-12-31", note: "Permanently offline — 24/7 access needed. Agreed to remove from total available rooms" },
-  { room: "208",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-10-05", note: "" },
-  { room: "308",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-12-31", note: "" },
-  { room: "325",  category: "Refurb",      reason: "Deluxe Duo summer plan",         from: "2026-06-22", until: "2026-10-15", note: "03/09 custom bed lead times may delay return" },
-  { room: "327",  category: "Linen room",  reason: "Linen room — lift contingency",  from: "2025-10-13", until: "2026-12-31", note: "Release to sales when needed. Approved by leadership" },
-  { room: "404",  category: "Maintenance", reason: "AC fault — now linen room",      from: "2026-04-22", until: "2026-12-31", note: "17/08 refrigerant part needs replacing; whole-floor shutdown ~3 days. On hold" },
-  { room: "405",  category: "Legal",       reason: "Ongoing legal case (occupant)",  from: "2025-12-19", until: "2026-12-31", note: "" },
-  { room: "506",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-12-31", note: "" },
-  { room: "507",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-12-31", note: "" },
-  { room: "627",  category: "Linen room",  reason: "Linen room — lift contingency",  from: "2025-10-13", until: "2026-12-31", note: "Release to sales when needed. Approved by leadership" },
-  { room: "727",  category: "Linen room",  reason: "Linen room — lift contingency",  from: "2026-07-31", until: "2026-12-31", note: "Unfavourable layout; lift outages increased housekeeping traffic" },
-  { room: "927",  category: "Linen room",  reason: "Linen room — lift contingency",  from: "2025-10-05", until: "2026-12-31", note: "Frees 1027 for market. Soundproofing not feasible per JPS" },
-  { room: "1104", category: "Staff room",  reason: "Non-bookable staff room (FOC)",  from: "2026-07-20", until: "2026-12-31", note: "" },
+  // Source: Room Availability Tracker (Planner export 09.11.2026) — 14 rooms "In progress"
+  { room: "1",    category: "Maintenance", reason: "Carpet stains — awaiting cleaning machine", from: "2026-11-02", until: "2026-11-30", note: "" },
+  { room: "12",   category: "Structural",  reason: "Lift motor in room",                        from: "2026-01-01", until: "2031-12-31", note: "Permanently offline — 24/7 access needed" },
+  { room: "210",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",             from: "2026-09-28", until: "2026-12-31", note: "" },
+  { room: "225",  category: "Maintenance", reason: "Carpet stains, broken mirror",              from: "2026-11-02", until: "2026-11-30", note: "" },
+  { room: "308",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",             from: "2026-07-20", until: "2026-12-31", note: "" },
+  { room: "325",  category: "Deluxe Duo",  reason: "Deluxe Duo",                                from: "2026-06-22", until: "2026-12-31", note: "Tracker due 13/11" },
+  { room: "404",  category: "Maintenance", reason: "AC issue (blowing warm air)",               from: "2026-04-22", until: "2026-11-30", note: "" },
+  { room: "405",  category: "Legal",       reason: "Ongoing legal case (occupant)",             from: "2025-12-19", until: "2026-12-31", note: "" },
+  { room: "506",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",             from: "2026-07-20", until: "2026-12-31", note: "" },
+  { room: "606",  category: "Maintenance", reason: "Window leak and shower tray",               from: "2026-11-01", until: "2026-12-31", note: "" },
+  { room: "627",  category: "Linen room",  reason: "Linen room — lift contingency",             from: "2025-10-13", until: "2026-12-31", note: "" },
+  { room: "727",  category: "Linen room",  reason: "Linen room — lift contingency",             from: "2026-07-31", until: "2026-12-31", note: "" },
+  { room: "927",  category: "Therapy room",reason: "Therapy room",                              from: "2025-10-05", until: "2026-12-31", note: "Tracker due 16/11" },
+  { room: "1104", category: "Staff room",  reason: "Non-bookable staff room (FOC)",             from: "2026-07-20", until: "2026-12-31", note: "" },
 ];
 // Room labels vary ("07", "7", "212 - Bar", "325 Duo") — match on the leading number
 const roomKey = (name) => {

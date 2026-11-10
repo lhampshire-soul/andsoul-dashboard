@@ -34,14 +34,21 @@ function periodRange(key, today) {
   if (key === "7d") return { from: addDays(today, -6), to: today };
   if (key === "30d") return { from: addDays(today, -29), to: today };
   if (key === "mtd") return { from: monthStart(today), to: today };
+  if (key === "wk") { // last completed Tuesday → Monday reporting week
+    const dow = new Date(today + "T00:00:00Z").getUTCDay(); // 0 Sun … 1 Mon
+    const lastMon = addDays(today, -(((dow - 1 + 7) % 7) || 7));
+    return { from: addDays(lastMon, -6), to: lastMon };
+  }
   return { from: monthStart(today, -1), to: monthEnd(today, -1) };
 }
 function prevRange(key, r) {
+  if (key === "wk") return { from: addDays(r.from, -7), to: addDays(r.to, -7) };
   if (key === "7d" || key === "30d") { const n = dayDiff(r.from, r.to) + 1; return { from: addDays(r.from, -n), to: addDays(r.to, -n) }; }
   if (key === "mtd") { const f = monthStart(r.from, -1); const t = addDays(f, dayDiff(r.from, r.to)); const e = monthEnd(r.from, -1); return { from: f, to: t < e ? t : e }; }
   return { from: monthStart(r.from, -1), to: monthEnd(r.from, -1) };
 }
 
+const rn = (r) => (/^\d+$/.test(String(r)) ? String(+r) : String(r));
 const isLive = (s) => !s.canceled && s.status !== "canceled" && s.status !== "inquiry" && !s.status.endsWith("_expired");
 const isConfirmed = (s) => !s.canceled && s.status === "confirmed";
 const isShort = (s) => s.nomad || s.days < 28;
@@ -173,25 +180,25 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
 
   const sales = snap?.sales || [];
   const ch = useMemo(() => buildChains(sales), [snap]); // eslint-disable-line
-  const offline = useMemo(() => cfg.offline.filter((o) => o.from <= today && o.until >= today).map((o) => o.room), [today]);
+  const offline = useMemo(() => cfg.offline.filter((o) => o.from <= today && o.until >= today).map((o) => rn(o.room)), [today]);
   const offSet = useMemo(() => new Set(offline), [offline]);
   const offTotal = offline.length + cfg.unlisted;
   const BEDS = cfg.beds || (snap?.allUnits || []).length || 1;
   const usable = BEDS - offTotal;
   const conf = useMemo(() => sales.filter(isConfirmed), [snap]); // eslint-disable-line
-  const occRoomsOn = (d) => new Set(conf.filter((s) => s.start <= d && s.end >= d && !offSet.has(s.room)).map((s) => s.room)).size;
+  const occRoomsOn = (d) => new Set(conf.filter((s) => s.start <= d && s.end >= d && !offSet.has(rn(s.room))).map((s) => s.room)).size;
   const peopleOn = (d) => conf.filter((s) => s.start <= d && s.end >= d).length;
 
   // ─── Property ────────────────────────────────────────────────────────────
   const prop = useMemo(() => {
     if (!snap) return null;
     const units = snap.allUnits || [];
-    const typeOf = {}; units.forEach((u) => { typeOf[u.room] = u.type; });
+    const typeOf = {}; units.forEach((u) => { typeOf[rn(u.room)] = u.type; });
     const inHouse = conf.filter((s) => s.start <= today && s.end >= today);
     const rows = TYPES.map((t) => {
       const rooms = units.filter((u) => u.type === t).length;
       const off = offline.filter((r) => typeOf[r] === t).length;
-      const stays = inHouse.filter((s) => s.type === t && !offSet.has(s.room));
+      const stays = inHouse.filter((s) => s.type === t && !offSet.has(rn(s.room)));
       const occ = new Set(stays.map((s) => s.room)).size;
       const w = stays.map(weekly).filter(sane);
       return { t, rooms, off, usable: rooms - off, occ, awr: w.length ? w.reduce((a, b) => a + b, 0) / w.length : null, wSum: w.reduce((a, b) => a + b, 0), wN: w.length };
@@ -249,7 +256,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
     const held = sales.filter((s) => !s.canceled && (s.status === "confirmed" || s.status === "tentative"));
     const byRoom = {}; held.forEach((s) => { (byRoom[s.room] = byRoom[s.room] || []).push(s); });
     const d90 = addDays(today, 90);
-    const rooms = (snap.allUnits || []).filter((u) => !offSet.has(u.room)).map((u) => {
+    const rooms = (snap.allUnits || []).filter((u) => !offSet.has(rn(u.room))).map((u) => {
       const st = byRoom[u.room] || [];
       const nowIn = st.some((s) => s.start <= today && s.end > today);
       const future = st.filter((s) => s.end > today).sort((a, b) => a.start.localeCompare(b.start));
@@ -319,7 +326,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   const pills = (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
       <span style={{ fontSize: 12, color: C.muted, marginRight: 4 }}>{fmtDate(range.from)} – {fmtDate(range.to)} · vs {fmtDate(prev.from)} – {fmtDate(prev.to)}</span>
-      {[["7d", "7 days"], ["30d", "30 days"], ["mtd", "Month to date"], ["lm", "Last month"]].map(([k, l]) => <Pill key={k} on={period === k} onClick={() => setPeriod(k)}>{l}</Pill>)}
+      {[["wk", "Report week (Tue–Mon)"], ["7d", "7 days"], ["30d", "30 days"], ["mtd", "Month to date"], ["lm", "Last month"]].map(([k, l]) => <Pill key={k} on={period === k} onClick={() => setPeriod(k)}>{l}</Pill>)}
     </div>
   );
   const L = (v) => (v == null ? "…" : v);
