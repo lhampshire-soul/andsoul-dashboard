@@ -124,6 +124,8 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   const [crmErr, setCrmErr] = useState(null);
   const [month, setMonth] = useState(null);
   const [kindF, setKindF] = useState("All");
+  const [hz, setHz] = useState(30);
+  const [emptyF, setEmptyF] = useState("90");
   // Refresh everything every 5 minutes while the page is open
   const [tick, setTick] = useState(0);
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 5 * 60 * 1000); return () => clearInterval(t); }, []);
@@ -221,21 +223,42 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
     };
   }, [snap, today, range.from, range.to]); // eslint-disable-line
 
-  // ─── Next 30 days ────────────────────────────────────────────────────────
+  // ─── Look-ahead (7 / 14 / 30 / 60 / 90 days) ─────────────────────────────
   const ahead = useMemo(() => {
     if (!snap) return null;
-    const weeks = [0, 1, 2, 3].map((w) => {
-      const f = addDays(today, 7 * w + 1), t = addDays(today, 7 * (w + 1));
+    // ≤ 14 days: one row per day · longer: one row per week (last row may be short)
+    const step = hz <= 14 ? 1 : 7;
+    const rows = [];
+    for (let d = 1; d <= hz; d += step) {
+      const f = addDays(today, d), t = addDays(today, Math.min(d + step - 1, hz));
       const arr = conf.filter((s) => s.start >= f && s.start <= t && !ch.isContinuation.has(s.id));
       const dep = conf.filter((s) => s.end >= f && s.end <= t && !ch.followOn[s.id]);
       const occ = occRoomsOn(t);
-      return { label: `${fmtDate(f)} – ${fmtDate(t)}`, aLs: arr.filter((s) => !s.nomad).length, aN: arr.filter((s) => s.nomad).length, dLs: dep.filter((s) => !s.nomad).length, dN: dep.filter((s) => s.nomad).length, occ, pct: occ / usable };
+      rows.push({ label: step === 1 ? new Date(f + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) : `${fmtDate(f)} – ${fmtDate(t)}`,
+        aLs: arr.filter((s) => !s.nomad).length, aN: arr.filter((s) => s.nomad).length, dLs: dep.filter((s) => !s.nomad).length, dN: dep.filter((s) => s.nomad).length, occ, pct: occ / usable });
+    }
+    const tot = (f) => rows.reduce((a, w) => a + w[f], 0);
+    const end = addDays(today, hz);
+    return { rows, end, aLs: tot("aLs"), aN: tot("aN"), dLs: tot("dLs"), dN: tot("dN"), occEnd: occRoomsOn(end) };
+  }, [snap, today, offline, hz]); // eslint-disable-line
+
+  // ─── Empty rooms with nothing booked ─────────────────────────────────────
+  // A room counts as booked if it has any confirmed or pending stay.
+  const empty = useMemo(() => {
+    if (!snap) return null;
+    const held = sales.filter((s) => !s.canceled && (s.status === "confirmed" || s.status === "tentative"));
+    const byRoom = {}; held.forEach((s) => { (byRoom[s.room] = byRoom[s.room] || []).push(s); });
+    const d90 = addDays(today, 90);
+    const rooms = (snap.allUnits || []).filter((u) => !offSet.has(u.room)).map((u) => {
+      const st = byRoom[u.room] || [];
+      const nowIn = st.some((s) => s.start <= today && s.end > today);
+      const future = st.filter((s) => s.end > today).sort((a, b) => a.start.localeCompare(b.start));
+      const next = future[0] || null;
+      const lastOut = st.filter((s) => s.end <= today).map((s) => s.end).sort().pop() || null;
+      return { ...u, nowIn, next, lastOut, free90: !nowIn && !st.some((s) => s.start < d90 && s.end > today), freeAll: !nowIn && !future.length };
     });
-    const tot = (f) => weeks.reduce((a, w) => a + w[f], 0);
-    const d30 = addDays(today, 30);
-    const arr30 = conf.filter((s) => s.start > today && s.start <= d30 && !ch.isContinuation.has(s.id));
-    const dep30 = conf.filter((s) => s.end > today && s.end <= d30 && !ch.followOn[s.id]);
-    return { weeks, aLs: tot("aLs"), aN: tot("aN"), dLs: tot("dLs"), dN: tot("dN"), occ30: occRoomsOn(d30), arr30, dep30 };
+    const emptyNow = rooms.filter((r) => !r.nowIn);
+    return { rooms, emptyNow, free90: rooms.filter((r) => r.free90), freeAll: rooms.filter((r) => r.freeAll) };
   }, [snap, today, offline]); // eslint-disable-line
 
   // ─── Sales for a date range ──────────────────────────────────────────────
@@ -335,17 +358,41 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
           </Grid>
           {rev.excluded > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{rev.excluded} Lavanda record{rev.excluded > 1 ? "s" : ""} with a weekly rate above {gbp(cfg.maxWeekly)} excluded.</div>}
 
-          <H right={<span style={{ fontSize: 12, color: C.muted }}>Confirmed stays · {fmtDate(addDays(today, 1))} – {fmtDate(addDays(today, 30))}</span>}>Next 30 days</H>
+          <H right={<div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: C.muted, marginRight: 4 }}>Confirmed stays · {fmtDate(addDays(today, 1))} – {fmtDate(ahead.end)}</span>
+            {[7, 14, 30, 60, 90].map((d) => <Pill key={d} on={hz === d} onClick={() => setHz(d)}>{d} days</Pill>)}
+          </div>}>Next {hz} days</H>
           <Grid>
             <Stat label="Arrivals" value={num(ahead.aLs + ahead.aN)} sub={cfg.nomad ? `Long stay ${ahead.aLs} · Nomad ${ahead.aN}` : null} />
             <Stat label="Departures" value={num(ahead.dLs + ahead.dN)} sub={cfg.nomad ? `Long stay ${ahead.dLs} · Nomad ${ahead.dN}` : null} />
             <Stat label="Net change" value={(ahead.aLs + ahead.aN - ahead.dLs - ahead.dN > 0 ? "+" : "") + (ahead.aLs + ahead.aN - ahead.dLs - ahead.dN)} />
-            <Stat label="Occupancy in 30 days" value={pct(ahead.occ30 / usable, 1)} sub={`${ahead.occ30} rooms booked`} />
+            <Stat label={`Occupancy on ${fmtDate(ahead.end)}`} value={pct(ahead.occEnd / usable, 1)} sub={`${ahead.occEnd} rooms booked`} />
           </Grid>
           <div style={{ height: 12 }} />
           {cfg.nomad
-            ? <Table cols={["Week", "Arrivals LS", "Arrivals Nomad", "Departures LS", "Departures Nomad", "Rooms occupied", "Occupancy"]} rows={ahead.weeks.map((w) => [w.label, w.aLs, w.aN, w.dLs, w.dN, w.occ, pct(w.pct, 1)])} />
-            : <Table cols={["Week", "Arrivals", "Departures", "Rooms occupied", "Occupancy"]} rows={ahead.weeks.map((w) => [w.label, w.aLs, w.dLs, w.occ, pct(w.pct, 1)])} />}
+            ? <Table cols={[hz <= 14 ? "Day" : "Week", "Arrivals LS", "Arrivals Nomad", "Departures LS", "Departures Nomad", "Rooms occupied", "Occupancy"]} rows={ahead.rows.map((w) => [w.label, w.aLs, w.aN, w.dLs, w.dN, w.occ, pct(w.pct, 1)])}
+                total={["Total", ahead.aLs, ahead.aN, ahead.dLs, ahead.dN, ahead.occEnd, pct(ahead.occEnd / usable, 1)]} />
+            : <Table cols={[hz <= 14 ? "Day" : "Week", "Arrivals", "Departures", "Rooms occupied", "Occupancy"]} rows={ahead.rows.map((w) => [w.label, w.aLs, w.dLs, w.occ, pct(w.pct, 1)])}
+                total={["Total", ahead.aLs, ahead.dLs, ahead.occEnd, pct(ahead.occEnd / usable, 1)]} />}
+
+          <H right={<span style={{ fontSize: 12, color: C.muted }}>Usable rooms · confirmed or pending stays</span>}>Empty rooms</H>
+          <Grid>
+            <Stat label="Empty today" value={num(empty.emptyNow.length)} sub={`${empty.emptyNow.length - empty.freeAll.length} have a booking coming`} />
+            <Stat label="Nothing booked — next 90 days" value={num(empty.free90.length)} color={empty.free90.length ? C.bad : C.text} sub={`Empty today, free to ${fmtDate(addDays(today, 90))}`} />
+            <Stat label="No future booking at all" value={num(empty.freeAll.length)} color={empty.freeAll.length ? C.bad : C.text} sub="Empty today, nothing booked ever" />
+          </Grid>
+          <div style={{ height: 12 }} />
+          <Table cols={["Room type", "Empty today", "Nothing booked 90 days", "No future booking"]}
+            rows={TYPES.map((t) => [tl(t), empty.emptyNow.filter((r) => r.type === t).length, empty.free90.filter((r) => r.type === t).length, empty.freeAll.filter((r) => r.type === t).length]).filter((r) => r[1])}
+            total={["Total", empty.emptyNow.length, empty.free90.length, empty.freeAll.length]} />
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "12px 0" }}>
+            {[["90", "Nothing booked 90 days"], ["all", "No future booking"], ["now", "All empty today"]].map(([k, l]) => <Pill key={k} on={emptyF === k} onClick={() => setEmptyF(k)}>{l}</Pill>)}
+          </div>
+          {(() => {
+            const list = (emptyF === "90" ? empty.free90 : emptyF === "all" ? empty.freeAll : empty.emptyNow).slice().sort((a, b) => (a.lastOut || "0").localeCompare(b.lastOut || "0"));
+            return <Table cols={["Room", "Type", "Last checkout", "Empty for", "Next booking"]}
+              rows={list.length ? list.map((r) => [r.room, tl(r.type), r.lastOut ? fmtDate(r.lastOut) : "No record", r.lastOut ? `${dayDiff(r.lastOut, today)} days` : "—", r.next ? `${fmtDate(r.next.start)} (${dayDiff(today, r.next.start)} days)` : "None"]) : [["—", "", "", "", ""]]} />;
+          })()}
 
           <H right={pills}>Marketing</H>
           <Grid>
