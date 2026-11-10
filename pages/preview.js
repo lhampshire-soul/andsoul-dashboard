@@ -126,6 +126,9 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   const [snap, setSnap] = useState(null);
   const [err, setErr] = useState(null);
   const [rstate, setRstate] = useState({ leaving: [], pending: [] });
+  const [offEdit, setOffEdit] = useState(null);      // working copy while editing
+  const [offSaved, setOffSaved] = useState(undefined); // undefined = loading · null = never edited
+  useEffect(() => { fetch(`/api/offline-rooms?property=${cfg.key}`).then((r) => r.json()).then((j) => setOffSaved(j.rooms ?? null)).catch(() => setOffSaved(null)); }, []); // eslint-disable-line
   const [ads, setAds] = useState({});
   const [crm, setCrm] = useState(null);
   const [crmErr, setCrmErr] = useState(null);
@@ -180,9 +183,11 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
 
   const sales = snap?.sales || [];
   const ch = useMemo(() => buildChains(sales), [snap]); // eslint-disable-line
-  const offline = useMemo(() => cfg.offline.filter((o) => o.from <= today && o.until >= today).map((o) => rn(o.room)), [today]);
+  // Offline list: the edited list (Redis) when one exists, else the built-in register
+  const offList = useMemo(() => (offSaved ? offSaved : cfg.offline.filter((o) => o.from <= today && o.until >= today).map((o) => ({ room: o.room, reason: o.reason }))), [offSaved, today]); // eslint-disable-line
+  const offline = useMemo(() => offList.map((o) => rn(o.room)), [offList]);
   const offSet = useMemo(() => new Set(offline), [offline]);
-  const offTotal = offline.length + cfg.unlisted;
+  const offTotal = offline.length + (offSaved ? 0 : cfg.unlisted);
   const BEDS = cfg.beds || (snap?.allUnits || []).length || 1;
   const usable = BEDS - offTotal;
   const conf = useMemo(() => sales.filter(isConfirmed), [snap]); // eslint-disable-line
@@ -299,30 +304,66 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   const mk = mktFor(range, sale), mkP = mktFor(prev, saleP);
 
   // ─── Renewals ────────────────────────────────────────────────────────────
+  // Rules:
+  //  • Only guests whose INITIAL stay (first stay of the chain) was 28+ nights.
+  //  • A chain = the same guest's back-to-back stays (next starts ≤ 14 days after,
+  //    or overlaps by ≤ 30 days — room moves).
+  //  • One decision per guest per month: if a later stay in the chain ends in the
+  //    same month, that later stay is the decision for that month (so a 3-day
+  //    extension inside the month merges in).
+  //  • Renewed = the chain carries on past the end of the contract's month
+  //    (confirmed). Extending only within the same month is NOT a renewal.
   const renewals = useMemo(() => {
     const leaving = new Set((rstate.leaving || []).map(String)), pending = new Set((rstate.pending || []).map(String));
-    const byMonth = {};
-    conf.filter((s) => !s.nomad && s.days >= 28 && s.total > 0).forEach((s) => {
-      const m = (byMonth[s.end.slice(0, 7)] = byMonth[s.end.slice(0, 7)] || {});
-      const key = s.contact || s.id;
-      if (!m[key] || s.end > m[key].end) m[key] = s;
+    const mo = (d) => d.slice(0, 7);
+    const held = sales.filter((x) => !x.nomad && !x.canceled && (x.status === "confirmed" || x.status === "tentative") && x.total > 0);
+    const byContact = {}; held.forEach((x) => { const k = x.contact && x.contact !== "|" ? x.contact : "id:" + x.id; (byContact[k] = byContact[k] || []).push(x); });
+    const rows = [];
+    Object.values(byContact).forEach((list) => {
+      list.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+      // split the guest's stays into chains
+      const chains = []; let cur = null;
+      list.forEach((x) => {
+        if (cur && dayDiff(cur.end, x.start) <= 14 && dayDiff(cur.end, x.start) >= -30) { cur.stays.push(x); if (x.end > cur.end) cur.end = x.end; }
+        else { cur = { stays: [x], end: x.end }; chains.push(cur); }
+      });
+      chains.forEach((c) => {
+        const head = c.stays[0];
+        if (head.days < 28) return; // initial stay must be 28+ nights
+        const confStays = c.stays.filter(isConfirmed);
+        c.stays.forEach((x, i) => {
+          if (!isConfirmed(x)) return;
+          const m = mo(x.end);
+          // a later confirmed stay ending in the same month is the decision for this month
+          if (confStays.some((y) => y !== x && y.start >= x.start && y.end > x.end && mo(y.end) === m)) return;
+          const after = c.stays.filter((y) => y.start > x.start || (y.start === x.start && y.end > x.end));
+          const confLater = after.filter((y) => isConfirmed(y)).map((y) => y.end).sort().pop();
+          const tentLater = after.filter((y) => y.status === "tentative").map((y) => y.end).sort().pop();
+          const nextStay = after.find((y) => isConfirmed(y) && mo(y.end) > m) || after.find((y) => isConfirmed(y));
+          let st;
+          if (leaving.has(String(x.id))) st = "Leaving";
+          else if (confLater && mo(confLater) > m) st = "Renewed";
+          else if ((tentLater && mo(tentLater) > m) || pending.has(String(x.id))) st = "Pending";
+          else if (x.end < today) st = "Leaving";
+          else st = "Undecided";
+          const extInMonth = x !== head && dayDiff(c.stays[Math.max(0, i - 1)].end, x.start) <= 14 && x.days < 28 && mo(c.stays[Math.max(0, i - 1)].end) === m;
+          rows.push({ ...x, m, st, cur: weekly(x), nw: st === "Renewed" && nextStay ? weekly(nextStay) : null, newEnd: st === "Renewed" ? confLater : null, firstDays: head.days, note: extInMonth ? "Short extension within the month — not a renewal" : null });
+        });
+      });
     });
     const out = [];
-    for (let i = -1; i <= 6; i++) {
+    for (let i = -1; i <= 12; i++) {
       const k = monthStart(today, i).slice(0, 7);
-      const entries = Object.values(byMonth[k] || {}).map((s) => {
-        const f = ch.followOn[s.id];
-        const st = leaving.has(String(s.id)) ? "Leaving" : f && isConfirmed(f) ? "Renewed" : (f && f.status === "tentative") || pending.has(String(s.id)) ? "Pending" : s.end < today ? "Leaving" : "Undecided";
-        const cur = weekly(s), nw = f && isConfirmed(f) ? weekly(f) : null;
-        return { ...s, st, cur, nw };
-      }).sort((a, b) => a.end.localeCompare(b.end));
+      // one decision per guest per month (room moves): keep the latest-ending
+      const per = {}; rows.filter((r) => r.m === k).forEach((r) => { const key = r.contact || r.id; if (!per[key] || r.end > per[key].end) per[key] = r; });
+      const entries = Object.values(per).sort((a, b) => a.end.localeCompare(b.end));
       const c = (x) => entries.filter((e) => e.st === x).length;
       const ups = entries.filter((e) => e.nw && sane(e.cur) && sane(e.nw)).map((e) => e.nw / e.cur - 1);
       out.push({ k, label: new Date(k + "-01T00:00:00Z").toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }), entries, total: entries.length,
         renewed: c("Renewed"), pending: c("Pending"), leaving: c("Leaving"), undecided: c("Undecided"), uplift: ups.length ? ups.reduce((a, b) => a + b, 0) / ups.length : null });
     }
     return out;
-  }, [snap, rstate, ch, today]); // eslint-disable-line
+  }, [snap, rstate, today]); // eslint-disable-line
 
   const pills = (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -347,7 +388,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
             <Stat label="Occupancy" value={pct(prop.occ / usable, 1)} sub={`${prop.occ} of ${usable} usable rooms`} delta={<Delta cur={prop.occ / usable} prev={prop.occWk / usable} fmt={(v) => pct(v, 1)} label="7d ago" />} />
             <Stat label="Residents in house" value={num(prop.people)} sub="Active stays today" delta={<Delta cur={prop.people} prev={prop.peopleWk} label="7d ago" />} />
             <Stat label="Rooms empty" value={num(usable - prop.occ)} sub="Usable, not occupied" />
-            <Stat label="Rooms offline" value={num(offTotal)} sub={`of ${BEDS} rooms`} />
+            <Stat label="Rooms offline" value={num(offTotal)} sub={<span>of {BEDS} rooms · <button onClick={() => setOffEdit(offList.map((o) => ({ ...o })))} style={{ border: "none", background: "none", padding: 0, color: C.accent, cursor: "pointer", fontSize: 12, textDecoration: "underline" }}>Edit</button></span>} />
             <Stat label="AWR — building" value={gbp(prop.awr)} sub="Avg weekly rate, in house" />
             <Stat label="AWR — long stay" value={gbp(prop.lsAwr)} sub={cfg.nomad ? `Nomad ${gbp(prop.nomad?.awr)}/wk` : "Contracts ≥ 28 nights"} />
           </Grid>
@@ -356,6 +397,32 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
             rows={prop.rows.map((r) => [tl(r.t), r.rooms, r.off || "—", r.usable, r.occ, r.usable - r.occ, pct(r.occ / r.usable), gbp(r.awr)])}
             total={["Total", BEDS, offTotal, usable, prop.occ, usable - prop.occ, pct(prop.occ / usable, 1), gbp(prop.awr)]} />
           {cfg.unlisted > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{cfg.unlisted} offline rooms not yet assigned to a room number are in the total only.</div>}
+
+          {offEdit && (
+            <Card style={{ marginTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <b style={{ fontSize: 14 }}>Offline rooms · {offEdit.length}</b>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <Pill on={false} onClick={() => setOffEdit(null)}>Cancel</Pill>
+                  <Pill on onClick={async () => {
+                    const rooms = offEdit.filter((r) => String(r.room).trim());
+                    const r = await fetch(`/api/offline-rooms?property=${cfg.key}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rooms }) }).then((x) => x.json()).catch(() => null);
+                    if (r?.ok) { setOffSaved(r.rooms); setOffEdit(null); } else alert("Could not save — try again");
+                  }}>Save</Pill>
+                </div>
+              </div>
+              {offEdit.map((r, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                  <input value={r.room} placeholder="Room" onChange={(e) => setOffEdit((l) => l.map((x, j) => (j === i ? { ...x, room: e.target.value } : x)))} style={{ width: 80, padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 6 }} />
+                  <input value={r.reason || ""} placeholder="Reason" onChange={(e) => setOffEdit((l) => l.map((x, j) => (j === i ? { ...x, reason: e.target.value } : x)))} style={{ flex: 1, padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 6 }} />
+                  <span style={{ fontSize: 12, color: C.muted, width: 90 }}>{(snap.allUnits || []).find((u) => rn(u.room) === rn(r.room)) ? tl((snap.allUnits || []).find((u) => rn(u.room) === rn(r.room)).type) : r.room ? "not in Lavanda" : ""}</span>
+                  <button onClick={() => setOffEdit((l) => l.filter((_, j) => j !== i))} style={{ border: "none", background: "none", color: C.bad, cursor: "pointer", fontSize: 16 }}>×</button>
+                </div>
+              ))}
+              <Pill on={false} onClick={() => setOffEdit((l) => [...l, { room: "", reason: "" }])}>+ Add room</Pill>
+            </Card>
+          )}
+          {!offEdit && offList.length > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Offline: {offList.map((o) => o.room + (o.reason ? ` (${o.reason})` : "")).join(" · ")}</div>}
 
           <H right={<span style={{ fontSize: 12, color: C.muted }}>Gross</span>}>Revenue</H>
           <Grid>
@@ -489,8 +556,9 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
               <Stat label="Avg rate change" value={sel.uplift != null ? (sel.uplift >= 0 ? "+" : "") + pct(sel.uplift, 1) : "—"} />
             </Grid>
             <div style={{ height: 12 }} />
-            <Table cols={["Guest", "Room", "Type", "Ends", "Current £/wk", "Status", "New £/wk", "Change"]}
-              rows={sel.entries.map((e) => [e.guest || "—", e.room, tl(e.type), fmtDate(e.end), gbp(e.cur), <Tag key={e.id} s={e.st} />, e.nw ? gbp(e.nw) : "—", e.nw && e.cur ? pct(e.nw / e.cur - 1, 1) : "—"])} />
+            <Table cols={["Guest", "Room", "Type", "Ends", "Current £/wk", "Status", "Renewed to", "New £/wk", "Change", ""]}
+              rows={sel.entries.map((e) => [e.guest || "—", e.room, tl(e.type), fmtDate(e.end), gbp(e.cur), <Tag key={e.id} s={e.st} />, e.newEnd ? fmtDate(e.newEnd) : "—", e.nw ? gbp(e.nw) : "—", e.nw && e.cur ? pct(e.nw / e.cur - 1, 1) : "—", e.note ? <span key="n" style={{ fontSize: 11, color: C.muted }}>{e.note}</span> : ""])} />
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Guests whose first stay was 28+ nights. Renewed = stay continues past the end of {sel.label}; extensions that finish within the month are not renewals.</div>
           </>);
         })()}
       </div>
