@@ -71,6 +71,16 @@ function buildChains(sales) {
   return { isRenewal, isContinuation, followOn };
 }
 
+// Same list as the main dashboard's renewals tracker
+const LEAVING_REASONS = [
+  "Travel / Temporary / Nomadic Stay",
+  "Heating / Comfort / Health Issues",
+  "Found Alternative Accommodation",
+  "Affordability / Financial Constraints",
+  "No Reason Given",
+  "Canopy Not Passed",
+];
+const REASON_COLORS = ["#B23B3B", "#B7791F", "#2F6FB0", "#8A6D1F", "#7A4FA0", "#C0603A", "#7A7A7A"];
 const LOS = [{ key: "1–2 months", max: 85 }, { key: "3–5 months", max: 175 }, { key: "6–11 months", max: 360 }, { key: "12 months +", max: Infinity }];
 const losBand = (d) => LOS.find((b) => d < b.max).key;
 
@@ -128,6 +138,32 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
   const [rstate, setRstate] = useState({ leaving: [], pending: [] });
   const [offEdit, setOffEdit] = useState(null);      // working copy while editing
   const [offSaved, setOffSaved] = useState(undefined); // undefined = loading · null = never edited
+  // Manual renewal markers — shared with the main dashboard via /api/renewal-state
+  const saveR = (patch) => {
+    setRstate((prev) => {
+      const next = { ...prev, ...patch };
+      fetch("/api/renewal-state", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leaving: next.leaving || [], pending: next.pending || [], leavingReasons: next.leavingReasons || {}, earlyTerm: next.earlyTerm || [] }) }).catch(() => {});
+      return next;
+    });
+  };
+  const idS = (id) => String(id);
+  const hasId = (arr, id) => (arr || []).map(String).includes(idS(id));
+  const toggleLeaving = (id) => {
+    const on = hasId(rstate.leaving, id);
+    const leaving = on ? (rstate.leaving || []).filter((x) => String(x) !== idS(id)) : [...(rstate.leaving || []), id];
+    const pending = (rstate.pending || []).filter((x) => String(x) !== idS(id));
+    const leavingReasons = { ...(rstate.leavingReasons || {}) }; const earlyTerm = (rstate.earlyTerm || []).filter((x) => !on || String(x) !== idS(id));
+    if (on) delete leavingReasons[id];
+    saveR({ leaving, pending, leavingReasons, earlyTerm });
+  };
+  const togglePending = (id) => {
+    const on = hasId(rstate.pending, id);
+    saveR({ pending: on ? (rstate.pending || []).filter((x) => String(x) !== idS(id)) : [...(rstate.pending || []), id], leaving: (rstate.leaving || []).filter((x) => String(x) !== idS(id)) });
+  };
+  const setReason = (id, reason) => saveR({ leavingReasons: { ...(rstate.leavingReasons || {}), [id]: reason } });
+  const toggleEarly = (id) => saveR({ earlyTerm: hasId(rstate.earlyTerm, id) ? (rstate.earlyTerm || []).filter((x) => String(x) !== idS(id)) : [...(rstate.earlyTerm || []), id] });
+
   useEffect(() => { fetch(`/api/offline-rooms?property=${cfg.key}`).then((r) => r.json()).then((j) => setOffSaved(j.rooms ?? null)).catch(() => setOffSaved(null)); }, []); // eslint-disable-line
   const [ads, setAds] = useState({});
   const [crm, setCrm] = useState(null);
@@ -342,13 +378,13 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
           const tentLater = after.filter((y) => y.status === "tentative").map((y) => y.end).sort().pop();
           const nextStay = after.find((y) => isConfirmed(y) && mo(y.end) > m) || after.find((y) => isConfirmed(y));
           let st;
-          if (leaving.has(String(x.id))) st = "Leaving";
-          else if (confLater && mo(confLater) > m) st = "Renewed";
+          if (confLater && mo(confLater) > m) st = "Renewed";
+          else if (leaving.has(String(x.id))) st = "Leaving";
           else if ((tentLater && mo(tentLater) > m) || pending.has(String(x.id))) st = "Pending";
           else if (x.end < today) st = "Leaving";
           else st = "Undecided";
           const extInMonth = x !== head && dayDiff(c.stays[Math.max(0, i - 1)].end, x.start) <= 14 && x.days < 28 && mo(c.stays[Math.max(0, i - 1)].end) === m;
-          rows.push({ ...x, m, st, cur: weekly(x), nw: st === "Renewed" && nextStay ? weekly(nextStay) : null, newEnd: st === "Renewed" ? confLater : null, firstDays: head.days, note: extInMonth && st !== "Renewed" ? "Short extension within the month — not a renewal" : null });
+          rows.push({ ...x, m, st, manualLeaving: leaving.has(String(x.id)), manualPending: pending.has(String(x.id)), reason: (rstate.leavingReasons || {})[x.id] || (rstate.leavingReasons || {})[String(x.id)] || null, early: (rstate.earlyTerm || []).map(String).includes(String(x.id)), cur: weekly(x), nw: st === "Renewed" && nextStay ? weekly(nextStay) : null, newEnd: st === "Renewed" ? confLater : null, firstDays: head.days, note: extInMonth && st !== "Renewed" ? "Short extension within the month — not a renewal" : null });
         });
       });
     });
@@ -361,7 +397,8 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
       const c = (x) => entries.filter((e) => e.st === x).length;
       const ups = entries.filter((e) => e.nw && sane(e.cur) && sane(e.nw)).map((e) => e.nw / e.cur - 1);
       out.push({ k, label: new Date(k + "-01T00:00:00Z").toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }), entries, total: entries.length,
-        renewed: c("Renewed"), pending: c("Pending"), leaving: c("Leaving"), undecided: c("Undecided"), uplift: ups.length ? ups.reduce((a, b) => a + b, 0) / ups.length : null });
+        renewed: c("Renewed"), pending: c("Pending"), leaving: c("Leaving"), undecided: c("Undecided"), uplift: ups.length ? ups.reduce((a, b) => a + b, 0) / ups.length : null,
+        leavers: entries.filter((e) => e.st === "Leaving") });
     }
     return out;
   }, [snap, rstate, today]); // eslint-disable-line
@@ -556,9 +593,45 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
               <Stat label="Renewal rate" value={sel.total ? pct(sel.renewed / sel.total) : "—"} />
               <Stat label="Avg rate change" value={sel.uplift != null ? (sel.uplift >= 0 ? "+" : "") + pct(sel.uplift, 1) : "—"} />
             </Grid>
-            <div style={{ height: 12 }} />
-            <Table cols={["Guest", "Room", "Type", "Ends", "Current £/wk", "Status", "Renewed to", "New £/wk", "Change", ""]}
-              rows={sel.entries.map((e) => [e.guest || "—", e.room, tl(e.type), fmtDate(e.end), gbp(e.cur), <Tag key={e.id} s={e.st} />, e.newEnd ? fmtDate(e.newEnd) : "—", e.nw ? gbp(e.nw) : "—", e.nw && e.cur ? pct(e.nw / e.cur - 1, 1) : "—", e.note ? <span key="n" style={{ fontSize: 11, color: C.muted }}>{e.note}</span> : ""])} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
+              {[[`Reasons for leaving — ${sel.label}`, sel.leavers], ["Reasons for leaving — all months shown", renewals.flatMap((m) => m.leavers)]].map(([title, list]) => {
+                const counts = {}; let none = 0, early = 0;
+                list.forEach((e) => { if (e.reason) counts[e.reason] = (counts[e.reason] || 0) + 1; else none++; if (e.early) early++; });
+                const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]); if (none) rows.push(["No reason set yet", none]);
+                return (
+                  <div key={title}><H>{title}</H>
+                    <Card>
+                      {!list.length ? <span style={{ color: C.muted, fontSize: 13 }}>No leavers</span> : rows.map(([r, n], i) => (
+                        <div key={r} style={{ marginBottom: 8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>{r}</span><b>{n} · {pct(n / list.length)}</b></div>
+                          <div style={{ height: 6, background: "#EFECE6", borderRadius: 3 }}><div style={{ width: `${(n / list.length) * 100}%`, height: 6, borderRadius: 3, background: r === "No reason set yet" ? "#C4C0B8" : REASON_COLORS[i % REASON_COLORS.length] }} /></div>
+                        </div>
+                      ))}
+                      {list.length > 0 && <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{list.length} leaving · {early} early termination{early === 1 ? "" : "s"}</div>}
+                    </Card>
+                  </div>
+                );
+              })}
+            </div>
+            <H>Contracts — {sel.label}</H>
+            {(() => {
+              const btn = (on, color) => ({ border: `1px solid ${color}`, background: on ? color : "transparent", color: on ? "#fff" : color, borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" });
+              return <Table cols={["Guest", "Room", "Type", "Ends", "Current £/wk", "Status", "Renewed to", "New £/wk", "Change", "Mark", "Reason for leaving", ""]}
+                rows={sel.entries.map((e) => [e.guest || "—", e.room, tl(e.type), fmtDate(e.end), gbp(e.cur),
+                  <span key="s"><Tag s={e.st} />{e.early && e.st === "Leaving" ? <span style={{ fontSize: 11, color: C.bad }}> · early term</span> : null}</span>,
+                  e.newEnd ? fmtDate(e.newEnd) : "—", e.nw ? gbp(e.nw) : "—", e.nw && e.cur ? pct(e.nw / e.cur - 1, 1) : "—",
+                  e.st === "Renewed" ? "—" : <span key="m" style={{ display: "inline-flex", gap: 4 }}>
+                    <button style={btn(e.manualLeaving, C.bad)} onClick={() => toggleLeaving(e.id)}>{e.manualLeaving ? "↩ Leaving" : "Leaving"}</button>
+                    <button style={btn(e.manualPending, C.warn)} onClick={() => togglePending(e.id)}>{e.manualPending ? "↩ Pending" : "Pending"}</button>
+                  </span>,
+                  e.st === "Leaving" ? <span key="r" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                    <select value={e.reason || ""} onChange={(ev) => setReason(e.id, ev.target.value)} style={{ fontSize: 12, padding: "3px 4px", border: `1px solid ${C.line}`, borderRadius: 6, color: e.reason ? C.text : C.muted, maxWidth: 210 }}>
+                      <option value="">Select reason…</option>{LEAVING_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <label style={{ fontSize: 11, color: e.early ? C.bad : C.muted, whiteSpace: "nowrap" }}><input type="checkbox" checked={e.early} onChange={() => toggleEarly(e.id)} /> Early term</label>
+                  </span> : "—",
+                  e.note ? <span key="n" style={{ fontSize: 11, color: C.muted }}>{e.note}</span> : ""])} />;
+            })()}
             <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Guests whose first stay was 28+ nights. Contracts are placed in the month of their last night. Renewed = stay continues past the end of {sel.label}; extensions that finish within the month are not renewals.</div>
           </>);
         })()}
