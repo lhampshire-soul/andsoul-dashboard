@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import { BEDS, OFFLINE_ROOMS, OFFLINE_UNLISTED } from "../lib/offline";
-import { loadCrm } from "../lib/ghlLeads";
+import { loadCrmCached } from "../lib/ghlLeads";
 import ReputationTab from "../components/Reputation";
 
 const C = { bg: "#F6F5F2", card: "#FFFFFF", text: "#1B1B1B", muted: "#7A7A7A", line: "#E7E4DE", accent: "#1F3864", good: "#2E7D4F", warn: "#B7791F", bad: "#B23B3B" };
@@ -203,7 +203,7 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
       } catch (e) { if (!dead) setErr(e.message); }
       try { const r = await (await fetch("/api/renewal-state")).json(); if (!dead) setRstate(r); } catch {}
     })();
-    loadCrm(cfg.crm).then((r) => { if (!dead) { setCrm(r.leads); setCrmErr(null); } }).catch((e) => !dead && setCrmErr(e.message));
+    loadCrmCached(cfg.key).then((r) => { if (!dead) { setCrm(r.leads); setCrmErr(null); } }).catch((e) => !dead && setCrmErr(e.message));
     if (tick > 0) setAds({}); // re-pull spend
     return () => { dead = true; };
   }, [tick]); // eslint-disable-line

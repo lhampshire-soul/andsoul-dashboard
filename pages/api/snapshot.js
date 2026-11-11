@@ -261,6 +261,11 @@ export default async function handler(req, res) {
           finally { await client.del(kl); }
         }
       }
+      // Warm the CRM lead cache for both properties
+      try {
+        const { buildCrm } = await import("./crm-leads");
+        for (const p of ["southall", "shoreditch"]) { if (Date.now() - t0 > 52000) break; const d = await buildCrm(p); await client.set(`crm_leads_v1:${p}`, JSON.stringify(d), { EX: 24 * 3600 }); out["crm_" + p] = d.leads.length + " leads"; }
+      } catch (e) { out.crm = "error: " + e.message; }
       return res.status(200).json({ ok: true, ms: Date.now() - t0, out });
     }
 
