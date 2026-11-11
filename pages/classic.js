@@ -1,0 +1,9486 @@
+import Head from "next/head";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  Line, Bar, XAxis, YAxis, BarChart, ReferenceLine,
+  CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart
+} from "recharts";
+
+// ─── SOUTHALL META DATA (Windsor.ai · 11 Feb – 12 Mar 2026) ──────────────────
+const META_DAILY = [
+  { d:"11/2", iso:"2026-02-11", spend:61.02,  leads:20, cpl:3.05  },
+  { d:"12/2", iso:"2026-02-12", spend:56.82,  leads:12, cpl:4.74  },
+  { d:"13/2", iso:"2026-02-13", spend:52.11,  leads:18, cpl:2.90  },
+  { d:"14/2", iso:"2026-02-14", spend:55.65,  leads:14, cpl:3.98  },
+  { d:"15/2", iso:"2026-02-15", spend:98.47,  leads:17, cpl:5.79  },
+  { d:"16/2", iso:"2026-02-16", spend:52.43,  leads:12, cpl:4.37  },
+  { d:"17/2", iso:"2026-02-17", spend:56.14,  leads:9,  cpl:6.24  },
+  { d:"18/2", iso:"2026-02-18", spend:77.07,  leads:12, cpl:6.42  },
+  { d:"19/2", iso:"2026-02-19", spend:82.21,  leads:19, cpl:4.33  },
+  { d:"20/2", iso:"2026-02-20", spend:73.87,  leads:8,  cpl:9.23  },
+  { d:"21/2", iso:"2026-02-21", spend:80.11,  leads:10, cpl:8.01  },
+  { d:"22/2", iso:"2026-02-22", spend:82.79,  leads:10, cpl:8.28  },
+  { d:"23/2", iso:"2026-02-23", spend:111.62, leads:21, cpl:5.32  },
+  { d:"24/2", iso:"2026-02-24", spend:117.69, leads:18, cpl:6.54  },
+  { d:"25/2", iso:"2026-02-25", spend:117.22, leads:12, cpl:9.77  },
+  { d:"26/2", iso:"2026-02-26", spend:105.31, leads:10, cpl:10.53 },
+  { d:"27/2", iso:"2026-02-27", spend:134.96, leads:11, cpl:12.27 },
+  { d:"28/2", iso:"2026-02-28", spend:99.37,  leads:11, cpl:9.03  },
+  { d:"1/3",  iso:"2026-03-01", spend:136.46, leads:26, cpl:5.25  },
+  { d:"2/3",  iso:"2026-03-02", spend:115.00, leads:13, cpl:8.85  },
+  { d:"3/3",  iso:"2026-03-03", spend:105.79, leads:5,  cpl:21.16 },
+  { d:"4/3",  iso:"2026-03-04", spend:126.69, leads:12, cpl:10.56 },
+  { d:"5/3",  iso:"2026-03-05", spend:142.62, leads:10, cpl:14.26 },
+  { d:"6/3",  iso:"2026-03-06", spend:119.86, leads:10, cpl:11.99 },
+  { d:"7/3",  iso:"2026-03-07", spend:125.24, leads:7,  cpl:17.89 },
+  { d:"8/3",  iso:"2026-03-08", spend:159.86, leads:11, cpl:14.53 },
+  { d:"9/3",  iso:"2026-03-09", spend:137.71, leads:13, cpl:10.59 },
+  { d:"10/3", iso:"2026-03-10", spend:124.50, leads:6,  cpl:20.75 },
+  { d:"11/3", iso:"2026-03-11", spend:132.06, leads:10, cpl:13.21 },
+  { d:"12/3", iso:"2026-03-12", spend:96.33,  leads:10, cpl:9.63  },
+];
+
+const GOOGLE_DAILY_SPEND = {
+  "2026-02-11":241.86,"2026-02-12":122.84,"2026-02-13":168.53,"2026-02-14":208.63,
+  "2026-02-15":319.03,"2026-02-16":318.73,"2026-02-17":166.73,"2026-02-18":143.43,
+  "2026-02-19":202.88,"2026-02-20":103.27,"2026-02-21":100.14,"2026-02-22":174.36,
+  "2026-02-23":160.35,"2026-02-24":121.57,"2026-02-25":183.09,"2026-02-26":167.68,
+  "2026-02-27":172.55,"2026-02-28":187.31,"2026-03-01":198.96,"2026-03-02":233.47,
+  "2026-03-03":474.26,"2026-03-04":299.21,"2026-03-05":300.21,"2026-03-06":349.86,
+  "2026-03-07":276.27,"2026-03-08":307.85,"2026-03-09":260.20,"2026-03-10":228.05,
+  "2026-03-11":229.51,"2026-03-12":112.85,
+};
+
+const GOOGLE_CAMPAIGNS = [
+  { name:"&Soul - Southall",             spend:3951, convs:85, avgCPC:0.84, type:"Search" },
+  { name:"Southall Co Living",            spend:1007, convs:16, avgCPC:1.12, type:"Search" },
+  { name:"Southall - Performance Max",    spend:  54, convs: 1, avgCPC:0.62, type:"Pmax"  },
+  { name:"Southall - Local Pmax",         spend: 906, convs:42, avgCPC:0.62, type:"Pmax"  },
+  { name:"&Soul - Southall Video",        spend:  98, convs: 3, avgCPC:0.88, type:"Video" },
+];
+
+// ─── SHOREDITCH DATA ─────────────────────────────────────────────────────────
+const SD_GOOGLE_DAILY = [
+  {date:"2026-02-17",spend:113.34,convs:19},{date:"2026-02-18",spend:121.55,convs:24},
+  {date:"2026-02-19",spend:109.87,convs:21},{date:"2026-02-20",spend:128.02,convs:27},
+  {date:"2026-02-21",spend:154.30,convs:16},{date:"2026-02-22",spend:106.00,convs:21},
+  {date:"2026-02-23",spend:29.12,convs:25},{date:"2026-02-24",spend:52.15,convs:32},
+  {date:"2026-02-25",spend:56.84,convs:27},{date:"2026-02-26",spend:36.19,convs:9},
+  {date:"2026-02-27",spend:0,convs:0},{date:"2026-02-28",spend:21.11,convs:0},
+  {date:"2026-03-01",spend:28.16,convs:1},{date:"2026-03-02",spend:27.25,convs:1},
+  {date:"2026-03-03",spend:35.78,convs:0},{date:"2026-03-04",spend:41.04,convs:1},
+  {date:"2026-03-05",spend:40.79,convs:0},{date:"2026-03-06",spend:40.93,convs:1},
+  {date:"2026-03-07",spend:41.72,convs:0},{date:"2026-03-08",spend:25.88,convs:0},
+  {date:"2026-03-09",spend:63.21,convs:2},{date:"2026-03-10",spend:43.60,convs:0},
+  {date:"2026-03-11",spend:35.18,convs:2},{date:"2026-03-12",spend:47.70,convs:1},
+  {date:"2026-03-13",spend:39.90,convs:0},{date:"2026-03-14",spend:41.43,convs:1},
+  {date:"2026-03-15",spend:40.40,convs:3},{date:"2026-03-16",spend:27.37,convs:0},
+  {date:"2026-03-17",spend:46.87,convs:0},{date:"2026-03-18",spend:50.00,convs:0},
+];
+const SD_META = {campaign:"Shoreditch &Soul | Villas | Website Lead Gen",spend:1175.34,leads:48,totalLeads:260,landingPageViews:597,linkClicks:1217};
+const SD_VILLAS = 16;
+const SD_BEDROOMS = 73;
+const SD_GHL_PIPELINE = "Shoreditch";
+const SD_FLATS = [
+  {name:"Flat 1",floor:1,wing:"North",beds:5,notes:"Priority flat to sell. Bedroom 5 needs wardrobe + double bed. Bedroom 1 is a big room.",viewDays:"Flexible",pref:"No preference",rooms:[
+    {id:"1.1",label:"Bedroom 1",s:"OCCUPIED",w:450,m:1900,member:"",leave:"",size:"14m²"},
+    {id:"1.2",label:"Bedroom 2",s:"OCCUPIED",w:440,m:1875,member:"",leave:"",size:"13m²"},
+    {id:"1.3",label:"Bedroom 3",s:"AVAILABLE",w:440,m:1875,member:"",leave:"",size:"12m²"},
+    {id:"1.4",label:"Bedroom 4",s:"OCCUPIED",w:440,m:1875,member:"Anita Zara Paul",leave:"2026-07-09",size:"12m²"},
+    {id:"1.5",label:"Bedroom 5",s:"AVAILABLE",w:400,m:1875,member:"",leave:"",size:"11m²"},
+  ]},
+  {name:"Flat 2",floor:1,wing:"North",beds:5,notes:"Fully occupied for now.",viewDays:"N/A",pref:"No preference",rooms:[
+    {id:"2.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Anna Shillingday",leave:"",size:"14m²"},
+    {id:"2.2",label:"Bedroom 2",s:"OCCUPIED",w:430,m:1863,member:"Mark Milsted",leave:"",size:"12m²"},
+    {id:"2.3",label:"Bedroom 3",s:"AVAILABLE",w:460,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"2.4",label:"Bedroom 4",s:"OCCUPIED",w:400,m:1800,member:"Louise Doherty",leave:"",size:"11m²"},
+    {id:"2.5",label:"Bedroom 5",s:"OCCUPIED",w:440,m:1907,member:"Carly Festa",leave:"",size:"12m²"},
+  ]},
+  {name:"Flat 3",floor:1,wing:"North",beds:4,notes:"Current residents are both female in early 30s. One works in tech, one is studying fashion. Open to all genders. Roof issues caused leak in Bedroom 2 — check with Oona.",viewDays:"Tue, Wed, Thu",pref:"All genders",rooms:[
+    {id:"3.1",label:"Bedroom 1",s:"OCCUPIED",w:450,m:1950,member:"Nefeli Kouroushi",leave:"",size:"13m²"},
+    {id:"3.2",label:"Bedroom 2",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"3.3",label:"Bedroom 3",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"3.4",label:"Bedroom 4",s:"OCCUPIED",w:450,m:1950,member:"Emma Singh",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 4",floor:1,wing:"North",beds:6,notes:"Currently all male, mostly working in FinTech. Need 1 more male when Adham leaves.",viewDays:"Flexible",pref:"Male only",rooms:[
+    {id:"4.1",label:"Bedroom 1",s:"LEAVING",w:450,m:1950,member:"Adham Gouda",leave:"2026-06-28",size:"13m²"},
+    {id:"4.2",label:"Bedroom 2",s:"AVAILABLE",w:450,m:1950,member:"Ollie Turnbull",leave:"",size:"13m²"},
+    {id:"4.3",label:"Bedroom 3",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"4.4",label:"Bedroom 4",s:"OCCUPIED",w:450,m:1950,member:"Prakhar Vashney",leave:"",size:"13m²"},
+    {id:"4.5",label:"Bedroom 5",s:"OCCUPIED",w:450,m:1950,member:"Nicholas Sawyer",leave:"",size:"13m²"},
+    {id:"4.6",label:"Bedroom 6",s:"OCCUPIED",w:450,m:1950,member:"Sai",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 5",floor:1,wing:"South",beds:4,notes:"Three guys at the moment, looking for 1 more male.",viewDays:"Tue, Thu",pref:"Male only",rooms:[
+    {id:"5.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Guy Hayward",leave:"",size:"14m²"},
+    {id:"5.2",label:"Bedroom 2",s:"OCCUPIED",w:460,m:1993,member:"Matthieu Fernandes",leave:"",size:"14m²"},
+    {id:"5.3",label:"Bedroom 3",s:"OCCUPIED",w:460,m:1993,member:"Tayyeb Rafique",leave:"",size:"14m²"},
+    {id:"5.4",label:"Bedroom 4",s:"OCCUPIED",w:460,m:1900,member:"Pablo Exposito",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 6",floor:1,wing:"South",beds:4,notes:"Only want another female to balance the energy.",viewDays:"Tue, Thu",pref:"Female only",rooms:[
+    {id:"6.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Ben Furner",leave:"",size:"14m²"},
+    {id:"6.2",label:"Bedroom 2",s:"OCCUPIED",w:460,m:1993,member:"Blanche Oguti",leave:"",size:"14m²"},
+    {id:"6.3",label:"Bedroom 3",s:"OCCUPIED",w:460,m:1993,member:"Tremaine Richard-Noel",leave:"",size:"14m²"},
+    {id:"6.4",label:"Bedroom 4",s:"AVAILABLE",w:460,m:1993,member:"",leave:"",size:"14m²"},
+  ]},
+  {name:"Flat 7",floor:1,wing:"South",beds:4,notes:"Only want another female to balance the energy.",viewDays:"Tuesday",pref:"Female only",rooms:[
+    {id:"7.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Manuela Hunter",leave:"",size:"14m²"},
+    {id:"7.2",label:"Bedroom 2",s:"OCCUPIED",w:460,m:1993,member:"Aimee Daly",leave:"",size:"14m²"},
+    {id:"7.3",label:"Bedroom 3",s:"OCCUPIED",w:460,m:1993,member:"Gigi Dunn",leave:"",size:"14m²"},
+    {id:"7.4",label:"Bedroom 4",s:"OCCUPIED",w:460,m:1993,member:"Alexandra",leave:"",size:"14m²"},
+  ]},
+  {name:"Flat 8",floor:1,wing:"South",beds:4,notes:"Only want another female. Under 35 only.",viewDays:"Mon, Tue, Wed, Fri",pref:"Female only, under 35",rooms:[
+    {id:"8.1",label:"Bedroom 1",s:"OCCUPIED",w:460,m:1993,member:"Isabella Simpson",leave:"",size:"14m²"},
+    {id:"8.2",label:"Bedroom 2",s:"OCCUPIED",w:460,m:1993,member:"Leyla Manthorpe Rizatepe",leave:"",size:"14m²"},
+    {id:"8.3",label:"Bedroom 3",s:"AVAILABLE",w:460,m:1993,member:"",leave:"",size:"14m²"},
+    {id:"8.4",label:"Bedroom 4",s:"OCCUPIED",w:460,m:1993,member:"Diya Gohil",leave:"2026-06-17",size:"14m²"},
+  ]},
+  {name:"Flat 9",floor:2,wing:"North",beds:4,notes:"Needs 1 person to replace Benjamin.",viewDays:"Mon, Thu",pref:"No preference",rooms:[
+    {id:"9.1",label:"Bedroom 1",s:"LEAVING",w:460,m:1993,member:"Benjamin Franta",leave:"2026-06-01",size:"13m²"},
+    {id:"9.2",label:"Bedroom 2",s:"AVAILABLE",w:460,m:1993,member:"",leave:"",size:"13m²"},
+    {id:"9.3",label:"Bedroom 3",s:"OCCUPIED",w:460,m:1993,member:"Tamara Harris",leave:"",size:"13m²"},
+    {id:"9.4",label:"Bedroom 4",s:"OCCUPIED",w:460,m:1993,member:"William Murphy",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 10",floor:2,wing:"North",beds:5,notes:"Chris Geilser moving out. Good option for a flat.",viewDays:"Tue, Wed, Fri",pref:"No preference",rooms:[
+    {id:"10.1",label:"Bedroom 1",s:"OCCUPIED",w:400,m:1733,member:"Daniel White",leave:"",size:"12m²"},
+    {id:"10.2",label:"Bedroom 2",s:"AVAILABLE",w:400,m:1733,member:"",leave:"",size:"12m²"},
+    {id:"10.3",label:"Bedroom 3",s:"OCCUPIED",w:400,m:1733,member:"Anji",leave:"",size:"12m²"},
+    {id:"10.4",label:"Bedroom 4",s:"OCCUPIED",w:400,m:1733,member:"Chris Merpaw",leave:"",size:"12m²"},
+    {id:"10.5",label:"Bedroom 5",s:"OCCUPIED",w:400,m:1733,member:"Nikoline Ekelund",leave:"2026-07-04",size:"12m²"},
+  ]},
+  {name:"Flat 11",floor:2,wing:"North",beds:6,notes:"Female only. One resident is a journalist, the other works in commercial law. Age mid-20s to mid-30s. Bedroom 1 has works ongoing (leaks) — check with Oona. Room 4 booked from 1 Sep for 12 months.",viewDays:"Check with Oona",pref:"Female only, mid 20s–30s",rooms:[
+    {id:"11.1",label:"Bedroom 1",s:"AVAILABLE",w:420,m:1820,member:"",leave:"",size:"12m²"},
+    {id:"11.2",label:"Bedroom 2",s:"OCCUPIED",w:420,m:1820,member:"Sanam Mahoozi",leave:"",size:"12m²"},
+    {id:"11.3",label:"Bedroom 3",s:"AVAILABLE",w:420,m:1820,member:"",leave:"",size:"12m²"},
+    {id:"11.4",label:"Bedroom 4",s:"INCOMING",w:420,m:1820,member:"Raima Saha",leave:"",size:"12m²"},
+    {id:"11.5",label:"Bedroom 5",s:"AVAILABLE",w:420,m:1820,member:"",leave:"",size:"12m²"},
+    {id:"11.6",label:"Bedroom 6",s:"OCCUPIED",w:420,m:1820,member:"Lily O'Brien",leave:"",size:"12m²"},
+  ]},
+  {name:"Flat 12",floor:2,wing:"North",beds:6,notes:"Male only.",viewDays:"Wednesday",pref:"Male only",rooms:[
+    {id:"12.1",label:"Bedroom 1",s:"OCCUPIED",w:450,m:1950,member:"Myles Recny",leave:"",size:"13m²"},
+    {id:"12.2",label:"Bedroom 2",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"12.3",label:"Bedroom 3",s:"OCCUPIED",w:450,m:1950,member:"Patrick Stott",leave:"2026-05-30",size:"13m²"},
+    {id:"12.4",label:"Bedroom 4",s:"OCCUPIED",w:450,m:1950,member:"Eric Kachappilly",leave:"",size:"13m²"},
+    {id:"12.5",label:"Bedroom 5",s:"AVAILABLE",w:450,m:1950,member:"",leave:"",size:"13m²"},
+    {id:"12.6",label:"Bedroom 6",s:"OCCUPIED",w:450,m:1950,member:"Samu Kurki",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 13",floor:2,wing:"South",beds:4,notes:"Show flat.",viewDays:"Mon, Tue, Wed",pref:"No preference",rooms:[
+    {id:"13.1",label:"Bedroom 1",s:"OCCUPIED",w:0,m:0,member:"Jaron Cohen",leave:"",size:"13m²"},
+    {id:"13.2",label:"Bedroom 2",s:"OCCUPIED",w:0,m:0,member:"Stuart Sanderman",leave:"",size:"13m²"},
+    {id:"13.3",label:"Bedroom 3",s:"OCCUPIED",w:0,m:0,member:"Evan Paul",leave:"",size:"13m²"},
+    {id:"13.4",label:"Bedroom 4",s:"OCCUPIED",w:0,m:0,member:"James Henderson",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 14",floor:2,wing:"South",beds:4,notes:"Either male or female. Current residents are an artist & work in fintech, late 20s to late 30s.",viewDays:"Tuesday",pref:"No preference",rooms:[
+    {id:"14.1",label:"Bedroom 1",s:"OCCUPIED",w:430,m:1863,member:"",leave:"",size:"13m²"},
+    {id:"14.2",label:"Bedroom 2",s:"AVAILABLE",w:430,m:1863,member:"",leave:"",size:"13m²"},
+    {id:"14.3",label:"Bedroom 3",s:"OCCUPIED",w:430,m:1863,member:"Barbara Majek-Oduyoye",leave:"",size:"13m²"},
+    {id:"14.4",label:"Bedroom 4",s:"OCCUPIED",w:430,m:1863,member:"Anan Yousef",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 15",floor:2,wing:"South",beds:4,notes:"Either male or female. Current resident is mid-20s and works for Amazon.",viewDays:"Flexible",pref:"No preference",rooms:[
+    {id:"15.1",label:"Bedroom 1",s:"OCCUPIED",w:430,m:1863,member:"Olly Forsyth",leave:"",size:"13m²"},
+    {id:"15.2",label:"Bedroom 2",s:"AVAILABLE",w:430,m:1863,member:"",leave:"",size:"13m²"},
+    {id:"15.3",label:"Bedroom 3",s:"OCCUPIED",w:430,m:1863,member:"Mike",leave:"",size:"13m²"},
+    {id:"15.4",label:"Bedroom 4",s:"OCCUPIED",w:430,m:1863,member:"Penn Ryan",leave:"",size:"13m²"},
+  ]},
+  {name:"Flat 16",floor:2,wing:"South",beds:4,notes:"Female only. Mid-20s. Balcony flat — for a woman!",viewDays:"Flexible",pref:"Female only",rooms:[
+    {id:"16.1",label:"Bedroom 1",s:"OCCUPIED",w:430,m:1863,member:"Bettina Sosa",leave:"",size:"14m²"},
+    {id:"16.2",label:"Bedroom 2",s:"OCCUPIED",w:430,m:1863,member:"Isabella Costanzo",leave:"",size:"14m²"},
+    {id:"16.3",label:"Bedroom 3",s:"AVAILABLE",w:430,m:1863,member:"",leave:"",size:"14m²"},
+    {id:"16.4",label:"Bedroom 4",s:"AVAILABLE",w:430,m:1863,member:"",leave:"",size:"14m²"},
+  ]},
+];
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+// Building bedroom count is a confirmed constant (302), NOT Lavanda's record
+// count: Lavanda lists 303 bedroom records for Southall (three "x & y" Cosy
+// pairs are each one record) and the extra one has not been found yet.
+const BEDS = 302;
+// Rooms offline today that are not yet itemised in OFFLINE_ROOMS below.
+// Leyth, 3 Nov 2026: 16 rooms offline; the register lists 11. Move these into
+// the register (with room numbers) as they are identified, and reduce this.
+const OFFLINE_UNLISTED = 0;
+const TARGET_OCC = 0.9;
+const TARGET_RATE = 300;
+const TARGET_ROOMS = Math.round(BEDS * TARGET_OCC);
+const TARGET_MONTHLY = Math.round(TARGET_ROOMS * TARGET_RATE * (52/12));
+const ROOM_TYPES = ['Ensuite', 'Nook', 'Snug', 'Snug plus', 'Cosy', 'Roomy', 'Spacious', 'Deluxe', 'Deluxe Accessible', 'Deluxe Duo'];
+
+// ─── COLOURS ──────────────────────────────────────────────────────────────────
+const C = {
+  bg:"#080a0d", card:"#0e1115", border:"#1c2028",
+  gold:"#d4a843", goldDim:"#7a5c1e",
+  blue:"#3d82c4", sage:"#3d9e75", rose:"#c95c54", purple:"#9b72cf",
+  text:"#e8e4dc", muted:"#6e717a",
+};
+
+const fmt = (n, prefix="£", dp=0) =>
+  `${prefix}${Number(n).toLocaleString("en-GB",{minimumFractionDigits:dp,maximumFractionDigits:dp})}`;
+const cplColor = v => v < 7 ? C.sage : v < 13 ? C.gold : C.rose;
+
+// Extract base room type from unitTypeName
+const baseRoomType = (typeName) => {
+  if (!typeName) return 'Other';
+  const exclude = ['Bike', 'Corridor', 'Parking', 'Floor 1', 'Shuffle', 'Studios', 'Art Studio', 'Therapy Room', 'Visual Studio'];
+  if (exclude.some(e => typeName.startsWith(e))) return null;
+  return typeName.replace(/ - Flr:.*$/, '').replace(/^Premium - /, '').replace(/^Standard - /, '');
+};
+
+const MIN_STAY_DAYS = 28; // Only count bookings >= 28 days for occupancy & AWR
+
+// ─── OFFLINE / NON-SELLABLE ROOMS REGISTER ───────────────────────────────────
+// Res Harmonics only has ONE of these flagged bookable=false (room 12), so the
+// PMS on its own makes empty maintenance stock look sellable. This register is
+// the operational source of truth. Rooms drop off automatically once `until`
+// passes, so seasonal holds (showflat, summer contingency) self-expire.
+// Keep in sync with the ops offline-rooms tracker.
+const OFFLINE_ROOMS = [
+  // Source: Room Availability Tracker (Planner export 09.11.2026) — 14 rooms "In progress"
+  { room: "1",    category: "Maintenance", reason: "Carpet stains — awaiting cleaning machine", from: "2026-11-02", until: "2026-11-30", note: "" },
+  { room: "12",   category: "Structural",  reason: "Lift motor in room",                        from: "2026-01-01", until: "2031-12-31", note: "Permanently offline — 24/7 access needed" },
+  { room: "210",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",             from: "2026-09-28", until: "2026-12-31", note: "" },
+  { room: "225",  category: "Maintenance", reason: "Carpet stains, broken mirror",              from: "2026-11-02", until: "2026-11-30", note: "" },
+  { room: "308",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",             from: "2026-07-20", until: "2026-12-31", note: "" },
+  { room: "325",  category: "Deluxe Duo",  reason: "Deluxe Duo",                                from: "2026-06-22", until: "2026-12-31", note: "Tracker due 13/11" },
+  { room: "404",  category: "Maintenance", reason: "AC issue (blowing warm air)",               from: "2026-04-22", until: "2026-11-30", note: "" },
+  { room: "405",  category: "Legal",       reason: "Ongoing legal case (occupant)",             from: "2025-12-19", until: "2026-12-31", note: "" },
+  { room: "506",  category: "Staff room",  reason: "Non-bookable staff room (FOC)",             from: "2026-07-20", until: "2026-12-31", note: "" },
+  { room: "606",  category: "Maintenance", reason: "Window leak and shower tray",               from: "2026-11-01", until: "2026-12-31", note: "" },
+  { room: "627",  category: "Linen room",  reason: "Linen room — lift contingency",             from: "2025-10-13", until: "2026-12-31", note: "" },
+  { room: "727",  category: "Linen room",  reason: "Linen room — lift contingency",             from: "2026-07-31", until: "2026-12-31", note: "" },
+  { room: "927",  category: "Therapy room",reason: "Therapy room",                              from: "2025-10-05", until: "2026-12-31", note: "Tracker due 16/11" },
+  { room: "1104", category: "Staff room",  reason: "Non-bookable staff room (FOC)",             from: "2026-07-20", until: "2026-12-31", note: "" },
+];
+// Room labels vary ("07", "7", "212 - Bar", "325 Duo") — match on the leading number
+const roomKey = (name) => {
+  const m = String(name ?? "").replace(/^Room:\s*/i, "").trim().match(/^(\d+)/);
+  return m ? String(parseInt(m[1], 10)) : null;
+};
+const offlineRoomMap = (() => {
+  const today = new Date().toISOString().slice(0, 10);
+  const m = {};
+  OFFLINE_ROOMS.forEach(r => {
+    if (r.until && r.until < today) return;   // hold has expired
+    if (r.from && r.from > today) return;     // not started yet
+    m[String(parseInt(r.room, 10))] = r;
+  });
+  return m;
+})();
+const offlineInfoFor = (unitName) => offlineRoomMap[roomKey(unitName)] || null;
+const OFFLINE_CAT_COLORS = {
+  "Structural": "#c95c54", "Legal": "#c95c54", "Maintenance": "#d4a843",
+  "Linen room": "#9b72cf", "Staff room": "#3d82c4", "Showflat": "#3d9e75", "Refurb": "#d4a843",
+};
+
+// ─── Length-of-stay bands — single source of truth ───────────────────────────
+// Aligned to the 28-night boundary that actually matters commercially: under 28
+// nights is a short break (and attracts full VAT), 28+ is a tenancy. The old
+// bands cut at 31/32 days, which split genuine one-month bookings (30- and
+// 31-night stays) across two buckets and made the totals unusable.
+const LOS_BANDS = [
+  { key: "lt28",     label: "≤ 27 days",      short: "≤27d",     note: "Short break",  min: 0,   max: 27 },
+  { key: "d28_91",   label: "28 – 91 days",   short: "28-91d",   note: "1–3 months",   min: 28,  max: 91 },
+  { key: "d92_181",  label: "92 – 181 days",  short: "92-181d",  note: "3–6 months",   min: 92,  max: 181 },
+  { key: "d182_364", label: "182 – 364 days", short: "182-364d", note: "6–12 months",  min: 182, max: 364 },
+  { key: "d365",     label: "365+ days",      short: "365d+",    note: "12 months+",   min: 365, max: 99999 },
+];
+const losBandFor = (days) =>
+  LOS_BANDS.find(b => days >= b.min && days <= b.max) || LOS_BANDS[LOS_BANDS.length - 1];
+
+// ─── Shared PMS metrics computation ──────────────────────────────────────────
+// Used by both connectPMS (initial load) and silentPmsRefresh (background)
+// Helper: format date as YYYY-MM-DD using LOCAL time (avoids BST/UTC timezone shift)
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function computePmsMetrics(allGuestStays, allBookings, allUnits) {
+  const now = new Date();
+  const today = localDateStr(now);
+  const mthStart = today.slice(0,7) + "-01";
+  const mthEnd = today.slice(0,7) + "-" + String(new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()).padStart(2,"0");
+  const wkStart = localDateStr(new Date(Date.now()-7*864e5));
+
+  // ── Build contact history for renewal/move detection ──
+  // Group stays by contactId to detect consecutive bookings.
+  // Merge BOTH guestStays AND bookings — some CONFIRMED/PENDING follow-on stays
+  // only appear in bookings (no guestStay record yet), so guestStays alone misses them.
+  const contactStays = {};
+  const seenRoomStayIds = new Set();
+  allGuestStays.forEach(g => {
+    const cid = g.contactId;
+    if (!cid) return;
+    if (!contactStays[cid]) contactStays[cid] = [];
+    contactStays[cid].push({
+      roomStayId: g.roomStayId, unitId: g.unitId,
+      dateFrom: (g.dateFrom ?? "").slice(0,10),
+      dateTo: (g.dateTo ?? "").slice(0,10),
+      status: (g.status ?? "").toUpperCase()
+    });
+    seenRoomStayIds.add(g.roomStayId);
+  });
+  // Add bookings that don't have a guestStay record yet (e.g. future CONFIRMED/PENDING)
+  allBookings.forEach(b => {
+    if (seenRoomStayIds.has(b.roomStayId)) return; // already covered by guestStays
+    const cid = b.contactId || b.bookingContact?.id;
+    if (!cid) return;
+    if (!contactStays[cid]) contactStays[cid] = [];
+    contactStays[cid].push({
+      roomStayId: b.roomStayId, unitId: b.unitId,
+      dateFrom: (b.startDate ?? "").slice(0,10),
+      dateTo: (b.endDate ?? "").slice(0,10),
+      status: (b.roomStayStatus ?? "").toUpperCase()
+    });
+  });
+  // FIX: guestStays endpoint reports PENDING bookings as CONFIRMED — override
+  // with the authoritative status from the bookings endpoint. Without this,
+  // pending renewals appear as "renewed" and disappear from the pending tracker.
+  const bookingStatusByRsId = {};
+  allBookings.forEach(b => {
+    if (b.roomStayId && b.roomStayStatus) bookingStatusByRsId[b.roomStayId] = (b.roomStayStatus ?? "").toUpperCase();
+  });
+  Object.values(contactStays).forEach(stays => {
+    stays.forEach(s => {
+      const authStatus = bookingStatusByRsId[s.roomStayId];
+      if (authStatus && authStatus === "PENDING" && s.status !== "PENDING") {
+        s.status = "PENDING"; // bookings endpoint is authoritative for PENDING status
+      }
+    });
+  });
+
+  // Build a set of roomStayIds that are renewals or room moves (not genuinely new)
+  // Check all pairs — adjacent-only comparison misses renewals when long stays
+  // have intermediate short stays (e.g. event bookings) in between
+  const renewalRoomStays = new Set();
+  const roomMoveRoomStays = new Set();
+  Object.values(contactStays).forEach(stays => {
+    if (stays.length < 2) return;
+    for (let i = 0; i < stays.length; i++) {
+      const curr = stays[i];
+      const currFromMs = new Date(curr.dateFrom).getTime();
+      // Find any earlier stay whose end is within [-1, +7] days of this stay's start
+      for (let j = 0; j < stays.length; j++) {
+        if (j === i) continue;
+        const prev = stays[j];
+        const gap = (currFromMs - new Date(prev.dateTo).getTime()) / 864e5;
+        if (gap >= -1 && gap <= 7) {
+          if (prev.unitId === curr.unitId) {
+            renewalRoomStays.add(curr.roomStayId);
+          } else {
+            roomMoveRoomStays.add(curr.roomStayId);
+          }
+          break;
+        }
+      }
+    }
+  });
+
+  // Build a set of roomStayIds that checked back in after checkout (not true departures)
+  // A check-out is "not real" if the same contact checks back in within 7 days
+  const notRealCheckouts = new Set();
+  Object.values(contactStays).forEach(stays => {
+    if (stays.length < 2) return;
+    for (let i = 0; i < stays.length; i++) {
+      const curr = stays[i];
+      if (curr.status !== "CHECKED_OUT" && !curr.dateTo) continue;
+      const endMs = new Date(curr.dateTo).getTime();
+      for (let j = 0; j < stays.length; j++) {
+        if (j === i) continue;
+        const gap = (new Date(stays[j].dateFrom).getTime() - endMs) / 864e5;
+        if (gap >= -1 && gap <= 7) { notRealCheckouts.add(curr.roomStayId); break; }
+      }
+    }
+  });
+
+  // ── In House count — distinct BEDROOMS occupied tonight ──
+  // Deduplicated by UNIT, not roomStayId: a room move or an overlapping stay
+  // produces two roomStayIds on one room and would otherwise be counted twice.
+  // Restricted to actual bedrooms (parking/bikes/communal are bookable units in
+  // RH but are not occupancy) and to stays that genuinely cover today.
+  const bedroomIds = new Set(
+    (allUnits || []).filter(u => /^Room:/i.test((u.unitName || "").trim())).map(u => u.id)
+  );
+  const unitNameById = {};
+  (allUnits || []).forEach(u => { unitNameById[u.id] = (u.unitName || "").trim(); });
+  const checkedInUnits = new Set();
+  const checkedInUnitsLongStay = new Set();
+  let inHouseGuestCount = 0;
+  allGuestStays.forEach(g => {
+    if ((g.status ?? "").toUpperCase() !== "CHECKED_IN") return;
+    if (bedroomIds.size > 0 && !bedroomIds.has(g.unitId)) return;
+    const f = (g.dateFrom ?? "").slice(0, 10);
+    const t = (g.dateTo ?? "").slice(0, 10);
+    if (!f || !t || !(f <= today && t >= today)) return; // Lavanda definition: in house until checked out
+    checkedInUnits.add(g.unitId);
+    inHouseGuestCount++;
+    if (Math.round((new Date(t) - new Date(f)) / 864e5) >= MIN_STAY_DAYS) checkedInUnitsLongStay.add(g.unitId);
+  });
+  const inHouseCount = checkedInUnits.size;
+  // Room numbers so the frontend can de-duplicate against Lavanda short stays
+  // (a room double-booked across both systems must only count once)
+  const occupiedRoomNumbers = [...checkedInUnits]
+    .map(id => (unitNameById[id] || "").replace(/^Room:\s*/i, "").trim())
+    .filter(Boolean);
+
+  // ── Check-ins (7d) — only genuinely NEW members, not renewals or room moves ──
+  const newCheckInRooms7d = new Set();
+  allGuestStays.forEach(g => {
+    if ((g.status ?? "").toUpperCase() !== "CHECKED_IN") return;
+    const d = (g.dateFrom ?? "").slice(0,10);
+    if (d < wkStart || d > today) return;
+    const rid = g.roomStayId;
+    if (renewalRoomStays.has(rid) || roomMoveRoomStays.has(rid)) return; // skip renewals & moves
+    newCheckInRooms7d.add(rid);
+  });
+  const checkInsWeek = newCheckInRooms7d.size;
+
+  // ── Check-outs (7d) — only if the person does NOT check back in ──
+  const realCheckOutRooms7d = new Set();
+  allGuestStays.forEach(g => {
+    if ((g.status ?? "").toUpperCase() !== "CHECKED_OUT") return;
+    const d = (g.dateTo ?? "").slice(0,10);
+    if (d < wkStart || d > today) return;
+    const rid = g.roomStayId;
+    if (notRealCheckouts.has(rid)) return; // person checked back in
+    realCheckOutRooms7d.add(rid);
+  });
+  const checkOutsWeek = realCheckOutRooms7d.size;
+
+  // ── Revenue — pro-rated for bookings active in current month ──
+  // Only count 28+ day bookings to exclude short stays / desk bookings
+  const proRateRevenue = (bookings, periodStart, periodEnd) => {
+    let total = 0;
+    bookings.forEach(b => {
+      const from = (b.startDate ?? b.dateFrom ?? "").slice(0,10);
+      const to = (b.endDate ?? b.dateTo ?? "").slice(0,10);
+      if (!from || !to) return;
+      const totalDays = Math.max(1, (new Date(to) - new Date(from)) / 864e5);
+      if (totalDays < MIN_STAY_DAYS) return; // skip short stays
+      const net = parseFloat(b.netAmount ?? 0);
+      if (isNaN(net) || net <= 0) return;
+      // Nights basis: a stay occupies nights [from, to-1] — checkout day excluded
+      const lastNight = new Date(new Date(to).getTime() - 864e5).toISOString().slice(0,10);
+      if (from > periodEnd || lastNight < periodStart) return;
+      const overlapStart = from > periodStart ? from : periodStart;
+      const overlapEnd = lastNight < periodEnd ? lastNight : periodEnd;
+      const overlapDays = Math.max(0, (new Date(overlapEnd) - new Date(overlapStart)) / 864e5 + 1);
+      total += (net / totalDays) * overlapDays;
+    });
+    return total;
+  };
+
+  const monthlyRev = proRateRevenue(allBookings, mthStart, mthEnd);
+  const weeklyRev = proRateRevenue(allBookings, wkStart, today);
+
+  // ── Occupancy forecast — DAYS-BASED ──
+  // occupancy = total booked days / (BEDS × daysInMonth)
+  // Only count stays >= 28 days, deduplicate by unit per day
+  // DEPARTURES & ARRIVALS count ALL statuses (incl. CHECKED_OUT) so past departures aren't missed
+  // OCCUPANCY (booked days) counts only active stays for future months, ALL for current/past
+  const nowDate = new Date();
+  const forecastByRoom = [];
+  const forecastMonths = [];
+  // Rolling window: 2 months back (Lavanda only holds tenancies that were
+  // still live at migration, so earlier months are incomplete) → 9 months ahead
+  const currentYear = nowDate.getFullYear();
+  const currentMonthIdx = nowDate.getMonth();
+  const FORECAST_START = -2;
+  const FORECAST_MONTHS = 12;
+  for (let m = FORECAST_START; m < FORECAST_START + FORECAST_MONTHS; m++) {
+    const d = new Date(currentYear, currentMonthIdx + m, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    forecastMonths.push({ key, label, daysInMonth });
+  }
+
+  const currentMonthKey = forecastMonths[0].key;
+  const todayKey = `${nowDate.getFullYear()}-${String(nowDate.getMonth()+1).padStart(2,'0')}`;
+
+  for (let m = 0; m < forecastMonths.length; m++) {
+    const fm = forecastMonths[m];
+    const mS = fm.key + "-01";
+    const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+    const unitDays = {}; // unitId -> Set of booked day numbers (for occupancy)
+    const seenRidsOcc = new Set(); // dedup for occupancy
+    const seenRidsAll = new Set(); // dedup for arrivals/departures (ALL statuses)
+    const checkInRooms = new Set();
+    const checkOutRooms = new Set();
+
+    allGuestStays.forEach(g => {
+      const status = (g.status ?? "").toString().toUpperCase();
+      const stayFrom = (g.dateFrom ?? "").slice(0, 10);
+      const stayTo = (g.dateTo ?? "").slice(0, 10);
+      if (!stayFrom || !stayTo) return;
+      const totalDays = Math.round((new Date(stayTo) - new Date(stayFrom)) / 864e5);
+      if (totalDays < MIN_STAY_DAYS) return; // skip short stays
+
+      const rid = g.roomStayId ?? g.id;
+
+      // Check overlap with this month
+      if (stayFrom > mE || stayTo < mS) return;
+
+      // === ARRIVALS & DEPARTURES: count from ALL statuses ===
+      // (CHECKED_OUT stays still represent real arrivals/departures)
+      if (!seenRidsAll.has(rid)) {
+        seenRidsAll.add(rid);
+        if (stayFrom >= mS && stayFrom <= mE) checkInRooms.add(rid);
+        if (stayTo >= mS && stayTo <= mE) checkOutRooms.add(rid);
+      }
+
+      // === OCCUPANCY (booked days) ===
+      // Past months only: include CHECKED_OUT — those guests actually stayed.
+      // Current + future months: exclude CHECKED_OUT — only live/active bookings matter.
+      const isPastMonth = fm.key < todayKey;
+      if (isPastMonth) {
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
+      } else {
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+      }
+      if (seenRidsOcc.has(rid)) return;
+      seenRidsOcc.add(rid);
+
+      // Count booked NIGHTS per unit — checkout day excluded (nights basis,
+      // aligned with Lavanda short-stay counting)
+      const uid = g.unitId;
+      if (!unitDays[uid]) unitDays[uid] = new Set();
+      const overlapStart = new Date(Math.max(new Date(mS), new Date(stayFrom)));
+      const overlapEnd = new Date(Math.min(new Date(mE), new Date(stayTo).getTime() - 864e5));
+      for (let day = new Date(overlapStart); day <= overlapEnd; day.setDate(day.getDate() + 1)) {
+        unitDays[uid].add(localDateStr(day));
+      }
+    });
+
+    let totalBookedDays = 0;
+    Object.values(unitDays).forEach(daySet => totalBookedDays += daySet.size);
+    const totalBookableDays = BEDS * fm.daysInMonth;
+
+    forecastByRoom.push({
+      key: fm.key, label: fm.label, daysInMonth: fm.daysInMonth,
+      bookedDays: totalBookedDays,
+      totalBookableDays,
+      activeStays: Object.keys(unitDays).length, // unique units with active bookings
+      checkIns: checkInRooms.size,
+      checkOuts: checkOutRooms.size,
+      occupancyPct: Math.round((totalBookedDays / totalBookableDays) * 100),
+    });
+  }
+
+  // ── Room Type Data — days-based, deduplicated ──
+  const unitIdToRoomType = {};
+  const roomTypeCounts = {};
+  ROOM_TYPES.forEach(rt => roomTypeCounts[rt] = 0);
+  allUnits.forEach(u => {
+    const rt = baseRoomType(u.unitTypeName);
+    if (rt && ROOM_TYPES.includes(rt)) {
+      unitIdToRoomType[u.id] = rt;
+      roomTypeCounts[rt]++;
+    }
+  });
+
+  const roomTypeData = {};
+  ROOM_TYPES.forEach(rt => {
+    roomTypeData[rt] = { totalUnits: roomTypeCounts[rt], months: [], awr: 0 };
+    for (let m = 0; m < FORECAST_MONTHS; m++) {
+      roomTypeData[rt].months.push({ bookedDays: 0, totalDays: roomTypeCounts[rt] * forecastMonths[m].daysInMonth, booked: 0, available: 0 });
+    }
+  });
+
+  // Count booked days per room type per month (deduplicated by unit+day)
+  const rtUnitDays = {}; // "rt|month|unitId" -> Set of day strings
+  const seenRidsRT = new Set();
+  allGuestStays.forEach(g => {
+    const status = (g.status ?? "").toString().toUpperCase();
+    const rid = g.roomStayId ?? g.id;
+    if (seenRidsRT.has(rid)) return;
+    seenRidsRT.add(rid);
+
+    const uid = g.unitId;
+    const rt = unitIdToRoomType[uid];
+    if (!rt) return;
+    const stayFrom = (g.dateFrom ?? "").slice(0, 10);
+    const stayTo = (g.dateTo ?? "").slice(0, 10);
+    if (!stayFrom || !stayTo) return;
+    const totalDays = Math.round((new Date(stayTo) - new Date(stayFrom)) / 864e5);
+    if (totalDays < MIN_STAY_DAYS) return;
+
+    forecastMonths.forEach((fm, mi) => {
+      const mS = fm.key + "-01";
+      const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+      if (stayFrom > mE || stayTo < mS) return;
+      // Past months only: include CHECKED_OUT for accurate historical data
+      // Current + future: only live bookings
+      const isPastRT = fm.key < todayKey;
+      if (isPastRT) {
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
+      } else {
+        if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(status)) return;
+      }
+
+      const mapKey = `${rt}|${mi}|${uid}`;
+      if (!rtUnitDays[mapKey]) rtUnitDays[mapKey] = new Set();
+      const overlapStart = new Date(Math.max(new Date(mS), new Date(stayFrom)));
+      const overlapEnd = new Date(Math.min(new Date(mE), new Date(stayTo)));
+      for (let day = new Date(overlapStart); day <= overlapEnd; day.setDate(day.getDate() + 1)) {
+        rtUnitDays[mapKey].add(localDateStr(day));
+      }
+    });
+  });
+
+  // Aggregate days into roomTypeData
+  Object.entries(rtUnitDays).forEach(([key, daySet]) => {
+    const [rt, miStr] = key.split("|");
+    const mi = parseInt(miStr);
+    roomTypeData[rt].months[mi].bookedDays += daySet.size;
+  });
+
+  // Calculate booked units and available (for backward compat with existing UI)
+  ROOM_TYPES.forEach(rt => {
+    forecastMonths.forEach((fm, mi) => {
+      const md = roomTypeData[rt].months[mi];
+      const totalDaysForType = roomTypeCounts[rt] * fm.daysInMonth;
+      md.totalDays = totalDaysForType;
+      // "booked" as count of equivalent full-month units
+      md.booked = totalDaysForType > 0 ? Math.round((md.bookedDays / totalDaysForType) * roomTypeCounts[rt]) : 0;
+      md.available = Math.max(0, roomTypeCounts[rt] - md.booked);
+      md.occupancyPct = totalDaysForType > 0 ? Math.round((md.bookedDays / totalDaysForType) * 100) : 0;
+    });
+  });
+
+  // ── AWR — only 28+ day bookings, use b.unit.id for room type matching ──
+  // Compute both net (ex-VAT) and gross (inc-VAT) AWR
+  const awrByType = {};
+  ROOM_TYPES.forEach(rt => awrByType[rt] = { sumNet: 0, sumGross: 0, count: 0 });
+  let globalAwrSumNet = 0, globalAwrSumGross = 0, globalAwrCount = 0;
+
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    if (!["CHECKED_IN", "CONFIRMED"].includes(status)) return;
+    const from = (b.startDate ?? "").slice(0,10);
+    const to = (b.endDate ?? "").slice(0,10);
+    if (!from || !to) return;
+    const days = Math.round((new Date(to) - new Date(from)) / 864e5);
+    if (days < MIN_STAY_DAYS) return; // only long-term stays
+    const net = parseFloat(b.netAmount ?? 0);
+    const vat = parseFloat(b.vatAmount ?? 0);
+    const gross = net + (isNaN(vat) ? 0 : vat);
+    if (isNaN(net) || net <= 0) return;
+    const weeklyNet = (net / days) * 7;
+    const weeklyGross = (gross / days) * 7;
+    if (weeklyNet <= 0 || weeklyNet > 5000) return; // sanity
+
+    globalAwrSumNet += weeklyNet;
+    globalAwrSumGross += weeklyGross;
+    globalAwrCount++;
+
+    // Match to room type via b.unit.id (bookings use unit object, not unitId)
+    const uid = b.unit?.id ?? b.unitId;
+    const rt = unitIdToRoomType[uid];
+    if (rt) {
+      awrByType[rt].sumNet += weeklyNet;
+      awrByType[rt].sumGross += weeklyGross;
+      awrByType[rt].count++;
+    }
+  });
+
+  ROOM_TYPES.forEach(rt => {
+    roomTypeData[rt].awr = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sumNet / awrByType[rt].count) : 0;
+    roomTypeData[rt].awrGross = awrByType[rt].count > 0 ? Math.round(awrByType[rt].sumGross / awrByType[rt].count) : 0;
+  });
+
+  const globalAwr = globalAwrCount > 0 ? Math.round(globalAwrSumNet / globalAwrCount) : 0;
+  const globalAwrGross = globalAwrCount > 0 ? Math.round(globalAwrSumGross / globalAwrCount) : 0;
+
+  // ── Per-month AWR — average weekly rate of qualifying bookings active in each month ──
+  forecastByRoom.forEach(fm => {
+    const mS = fm.key + "-01";
+    const mE = fm.key + "-" + String(fm.daysInMonth).padStart(2, "0");
+    let sG = 0, sN = 0, n = 0;
+    allBookings.forEach(b => {
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (!["CHECKED_IN", "CONFIRMED"].includes(status)) return;
+      const from = (b.startDate ?? "").slice(0,10);
+      const to = (b.endDate ?? "").slice(0,10);
+      if (!from || !to) return;
+      const days = Math.round((new Date(to) - new Date(from)) / 864e5);
+      if (days < MIN_STAY_DAYS) return;
+      if (from > mE || to <= mS) return; // nights overlap with month
+      const net = parseFloat(b.netAmount ?? 0);
+      const vat = parseFloat(b.vatAmount ?? 0);
+      if (isNaN(net) || net <= 0) return;
+      const wN = net / days * 7, wG = (net + (isNaN(vat) ? 0 : vat)) / days * 7;
+      if (wN <= 0 || wN > 5000) return;
+      sN += wN; sG += wG; n++;
+    });
+    fm.awrGross = n > 0 ? Math.round(sG / n) : globalAwrGross;
+    fm.awrNet = n > 0 ? Math.round(sN / n) : globalAwr;
+    fm.awrCount = n;
+  });
+
+  // ─── Length-of-stay distribution (from last 12 months of bookings) ───
+  // Bucket: <=31d, 31-91d, 92-181d, 365+d. Bookings that fall 182-364d
+  // (between long and annual) are split proportionally so buckets sum to 100%.
+  // Renewals and room-moves are excluded — they aren't independent "new" stays.
+  const losCutoff = new Date(now);
+  losCutoff.setMonth(losCutoff.getMonth() - 12);
+  const losCutoffStr = localDateStr(losCutoff);
+
+  const losBuckets = {
+    short:  { label: "≤27 days",     min: 0,   max: 27,   count: 0, sumDays: 0 },
+    medium: { label: "28–91 days",   min: 28,  max: 91,   count: 0, sumDays: 0 },
+    long:   { label: "92–181 days",  min: 92,  max: 181,  count: 0, sumDays: 0 },
+    annual: { label: "182+ days",    min: 182, max: 9999, count: 0, sumDays: 0 },
+  };
+
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    // Count both completed (CHECKED_OUT) and in-progress (CHECKED_IN / CONFIRMED) so
+    // recent data is represented. This measures the *intended* length of stay.
+    if (!["CHECKED_OUT", "CHECKED_IN", "CONFIRMED"].includes(status)) return;
+    const from = (b.startDate ?? "").slice(0,10);
+    const to = (b.endDate ?? "").slice(0,10);
+    if (!from || !to || from < losCutoffStr) return;
+    // Exclude renewals / room moves — they're chained, not fresh stays
+    const rid = b.roomStayId;
+    if (rid && (renewalRoomStays.has(rid) || roomMoveRoomStays.has(rid))) return;
+    const days = Math.round((new Date(to) - new Date(from)) / 864e5);
+    if (days < 1) return;
+    // Exclude very short desk / hot-room bookings
+    if (days < 1) return;
+    let bucket;
+    if (days <= 27) bucket = losBuckets.short;
+    else if (days <= 91) bucket = losBuckets.medium;
+    else if (days <= 181) bucket = losBuckets.long;
+    else bucket = losBuckets.annual;
+    bucket.count++;
+    bucket.sumDays += days;
+  });
+
+  const totalLosCount = Object.values(losBuckets).reduce((s,b)=>s+b.count, 0);
+  const losDistribution = Object.fromEntries(
+    Object.entries(losBuckets).map(([k,b]) => [k, {
+      label: b.label,
+      count: b.count,
+      share: totalLosCount > 0 ? b.count / totalLosCount : 0,
+      avgDays: b.count > 0 ? Math.round(b.sumDays / b.count) : 0,
+    }])
+  );
+  losDistribution.total = totalLosCount;
+  losDistribution.cutoff = losCutoffStr;
+
+  // ─── AWR by status (28+ day bookings only) — net AND gross ─────────────────
+  const awrByStatus = {
+    inHouse:  { sumNet: 0, sumGross: 0, count: 0, awr: 0, awrGross: 0 },
+    upcoming: { sumNet: 0, sumGross: 0, count: 0, awr: 0, awrGross: 0 },
+    all:      { sumNet: 0, sumGross: 0, count: 0, awr: 0, awrGross: 0 },
+  };
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    let group;
+    if (status === "CHECKED_IN") group = awrByStatus.inHouse;
+    else if (status === "CONFIRMED" || status === "PENDING") group = awrByStatus.upcoming;
+    else return;
+    const fromD = (b.startDate ?? "").slice(0, 10);
+    const toD   = (b.endDate ?? "").slice(0, 10);
+    if (!fromD || !toD) return;
+    const days = Math.round((new Date(toD) - new Date(fromD)) / 864e5);
+    if (days < MIN_STAY_DAYS) return;
+    const net = parseFloat(b.netAmount ?? 0);
+    const vat = parseFloat(b.vatAmount ?? 0);
+    if (isNaN(net) || net <= 0) return;
+    const gross = net + (isNaN(vat) ? 0 : vat);
+    const weeklyNet = (net / days) * 7;
+    const weeklyGross = (gross / days) * 7;
+    if (weeklyNet <= 0 || weeklyNet > 5000) return;
+    group.sumNet += weeklyNet;
+    group.sumGross += weeklyGross;
+    group.count++;
+    awrByStatus.all.sumNet += weeklyNet;
+    awrByStatus.all.sumGross += weeklyGross;
+    awrByStatus.all.count++;
+  });
+  for (const g of [awrByStatus.inHouse, awrByStatus.upcoming, awrByStatus.all]) {
+    g.awr = g.count > 0 ? Math.round(g.sumNet / g.count) : 0;
+    g.awrGross = g.count > 0 ? Math.round(g.sumGross / g.count) : 0;
+  }
+
+  // ─── Live LoS breakdown by booking status ──────────────────────────────────
+  // Two groups: "inHouse" (CHECKED_IN) and "upcoming" (CONFIRMED + PENDING).
+  // Bands come from the shared LOS_BANDS definition (28-night boundary).
+  const makeEmpty = () => LOS_BANDS.reduce((o, b) => { o[b.key] = 0; return o; }, {});
+  const losByStatus = {
+    inHouse:  { counts: makeEmpty(), total: 0 },
+    upcoming: { counts: makeEmpty(), total: 0 },
+    bands: LOS_BANDS,
+  };
+  // Only count actual bedrooms — parking spaces, bikes and communal areas are
+  // bookable units in RH but are not stays and must not inflate the LoS mix.
+  const roomUnitIds = new Set(
+    allUnits.filter(u => /^Room:/i.test((u.unitName || "").trim())).map(u => u.id)
+  );
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    let group;
+    if (status === "CHECKED_IN") group = losByStatus.inHouse;
+    else if (status === "CONFIRMED" || status === "PENDING") group = losByStatus.upcoming;
+    else return;
+    const uid = b.unit?.id ?? b.unitId;
+    if (roomUnitIds.size > 0 && !roomUnitIds.has(uid)) return; // skip parking/bike/communal
+    const fromD = (b.startDate ?? "").slice(0, 10);
+    const toD   = (b.endDate ?? "").slice(0, 10);
+    if (!fromD || !toD) return;
+    const days = Math.round((new Date(toD) - new Date(fromD)) / 864e5);
+    if (days < 1) return;
+    const band = LOS_BANDS.find(bd => days >= bd.min && days <= bd.max);
+    if (band) { group.counts[band.key]++; group.total++; }
+  });
+
+  // ─── Renewals data — group active bookings by contract end month ───────────
+  // Detect renewals: same contact has ANY stay starting within 14 days of current end
+  // NOTE: must check all pairs, not just adjacent — long stays with intermediate short
+  // stays break adjacent-only comparison (e.g. a 12-month stay with 1-day event stays)
+  // Track the STATUS of the follow-on stay so we can distinguish:
+  //   CONFIRMED/CHECKED_IN = truly renewed (signed)
+  //   PENDING = contract on account but not yet signed
+  const renewalFollowOnStatus = {}; // roomStayId → best follow-on status
+  const renewalFollowOnRoomStayId = {}; // roomStayId → follow-on roomStayId (for financials)
+  Object.values(contactStays).forEach(stays => {
+    if (stays.length < 2) return;
+    for (let i = 0; i < stays.length; i++) {
+      const endMs = new Date(stays[i].dateTo).getTime();
+      for (let j = 0; j < stays.length; j++) {
+        if (j === i) continue;
+        const gap = (new Date(stays[j].dateFrom).getTime() - endMs) / 864e5;
+        // Allow up to 30 days of overlap (room moves / mid-stay extensions can have large overlaps)
+        if (gap >= -30 && gap <= 14) {
+          const followStatus = (stays[j].status || "").toUpperCase();
+          const prev = renewalFollowOnStatus[stays[i].roomStayId];
+          // Prefer CHECKED_OUT/CHECKED_IN (proven) > CONFIRMED (signed) > PENDING
+          const rank = {"CHECKED_OUT":3,"CHECKED_IN":3,"CONFIRMED":2,"PENDING":1};
+          if (!prev || (rank[followStatus]||0) > (rank[prev]||0)) {
+            renewalFollowOnStatus[stays[i].roomStayId] = followStatus;
+            renewalFollowOnRoomStayId[stays[i].roomStayId] = stays[j].roomStayId;
+          }
+        }
+      }
+    }
+  });
+  const renewedRoomStayIds = new Set(Object.keys(renewalFollowOnStatus).map(Number));
+
+  // Build a lookup of roomStayId → booking financials for follow-on rate display
+  const bookingByRoomStayId = {};
+  allBookings.forEach(b => {
+    if (b.roomStayId) bookingByRoomStayId[b.roomStayId] = b;
+  });
+
+  // ─── Build consecutive stay chains per contact ─────────────────────────────
+  // Chain = sequence of stays where gap between end→start is ≤ 14 days.
+  // If a chain's cumulative days ≥ 27, ALL stays in that chain qualify for the
+  // renewals board — even individually short extensions (e.g. 14d, 9d, 1d).
+  // Any stay that follows a prior stay in the chain is marked as an extension/renewal.
+  const chainCumulDays = {}; // roomStayId → cumulative days of its chain
+  const chainMaxSingleStay = {}; // roomStayId → longest individual stay (days) in its chain
+  const chainStayCount = {}; // roomStayId → number of stays in its chain
+  const isChainExtension = {}; // roomStayId → true if this stay follows a prior in its chain
+  {
+    // Group bookings by contact
+    const byContact = {};
+    allBookings.forEach(b => {
+      const cid = b.contactId || b.bookingContact?.id;
+      if (!cid) return;
+      const start = (b.startDate ?? "").slice(0, 10);
+      const end = (b.endDate ?? "").slice(0, 10);
+      if (!start || !end) return;
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
+      if (!byContact[cid]) byContact[cid] = [];
+      byContact[cid].push({ rsid: b.roomStayId, start, end, days: Math.round((new Date(end) - new Date(start)) / 864e5) });
+    });
+    // For each contact, sort stays by start date and build chains
+    Object.values(byContact).forEach(stays => {
+      stays.sort((a, b) => a.start.localeCompare(b.start));
+      // Build chains: a stay joins the current chain if it starts within 14 days of the previous stay's end
+      let chains = [];
+      let current = [stays[0]];
+      for (let i = 1; i < stays.length; i++) {
+        const prevEnd = new Date(current[current.length - 1].end).getTime();
+        const gap = (new Date(stays[i].start).getTime() - prevEnd) / 864e5;
+        if (gap >= -30 && gap <= 14) {
+          current.push(stays[i]);
+        } else {
+          chains.push(current);
+          current = [stays[i]];
+        }
+      }
+      chains.push(current);
+      // Calculate cumulative days for each chain and mark extensions
+      for (const chain of chains) {
+        const totalDays = chain.reduce((s, c) => s + c.days, 0);
+        const maxSingle = Math.max(...chain.map(c => c.days));
+        chain.forEach((c, idx) => {
+          chainCumulDays[c.rsid] = totalDays;
+          chainMaxSingleStay[c.rsid] = maxSingle;
+          chainStayCount[c.rsid] = chain.length;
+          if (idx > 0) isChainExtension[c.rsid] = true;
+        });
+      }
+    });
+  }
+
+  const renewalsMap = {};
+  const todayStr = localDateStr(now);
+  allBookings.forEach(b => {
+    const status = (b.roomStayStatus ?? "").toUpperCase();
+    const endDate = (b.endDate ?? "").slice(0, 10);
+    if (!endDate) return;
+    const isPast = endDate < todayStr;
+    // Include CHECKED_OUT for ALL dates — covers early checkouts (contract end in future
+    // but guest already departed). Without this, early checkouts vanish from the renewals board.
+    if (!["CHECKED_IN", "CONFIRMED", "PENDING", "CHECKED_OUT"].includes(status)) return;
+    const startDate = (b.startDate ?? "").slice(0, 10);
+    if (!startDate) return;
+    const days = Math.round((new Date(endDate) - new Date(startDate)) / 864e5);
+    // Use cumulative chain days for the 27-day threshold — if a contact's consecutive
+    // stays total 27+ days, include ALL stays in that chain (even short extensions)
+    const cumulDays = chainCumulDays[b.roomStayId] || days;
+    if (cumulDays < 27) return;
+
+    // ─── EXCLUSION FILTERS (align dashboard with manual tracker) ─────────────
+    // 1. Non-residential units: parking, bike storage, corridors etc.
+    const unitRoomType = unitIdToRoomType[b.unit?.id];
+    if (!unitRoomType) return; // null = excluded unit type (parking, bike, corridor, etc.)
+
+    // 2. £0 stays: staff/internal rooms (e.g. Manan Maqsood, Paul Gillingham)
+    const netAmt = parseFloat(b.netAmount ?? 0);
+    const vatAmt = parseFloat(b.vatAmount ?? 0);
+    const grossAmt = netAmt + (isNaN(vatAmt) ? 0 : vatAmt);
+    if (grossAmt <= 0) return; // skip £0 PCM / staff rooms
+
+    // 3. Short-stay / nightly-rate guests: chains of multiple short bookings where
+    //    no single stay reaches 28 days. These are transient guests, not standard
+    //    residential contracts (e.g. Cody Moir, Callum Webber, Joseph Levi Ryan).
+    const maxSingle = chainMaxSingleStay[b.roomStayId] || days;
+    const stayCount = chainStayCount[b.roomStayId] || 1;
+    if (stayCount >= 2 && maxSingle < 28) return; // multiple short stays chained = nightly/short-stay pattern
+
+    // 4. Very short stays in multi-stay chains: if this stay is ≤ 3 days AND part of
+    //    a chain with 2+ stays, it's a trial/bridge/gap-fill — not a real renewal
+    //    decision. Applies to any position in the chain (first or follow-on).
+    //    The actual renewal decision is on the longer stay(s) in the chain.
+    if (days <= 3 && stayCount >= 2) return;
+
+    const monthKey = endDate.slice(0, 7);
+    if (!renewalsMap[monthKey]) renewalsMap[monthKey] = [];
+    const gross = grossAmt; // reuse from filter calculation above
+    // Reverse RH daily-rate formula: PCM = (gross / days) × (365/12)
+    // RH stores totalAmount = dailyRate × days, where dailyRate = monthlyRate × 12/365
+    const daysUntilExpiry = Math.round((new Date(endDate) - now) / 864e5);
+    const followOnStatus = renewalFollowOnStatus[b.roomStayId] || null;
+    // Renewed = follow-on is CONFIRMED, CHECKED_IN, or CHECKED_OUT
+    // (any confirmed/active/completed follow-on means the resident has renewed)
+    const isRenewed = followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT" || followOnStatus === "CONFIRMED";
+    // Pending = only via manual pendingSet (for cases where RH API doesn't expose the pending stay)
+    const isPendingRenewal = followOnStatus === "PENDING";
+    // Is this stay itself an extension/renewal of a prior stay in the chain?
+    const isExtension = !!isChainExtension[b.roomStayId];
+    // Auto-mark as expired/leaving if:
+    // - end date has passed and no follow-on, OR
+    // - guest already CHECKED_OUT (early checkout) and no follow-on
+    const isEarlyCheckout = status === "CHECKED_OUT" && !isPast;
+    const expired = (isPast || isEarlyCheckout) && !isRenewed && !isPendingRenewal;
+
+    // Calculate follow-on stay's PCM rate and dates when available
+    let renewalPcm = null, renewalRateType = null, renewalTrueRate = null;
+    let followOnStart = null, followOnEnd = null, followOnLosDays = 0;
+    const followOnRsId = renewalFollowOnRoomStayId[b.roomStayId];
+    if (followOnRsId && bookingByRoomStayId[followOnRsId]) {
+      const fb = bookingByRoomStayId[followOnRsId];
+      const fNet = parseFloat(fb.netAmount ?? 0);
+      const fVat = parseFloat(fb.vatAmount ?? 0);
+      const fGross = fNet + (isNaN(fVat) ? 0 : fVat);
+      const fStart = (fb.startDate ?? "").slice(0, 10);
+      const fEnd = (fb.endDate ?? "").slice(0, 10);
+      const fDays = Math.round((new Date(fEnd) - new Date(fStart)) / 864e5);
+      followOnStart = fStart;
+      followOnEnd = fEnd;
+      followOnLosDays = fDays > 0 ? fDays : 0;
+      // True contracted rate from RH where available, else derived (never snapped)
+      renewalPcm = pcmGrossFor(fb, fGross, fDays);
+      renewalRateType = fb._rateType ?? null;
+      renewalTrueRate = fb._trueRatePcm ?? null;
+    }
+
+    renewalsMap[monthKey].push({
+      bookingId: b.bookingId,
+      bookingReference: b.bookingReference,
+      customerReference: b.customerReference || "",
+      roomStayId: b.roomStayId,
+      contactId: b.contactId || b.bookingContact?.id,
+      name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+      email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
+      phone: b.bookingContact?.mobileNumber || b.bookingContact?.phoneNumber || "",
+      startDate, endDate, losDays: days, cumulDays: cumulDays,
+      room: b.unit?.name || "—",
+      roomType: unitRoomType, // already validated non-null above
+      status, pcm: pcmGrossFor(b, gross, days),
+      rateType: b._rateType ?? null, trueRate: b._trueRatePcm ?? null,
+      renewalPcm, renewalRateType, renewalTrueRate, // follow-on stay (null if none)
+      grossTotal: Math.round(gross),
+      isRenewed,
+      isPendingRenewal,
+      isExtension, // true = this stay is a follow-on/extension in a consecutive chain
+      followOnStatus,
+      followOnStart, followOnEnd, followOnLosDays, // follow-on stay dates & length
+      daysUntilExpiry,
+      critical: daysUntilExpiry >= 0 && daysUntilExpiry <= 14 && !isRenewed && !isPendingRenewal,
+      expired, // true = contract ended without any follow-on → auto-leaving
+    });
+  });
+  // Deduplicate: if the same contact has multiple stays ending in the same month
+  // (chain extensions / room moves), keep only the latest-ending stay.
+  // Earlier stays in the chain are intermediate — not separate renewal decisions.
+  Object.keys(renewalsMap).forEach(monthKey => {
+    const arr = renewalsMap[monthKey];
+    const byContact = {};
+    arr.forEach(e => {
+      const cid = e.contactId;
+      if (!cid) { byContact[e.roomStayId] = e; return; } // no contact → keep as-is
+      if (!byContact[cid] || e.endDate > byContact[cid].endDate) {
+        byContact[cid] = e; // keep latest-ending stay per contact
+      }
+    });
+    renewalsMap[monthKey] = Object.values(byContact);
+  });
+  Object.values(renewalsMap).forEach(arr => arr.sort((a, b) => a.endDate.localeCompare(b.endDate)));
+
+  // Build months from last month through 12 months ahead (earlier months are
+  // not in Lavanda — tenancies that ended before the October 2026 migration
+  // were never carried over)
+  const renewalMonths = [];
+  const janStart = -1;
+  const totalMonths = 14;
+  for (let m = janStart; m < janStart + totalMonths; m++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    const entries = renewalsMap[key] || [];
+    renewalMonths.push({
+      key, label, entries,
+      notRenewed: entries.filter(e => !e.isRenewed && !e.expired),
+      renewed: entries.filter(e => e.isRenewed),
+      critical: entries.filter(e => e.critical && !e.isRenewed && !e.expired),
+      autoLeaving: entries.filter(e => e.expired),
+      total: entries.length,
+    });
+  }
+
+  // ─── Weekly Renewals Activity ──────────────────────────────────────────────
+  // Two sources of renewal events:
+  // 1. Follow-on bookings detected via renewalFollowOnRoomStayId (chain matching)
+  // 2. ALL pending bookings for contacts that have a current CHECKED_IN stay
+  //    (catches pending renewals that chain-matching misses)
+  // Creation date is parsed from bookingReference (YYYYMMDD-NNNNN format).
+  const weeklyRenewals = (() => {
+    const parseCreated = (ref, b) => {
+      if (b?.created) return b.created.slice(0,10);
+      if (!ref || ref.length < 8 || !/^\d{8}-/.test(ref)) return null;
+      return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+      };
+    const getWeekMonday = (dateStr) => {
+      const d = new Date(dateStr);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const mon = new Date(d);
+      mon.setDate(diff);
+      return localDateStr(mon);
+    };
+    // Track which roomStayIds we've already added to avoid duplicates
+    const seenFollowOnRsIds = new Set();
+
+    // Source 1: follow-on bookings from chain matching
+    const renewalEvents = [];
+    Object.entries(renewalFollowOnRoomStayId).forEach(([expiringRsId, followOnRsId]) => {
+      const followOnBooking = bookingByRoomStayId[followOnRsId];
+      if (!followOnBooking) return;
+      const created = parseCreated(followOnBooking.bookingReference, followOnBooking);
+      if (!created) return;
+      const followOnStatus = (followOnBooking.roomStayStatus ?? "").toUpperCase();
+      if (!["PENDING","CONFIRMED","CHECKED_IN","CHECKED_OUT"].includes(followOnStatus)) return;
+      const expiringBooking = bookingByRoomStayId[Number(expiringRsId)];
+      if (!expiringBooking) return;
+      const bld = (expiringBooking.unit?.buildingName || followOnBooking.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) return;
+      const effectiveStatus = (followOnStatus === "CHECKED_IN" || followOnStatus === "CHECKED_OUT") ? "CONFIRMED" : followOnStatus;
+      seenFollowOnRsIds.add(followOnRsId);
+      renewalEvents.push({
+        created,
+        weekMonday: getWeekMonday(created),
+        status: effectiveStatus,
+        name: `${followOnBooking.bookingContact?.firstName || ""} ${followOnBooking.bookingContact?.lastName || ""}`.trim(),
+        bookingRef: followOnBooking.bookingReference,
+        expiringRef: expiringBooking.bookingReference,
+        room: followOnBooking.unit?.name || expiringBooking.unit?.name || "—",
+        followOnStart: (followOnBooking.startDate ?? "").slice(0,10),
+        followOnEnd: (followOnBooking.endDate ?? "").slice(0,10),
+      });
+    });
+
+    // Source 2: ALL pending bookings for in-house contacts (not already captured above)
+    // This catches pending renewals that chain-matching misses (e.g. gap > 14 days,
+    // or booking created before the prior stay existed in the system)
+    const checkedInContactIds = new Set();
+    allBookings.forEach(b => {
+      if ((b.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN") {
+        const cid = b.contactId || b.bookingContact?.id;
+        if (cid) checkedInContactIds.add(cid);
+      }
+    });
+    allBookings.forEach(b => {
+      if (seenFollowOnRsIds.has(b.roomStayId)) return; // already captured via chain matching
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (status !== "PENDING") return;
+      const cid = b.contactId || b.bookingContact?.id;
+      if (!cid || !checkedInContactIds.has(cid)) return; // only for in-house contacts
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) return;
+      const created = parseCreated(b.bookingReference, b);
+      if (!created) return;
+      // Find the contact's current checked-in booking as the "expiring" reference
+      const currentStay = allBookings.find(cb =>
+        (cb.contactId || cb.bookingContact?.id) === cid &&
+        (cb.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN" &&
+        (cb.unit?.buildingName || "").toLowerCase().includes("southall")
+      );
+      renewalEvents.push({
+        created,
+        weekMonday: getWeekMonday(created),
+        status: "PENDING",
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        bookingRef: b.bookingReference,
+        expiringRef: currentStay?.bookingReference || "—",
+        room: b.unit?.name || currentStay?.unit?.name || "—",
+        followOnStart: (b.startDate ?? "").slice(0,10),
+        followOnEnd: (b.endDate ?? "").slice(0,10),
+      });
+    });
+
+    // Group by week
+    const byWeek = {};
+    for (const ev of renewalEvents) {
+      if (!byWeek[ev.weekMonday]) byWeek[ev.weekMonday] = [];
+      byWeek[ev.weekMonday].push(ev);
+    }
+    const weekKeys = Object.keys(byWeek).sort().slice(-12);
+    return weekKeys.map(wk => {
+      const events = byWeek[wk];
+      const wkEnd = new Date(wk);
+      wkEnd.setDate(wkEnd.getDate() + 6);
+      return {
+        weekMonday: wk,
+        weekLabel: `${new Date(wk).toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – ${wkEnd.toLocaleDateString("en-GB",{day:"numeric",month:"short"})}`,
+        events,
+        total: events.length,
+        confirmed: events.filter(e => e.status === "CONFIRMED").length,
+        pending: events.filter(e => e.status === "PENDING").length,
+      };
+    });
+  })();
+
+  // ─── All Current Pending Renewals (unfiltered snapshot) ────────────────────
+  // For the Renewal Activity tracker: show ALL pending bookings for in-house
+  // contacts regardless of creation date. This is a "current state" metric.
+  const pendingRenewals = (() => {
+    const ciContactIds = new Set();
+    allBookings.forEach(b => {
+      if ((b.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN") {
+        const cid = b.contactId || b.bookingContact?.id;
+        if (cid) ciContactIds.add(cid);
+      }
+    });
+    const results = [];
+    allBookings.forEach(b => {
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (status !== "PENDING") return;
+      const cid = b.contactId || b.bookingContact?.id;
+      if (!cid || !ciContactIds.has(cid)) return;
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) return;
+      const parseCreated = (ref, b) => {
+        if (b?.created) return b.created.slice(0,10);
+        if (!ref || ref.length < 8 || !/^\d{8}-/.test(ref)) return null;
+        return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+        };
+      const currentStay = allBookings.find(cb =>
+        (cb.contactId || cb.bookingContact?.id) === cid &&
+        (cb.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN" &&
+        (cb.unit?.buildingName || "").toLowerCase().includes("southall")
+      );
+      results.push({
+        created: parseCreated(b.bookingReference, b) || "—",
+        status: "PENDING",
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
+        bookingRef: b.bookingReference,
+        roomStayId: b.roomStayId,
+        expiringRef: currentStay?.bookingReference || "—",
+        room: b.unit?.name || currentStay?.unit?.name || "—",
+        followOnStart: (b.startDate ?? "").slice(0,10),
+        followOnEnd: (b.endDate ?? "").slice(0,10),
+        netAmount: b.netAmount ?? 0,
+        vatAmount: b.vatAmount ?? 0,
+        // These will be enriched after individual roomStay fetch:
+        conversionDate: null, confirmedDate: null, contractSignedDate: null,
+        _rateType: b._rateType ?? null, _trueRatePcm: b._trueRatePcm ?? null,
+      });
+    });
+    return results;
+  })();
+
+  // ─── All Current Confirmed Renewals (unfiltered snapshot) ──────────────────
+  const confirmedRenewals = (() => {
+    const ciContactIds = new Set();
+    allBookings.forEach(b => {
+      if ((b.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN") {
+        const cid = b.contactId || b.bookingContact?.id;
+        if (cid) ciContactIds.add(cid);
+      }
+    });
+    const results = [];
+    allBookings.forEach(b => {
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (status !== "CONFIRMED") return;
+      const cid = b.contactId || b.bookingContact?.id;
+      if (!cid || !ciContactIds.has(cid)) return;
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) return;
+      const parseCreated = (ref, b) => {
+        if (b?.created) return b.created.slice(0,10);
+        if (!ref || ref.length < 8 || !/^\d{8}-/.test(ref)) return null;
+        return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+        };
+      const currentStay = allBookings.find(cb =>
+        (cb.contactId || cb.bookingContact?.id) === cid &&
+        (cb.roomStayStatus ?? "").toUpperCase() === "CHECKED_IN" &&
+        (cb.unit?.buildingName || "").toLowerCase().includes("southall")
+      );
+      results.push({
+        created: parseCreated(b.bookingReference, b) || "—",
+        status: "CONFIRMED",
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
+        bookingRef: b.bookingReference,
+        roomStayId: b.roomStayId,
+        expiringRef: currentStay?.bookingReference || "—",
+        room: b.unit?.name || currentStay?.unit?.name || "—",
+        followOnStart: (b.startDate ?? "").slice(0,10),
+        followOnEnd: (b.endDate ?? "").slice(0,10),
+        netAmount: b.netAmount ?? 0,
+        vatAmount: b.vatAmount ?? 0,
+        // These will be enriched after individual roomStay fetch:
+        conversionDate: null, confirmedDate: null, contractSignedDate: null,
+        _rateType: b._rateType ?? null, _trueRatePcm: b._trueRatePcm ?? null,
+      });
+    });
+    return results;
+  })();
+
+  // RH official offline rooms: bookable === false, actual bedrooms only
+  const rhOfflineUnitsList = allUnits.filter(u => u.bookable === false && /^Room:/i.test((u.unitName || "").trim()));
+
+  return {
+    rhOfflineUnits: rhOfflineUnitsList.length,
+    rhOfflineList: rhOfflineUnitsList.map(u => `${(u.unitName||"").trim()} (${u.unitTypeName||""})`),
+    occupied: inHouseCount,
+    occupiedLongStay: checkedInUnitsLongStay.size,
+    occupiedShortBreak: inHouseCount - checkedInUnitsLongStay.size,
+    occupiedRoomNumbers,
+    inHouseGuests: inHouseGuestCount,
+    checkInsWeek,
+    checkOutsWeek,
+    total: allUnits.length || BEDS,
+    occupancyPct: Math.round(inHouseCount / BEDS * 100),
+    revenue: Math.round(monthlyRev),
+    weeklyRevenue: Math.round(weeklyRev),
+    forecast: forecastByRoom,
+    roomTypeData,
+    globalAwr,
+    globalAwrGross,
+    renewalCount: renewalRoomStays.size,
+    roomMoveCount: roomMoveRoomStays.size,
+    losDistribution,
+    losByStatus,
+    awrByStatus,
+    renewalMonths,
+    weeklyRenewals,
+    pendingRenewals,
+    confirmedRenewals,
+  };
+}
+
+// ─── GHL SETTINGS ─────────────────────────────────────────────────────────────
+const GHL_LOCATION = "PwquLuIhIjj0D80e6jLU";
+const GHL_PIPELINE = "Southall &Soul";
+const TAG_TOUR     = "tour booked";
+const STAGE_BOOKED = "booking confirmed";
+
+// ─── GHL API — routes through /api/ghl (server-side, no CORS issues) ──────────
+async function ghlGet(path) {
+  const res = await fetch(`/api/ghl?path=${encodeURIComponent(path)}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const msg  = data?.error ?? data?.message ?? data?.msg ?? JSON.stringify(data).slice(0,200) ?? `HTTP ${res.status}`;
+    if (res.status === 401) throw new Error("GHL 401: Invalid API key — check your environment variable.");
+    if (res.status === 403) throw new Error("GHL 403: Forbidden — key may not have access to this location.");
+    if (res.status === 422) throw new Error(`GHL 422: ${msg} — Path: ${path}`);
+    throw new Error(`GHL ${res.status}: ${msg}`);
+  }
+  return res.json();
+}
+
+async function fetchAllOpps(pipelineId, dateFrom, dateTo) {
+  let all=[], startAfter, startAfterId, safety=0;
+  while(safety < 20) {
+    const p = new URLSearchParams({
+      location_id: GHL_LOCATION,
+      pipeline_id: pipelineId,
+      limit: "100",
+    });
+    if (startAfter)   p.set("startAfter", startAfter);
+    if (startAfterId) p.set("startAfterId", startAfterId);
+    const res = await ghlGet(`/opportunities/search?${p}`);
+    const opps = res?.opportunities ?? res?.data ?? [];
+    all = all.concat(opps);
+    startAfter   = res?.meta?.startAfter   ?? res?.startAfter   ?? null;
+    startAfterId = res?.meta?.startAfterId ?? res?.startAfterId ?? null;
+    const total  = res?.meta?.total ?? res?.total ?? opps.length;
+    if (all.length >= total || opps.length === 0 || !startAfter) break;
+    safety++;
+  }
+  if (dateFrom || dateTo) {
+    all = all.filter(o => {
+      const created = (o.createdAt ?? o.dateAdded ?? o.created_at ?? "").slice(0,10);
+      const updated = (o.updatedAt ?? o.lastStatusChangeAt ?? o.updated_at ?? "").slice(0,10);
+      // Include if created OR updated/won within the date range
+      const createdInRange = created && (!dateFrom || created >= dateFrom) && (!dateTo || created <= dateTo);
+      const updatedInRange = updated && (!dateFrom || updated >= dateFrom) && (!dateTo || updated <= dateTo);
+      if (!created && !updated) return true;
+      return createdInRange || updatedInRange;
+    });
+  }
+  return all;
+}
+
+async function loadGHL(dateFrom, dateTo) {
+  const pRes = await ghlGet(`/opportunities/pipelines?locationId=${GHL_LOCATION}`);
+  const pipelines = pRes?.pipelines ?? pRes?.data ?? [];
+
+  const pipeline = pipelines.find(p => p.name?.trim() === GHL_PIPELINE)
+    ?? pipelines.find(p => p.name?.toLowerCase().includes("southall"));
+  if (!pipeline) throw new Error(
+    `Pipeline "${GHL_PIPELINE}" not found. Available: ${pipelines.map(p=>p.name).join(", ")||"none"}`
+  );
+
+  const stages = pipeline.stages ?? [];
+
+  const tourStage = stages.find(s => s.name?.trim().toLowerCase() === TAG_TOUR.toLowerCase())
+    ?? stages.find(s => s.name?.toLowerCase().includes("tour"));
+
+  const bookedStage = stages.find(s => s.name?.trim().toLowerCase() === STAGE_BOOKED.toLowerCase())
+    ?? stages.find(s => s.name?.toLowerCase().includes("booking confirmed"))
+    ?? stages.find(s => s.name?.toLowerCase().includes("booking"));
+
+  // Wide lookback pool — all opps in the past ~180 days before dateFrom,
+  // used for CAC email→channel attribution. UI metrics still use narrow window.
+  const lookbackFrom = (() => {
+    if (!dateFrom) return null;
+    const d = new Date(dateFrom);
+    if (isNaN(d)) return null;
+    d.setDate(d.getDate() - 180);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  const [opps, allOppsLookup] = await Promise.all([
+    fetchAllOpps(pipeline.id, dateFrom, dateTo),
+    lookbackFrom ? fetchAllOpps(pipeline.id, lookbackFrom, dateTo) : Promise.resolve(null),
+  ]);
+
+  // GHL tags live on contact.tags / relations[].tags, NOT on the opportunity directly
+  const getOppTags = (o) => {
+    const contactTags = o.contact?.tags ?? [];
+    const relationTags = (o.relations ?? []).flatMap(r => r.tags ?? []);
+    const oppTags = o.tags ?? [];
+    return [...contactTags, ...relationTags, ...oppTags];
+  };
+
+  const tours = opps.filter(o => {
+    const inTourStage = tourStage ? o.pipelineStageId === tourStage.id : false;
+    const hasTag = getOppTags(o).some(t => t.toLowerCase().trim() === TAG_TOUR.toLowerCase());
+    return inTourStage || hasTag;
+  });
+
+  const confirmed = opps.filter(o => {
+    const inBookedStage = bookedStage
+      ? o.pipelineStageId === bookedStage.id
+      : (o.pipelineStage?.name ?? o.stage?.name ?? "").toLowerCase().includes("booking");
+    const won = (o.status??"").toLowerCase() === "won";
+    return inBookedStage || won;
+  });
+
+  const confirmedValue = confirmed.reduce((s,o) => {
+    const v = parseFloat(o.monetaryValue ?? o.value ?? o.amount ?? 0);
+    return s + (isNaN(v) ? 0 : v);
+  }, 0);
+
+  return {
+    pipelineName:    pipeline.name,
+    stages:          stages.map(s=>({id:s.id,name:s.name})),
+    tourStageName:   tourStage?.name ?? null,
+    bookedStageName: bookedStage?.name ?? null,
+    toursBooked:     tours.length,
+    confirmed:       confirmed.length,
+    confirmedValue,
+    convRate:        tours.length > 0 ? Math.round(confirmed.length/tours.length*100) : null,
+    totalOpps:       opps.length,
+    allOpps:         opps,
+    allOppsLookup:   allOppsLookup || opps,
+  };
+}
+
+// ─── RES HARMONICS — routes through /api/rh (server-side, no CORS issues) ───
+// ─── EXCEL EXPORT HELPER ─────────────────────────────────────────────────────
+// Dynamically loads SheetJS from CDN and generates .xlsx file
+async function exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs, earlyTermSet) {
+  // Load SheetJS if not already loaded
+  if (!window.XLSX) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+  const XLSX = window.XLSX;
+
+  // Collect all renewed + pending entries across all months
+  const rows = [];
+  monthStats.forEach(m => {
+    const exportEntries = [...m.renewed, ...m.pendingRenewal];
+    exportEntries.forEach(e => {
+      const status = e.isRenewed ? "Renewed" : (e.isPendingRenewal || pendingSet.has(e.roomStayId)) ? "Pending" : "Not Started";
+      rows.push({
+        "Name": e.name || "—",
+        "Email": e.email || "—",
+        "Phone": e.phone || "—",
+        "Room": e.room || "—",
+        "Room Type": e.roomType || "—",
+        "Booking Ref": e.bookingReference || "—",
+        "Customer Ref": (customerRefs && customerRefs[e.roomStayId]) || e.customerReference || "—",
+        "Contract Start": e.startDate || "—",
+        "Contract End": e.endDate || "—",
+        "Days Until Expiry": e.daysUntilExpiry ?? "—",
+        "Current PCM (£)": e.pcm || 0,
+        "Renewal PCM (£)": e.renewalPcm ?? "—",
+        "Status": status,
+        "Renewal Month": m.label,
+        "Departure Reason": leavingReasons[e.roomStayId] || "—",
+        "Early Termination": (earlyTermSet && earlyTermSet.has(e.roomStayId)) ? "Yes" : "—",
+      });
+    });
+  });
+
+  if (rows.length === 0) {
+    alert("No renewed or pending entries to export.");
+    return;
+  }
+
+  // Create workbook
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Set column widths
+  ws["!cols"] = [
+    { wch: 22 }, // Name
+    { wch: 28 }, // Email
+    { wch: 16 }, // Phone
+    { wch: 14 }, // Room
+    { wch: 16 }, // Room Type
+    { wch: 18 }, // Booking Ref
+    { wch: 18 }, // Customer Ref
+    { wch: 14 }, // Contract Start
+    { wch: 14 }, // Contract End
+    { wch: 16 }, // Days Until Expiry
+    { wch: 14 }, // Current PCM
+    { wch: 14 }, // Renewal PCM
+    { wch: 12 }, // Status
+    { wch: 14 }, // Renewal Month
+    { wch: 22 }, // Departure Reason
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Renewals");
+  const today = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `AndSoul_Renewals_${today}.xlsx`);
+}
+
+
+
+// ─── TRUE CONTRACTED PCM ──────────────────────────────────────────────────────
+// Res Harmonics holds the real contracted rate on the roomStay DETAIL endpoint:
+//   rate.rateType    → "MONTHLY" | "DAILY"
+//   discountDailyRate→ the agreed (discounted) rate for that period — VAT-INCLUSIVE
+//   originalRate     → pre-discount rate for the same period
+// The list endpoint only carries netAmount/vatAmount, so bookings are enriched
+// with these fields on load (see enrichBookingsWithRates).
+//
+// Rates are NEVER snapped to a "standard" price list — snapping invented rates
+// that don't exist on the contract (e.g. a real £1,225 was displayed as £1,200).
+// Where a true rate is unavailable we fall back to the money-derived figure,
+// unrounded to any price list.
+function pcmGrossFor(b, gross, days) {
+  if (b && b._rateType === "MONTHLY" && b._trueRatePcm > 0) return Math.round(b._trueRatePcm);
+  return days > 0 ? Math.round((gross / days) * 365 / 12) : 0;
+}
+// VAT on long stays is reduced (observed 4–19% depending on stay length), so net
+// must be derived from each booking's own net/gross split — never gross ÷ 1.2.
+function pcmNetFor(b, net, gross, days) {
+  const g = pcmGrossFor(b, gross, days);
+  if (!g) return 0;
+  const ratio = gross > 0 ? net / gross : 1;
+  return Math.round(g * ratio);
+}
+
+// ─── LEAD SOURCE ATTRIBUTION (GHL methodology) ─────────────────────────────
+const SOURCE_COLORS = {
+  google_paid:"#4285f4", google_organic:"#34a853",
+  meta_paid:"#e09f3e", meta_organic:"#8b9a46",
+  spare_room:"#7b2d8e", student_platform:"#00b4d8",
+  word_of_mouth:"#6c9a8b", direct:"#888", direct_whatsapp:"#25d366",
+  referral:"#e07a5f", not_found:"#666", error:"#666",
+};
+const SOURCE_LABELS = {
+  google_paid:"Google", google_organic:"Google (Org)",
+  meta_paid:"Meta", meta_organic:"Meta (Org)",
+  spare_room:"SpareRoom", student_platform:"Student",
+  word_of_mouth:"WoM", direct:"Direct", direct_whatsapp:"WhatsApp",
+  referral:"Referral", not_found:"—", error:"?",
+};
+function classifyLeadSource(contact) {
+  const str = v => String(v ?? "").toLowerCase();
+  // Handle both GHL API response formats:
+  // - Search/list endpoint returns attributions[] array with utmGclid, utmSessionSource, etc.
+  // - Detail endpoint returns attributionSource + lastAttributionSource objects with gclid, sessionSource, etc.
+  let attrs = contact.attributions || [];
+  if (!attrs.length && (contact.attributionSource || contact.lastAttributionSource)) {
+    const convert = (a, touch) => ({
+      utmSessionSource: a.sessionSource, utmSource: a.utmSource, utmMedium: a.utmMedium,
+      utmGclid: a.gclid, gclid: a.gclid, gbraid: a.gbraid, wbraid: a.wbraid,
+      utmFbclid: a.fbclid, fbclid: a.fbclid, adSource: a.adSource || a.adName,
+      referrer: a.referrer, utmCampaignId: a.campaignId, utmCampaign: a.campaign,
+      utmKeyword: a.utmKeyword, utmContent: a.utmContent, utmMatchtype: a.utmMatchtype,
+      medium: a.medium, pageUrl: a.url, ip: a.ip, userAgent: a.userAgent,
+      utmAdGroupId: a.adGroupId, utmAdId: a.adId,
+      isFirst: touch === "first", isLast: touch === "last",
+    });
+    if (contact.attributionSource) attrs.push(convert(contact.attributionSource, "first"));
+    if (contact.lastAttributionSource) attrs.push(convert(contact.lastAttributionSource, "last"));
+  }
+  const tags = (contact.tags || []).map(t => str(typeof t === "string" ? t : t?.name));
+  const src = str(contact.source);
+  const med = str(contact.medium);
+  const cf = contact.customFields || [];
+  const cfVal = id => { const f = cf.find(x => x.id === id); return str(f?.value ?? f?.fieldValue); };
+  const selfRep = cfVal("8DXmJzpunaxq43o0aQpx");
+  const selfSpec = cfVal("VEg3lD5L3n53ZPNXinbV");
+  let gclid=false,fbclid=false,gbraid=false,adwords=false,fbAd=false;
+  let paidSearch=false,paidSocial=false,orgSearch=false,social=false,refSession=false;
+  let allDirect=attrs.length>0, igPaid=false, fbSrc=false, gRef=false, hasCamp=false;
+  for(const a of attrs){
+    const s=str(a.utmSource), m=str(a.utmMedium);
+    const ss=str(a.utmSessionSource), ref=str(a.referrer);
+    const ad=str(a.adSource);
+    if(a.utmGclid||a.gclid) gclid=true;
+    if(a.utmFbclid||a.fbclid) fbclid=true;
+    if(a.gbraid) gbraid=true;
+    if(s==="adwords") adwords=true;
+    if(ad==="facebook") fbAd=true;
+    if(ss==="paid search") paidSearch=true;
+    if(ss==="paid social") paidSocial=true;
+    if(ss==="organic search") orgSearch=true;
+    if(ss!=="direct traffic"&&ss!=="") allDirect=false;
+    if(ss==="social media") social=true;
+    if(ss==="referral") refSession=true;
+    if(s==="facebook"||s==="fb") fbSrc=true;
+    if(s==="ig"&&m==="paid") igPaid=true;
+    if(ref.includes("google.")) gRef=true;
+    if(a.utmCampaignId||a.utmCampaign) hasCamp=true;
+  }
+  // 1. Google (Paid)
+  if(gclid||adwords||gbraid||(paidSearch&&gRef)) return "google_paid";
+  // 2-4. Meta (Paid)
+  if((fbAd&&paidSocial)||(fbclid&&hasCamp)||igPaid||(fbSrc&&med==="facebook")) return "meta_paid";
+  // 5. Spare Room
+  if(src==="spareroom"||tags.includes("spareroom")||(med==="zapier"&&src==="spareroom")) return "spare_room";
+  // 6. Direct/WhatsApp
+  if(med==="whatsapp_coex"||tags.some(t=>t.includes("whatsapp")&&t.includes("lead"))) return "direct_whatsapp";
+  // 7. Google (Organic)
+  if(orgSearch&&gRef&&!gclid&&!adwords) return "google_organic";
+  // 8. Word of Mouth
+  if(selfRep.includes("word of mouth")&&!gclid&&!fbclid&&!adwords) return "word_of_mouth";
+  // 9. Meta (Organic)
+  if((selfRep.includes("instagram")||selfRep.includes("facebook")||(social&&!paidSocial))&&!gclid&&!fbclid&&!adwords&&!fbAd&&!paidSearch&&!paidSocial) return "meta_organic";
+  // 10. Student Platform
+  if((selfRep.includes("amber")||selfRep.includes("unilodger")||selfRep.includes("student.com")||selfRep.includes("university cribs"))&&!gclid&&!adwords) return "student_platform";
+  // 11. Direct
+  if(allDirect&&!gclid&&!fbclid) return "direct";
+  // 12. Referral
+  if(refSession&&!gclid&&!fbclid&&!social) return "referral";
+  // Fallback: tags
+  if(tags.some(t=>t.includes("spareroom"))) return "spare_room";
+  if(tags.some(t=>t.includes("facebook")||t.includes("instagram"))) return "meta_organic";
+  if(selfRep.includes("online search")||selfRep.includes("google")) return "direct";
+  if(selfRep==="other"&&selfSpec) return "referral";
+  return "direct";
+}
+
+
+// ─── Enrich bookings with the TRUE contracted rate from the roomStay detail ───
+// The bookings list endpoint has no rate fields, so PCM used to be derived from
+// total value ÷ days and then snapped to a price list — which mis-stated ~34% of
+// bookings (e.g. a contracted £1,225 displayed as £1,200). We fetch the detail
+// for each active long-stay room booking and attach the real rate.
+
+// ─── Enrich renewal objects with status change dates from individual roomStay ─
+// The list endpoint doesn't include conversionDate/confirmedDate/contractSignedDate.
+// We must fetch /api/v3/roomStays/{id} for each renewal to get these timestamps.
+
+// ─── UI COMPONENTS ────────────────────────────────────────────────────────────
+const Tip = ({active,payload,label}) => {
+  if(!active||!payload?.length) return null;
+  return <div style={{background:"#13161b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12}}>
+    <p style={{color:C.muted,marginBottom:6,fontFamily:"monospace"}}>{label}</p>
+    {payload.map((p,i)=><p key={i} style={{color:p.color,margin:"2px 0"}}>{p.name}: <strong>{p.name==="leads"?p.value:p.name==="cpl"?fmt(p.value,"£",2):fmt(p.value)}</strong></p>)}
+  </div>;
+};
+
+// ─── PERIOD-OVER-PERIOD HELPERS ───────────────────────────────────────────────
+// mkDelta(current, previous, {invert}) → {pct, abs, dir} or null when there is
+// no meaningful prior value. `invert` marks metrics where DOWN is good (cost,
+// CPL, CAC, bounce) so the chip colours correctly.
+const mkDelta = (cur, prev, opts = {}) => {
+  if (cur == null || prev == null || !isFinite(cur) || !isFinite(prev)) return null;
+  if (prev === 0) return cur === 0 ? { pct: 0, abs: 0, dir: "flat", invert: !!opts.invert } : { pct: null, abs: cur, dir: cur > 0 ? "up" : "down", invert: !!opts.invert };
+  const abs = cur - prev;
+  const pct = (abs / Math.abs(prev)) * 100;
+  const dir = Math.abs(pct) < 0.5 ? "flat" : pct > 0 ? "up" : "down";
+  return { pct, abs, dir, invert: !!opts.invert, label: opts.label };
+};
+
+// Compact delta chip: ↗ +19% / ↘ −8% / → 0%, coloured for good/bad given `invert`
+const DeltaChip = ({ delta, size = 10 }) => {
+  if (!delta) return null;
+  const good = delta.dir === "flat" ? null : (delta.dir === "up") !== delta.invert;
+  const col = delta.dir === "flat" ? C.muted : good ? C.sage : C.rose;
+  const arrow = delta.dir === "up" ? "↗" : delta.dir === "down" ? "↘" : "→";
+  const txt = delta.pct == null ? (delta.abs > 0 ? "new" : "—")
+            : `${delta.pct > 0 ? "+" : ""}${Math.abs(delta.pct) >= 100 ? Math.round(delta.pct) : delta.pct.toFixed(Math.abs(delta.pct) < 10 ? 1 : 0)}%`;
+  return (
+    <span title={delta.label ? `vs ${delta.label}` : "vs previous period"}
+      style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:size,fontWeight:700,fontFamily:"'DM Mono',monospace",
+        color:col,background:col+"1a",border:`1px solid ${col}44`,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>
+      {arrow} {txt}
+    </span>
+  );
+};
+
+// Tiny inline sparkline — pure SVG, no chart lib overhead per card
+const Spark = ({ data, color = C.gold, width = 96, height = 26 }) => {
+  if (!data || data.length < 2) return null;
+  const vals = data.map(v => (v == null || isNaN(v) ? 0 : v));
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const stepX = width / (vals.length - 1);
+  const pts = vals.map((v, i) => `${(i * stepX).toFixed(1)},${(height - 2 - ((v - min) / span) * (height - 4)).toFixed(1)}`);
+  const last = vals[vals.length - 1];
+  const lx = ((vals.length - 1) * stepX).toFixed(1), ly = (height - 2 - ((last - min) / span) * (height - 4)).toFixed(1);
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{display:"block",overflow:"visible"}} aria-hidden="true">
+      <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" opacity="0.9"/>
+      <polyline points={`0,${height} ${pts.join(" ")} ${lx},${height}`} fill={color} opacity="0.08" stroke="none"/>
+      <circle cx={lx} cy={ly} r="2" fill={color}/>
+    </svg>
+  );
+};
+
+// KPI card — now carries an optional period delta chip and a 30-day sparkline.
+// Cards without prior-period data render exactly as before.
+const KPI = ({label,value,sub,accent=C.gold,badge,delta,spark,sparkColor}) => (
+  <div className="kpi" style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",borderTop:`2px solid ${accent}`,flex:"1 1 140px",minWidth:0,position:"relative"}}>
+    {badge&&<span style={{position:"absolute",top:10,right:12,fontSize:10,color:accent,background:accent+"22",padding:"2px 8px",borderRadius:20}}>{badge}</span>}
+    <p style={{color:C.muted,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>{label}</p>
+    <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:10}}>
+      <div style={{minWidth:0}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+          <p style={{fontSize:26,fontWeight:700,color:C.text,fontFamily:"'DM Mono',monospace",letterSpacing:"-0.02em"}}>{value}</p>
+          {delta && <DeltaChip delta={delta}/>}
+        </div>
+        {sub&&<p style={{fontSize:11,color:C.muted,marginTop:4}}>{sub}</p>}
+      </div>
+      {spark && spark.length > 1 && <div style={{flexShrink:0,opacity:0.95}}><Spark data={spark} color={sparkColor||accent}/></div>}
+    </div>
+  </div>
+);
+
+const OccRing = ({pct,color=C.gold,label="target"}) => {
+  const r=42,c=2*Math.PI*r,d=(pct/100)*c;
+  return <svg width={110} height={110} viewBox="0 0 100 100">
+    <circle cx="50" cy="50" r={r} fill="none" stroke={C.border} strokeWidth="9"/>
+    <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="9" strokeDasharray={`${d} ${c}`} strokeDashoffset={c*0.25} strokeLinecap="round" style={{transition:"stroke-dasharray 0.5s ease"}}/>
+    <text x="50" y="47" textAnchor="middle" fill={C.text} fontSize="15" fontWeight="700" fontFamily="DM Mono,monospace">{pct}%</text>
+    <text x="50" y="61" textAnchor="middle" fill={C.muted} fontSize="6.5">{label}</text>
+  </svg>;
+};
+
+const PRESETS=[{l:"7d",d:7},{l:"14d",d:14},{l:"30d",d:30}];
+const dinp={background:C.card,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"5px 10px",fontSize:12,fontFamily:"DM Mono,monospace"};
+
+// ─── CALENDAR DATE PICKER ───
+const CalendarPicker = ({ value, onChange, style }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const parsed = value ? new Date(value + "T00:00:00") : new Date();
+  const [viewYear, setViewYear] = useState(parsed.getFullYear());
+  const [viewMonth, setViewMonth] = useState(parsed.getMonth());
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Sync view when value changes externally
+  useEffect(() => {
+    if (value) {
+      const d = new Date(value + "T00:00:00");
+      setViewYear(d.getFullYear());
+      setViewMonth(d.getMonth());
+    }
+  }, [value]);
+
+  const DAYS = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  // Monday = 0
+  let startDay = new Date(viewYear, viewMonth, 1).getDay() - 1;
+  if (startDay < 0) startDay = 6;
+
+  const cells = [];
+  for (let i = 0; i < startDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const today = new Date().toISOString().slice(0,10);
+  const fmt = (d) => `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+
+  const displayDate = value
+    ? new Date(value + "T00:00:00").toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" })
+    : "Pick date";
+
+  const prevMonth = () => { if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y-1); } else setViewMonth(m => m-1); };
+  const nextMonth = () => { if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y+1); } else setViewMonth(m => m+1); };
+
+  return (
+    <div ref={ref} style={{ position:"relative", display:"inline-block", ...style }}>
+      <button onClick={() => setOpen(!open)} style={{
+        padding:"4px 10px", borderRadius:8, border:`1px solid ${C.border}`, background:C.card,
+        color:C.text, fontSize:11, fontFamily:"'DM Mono',monospace", cursor:"pointer",
+        display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap"
+      }}>
+        <span style={{fontSize:13}}>📅</span> {displayDate}
+      </button>
+      {open && (
+        <div style={{
+          position:"absolute", top:"100%", left:0, marginTop:4, zIndex:9999,
+          background:C.card, border:`1px solid ${C.border}`, borderRadius:12,
+          padding:12, boxShadow:"0 8px 24px rgba(0,0,0,0.4)", width:240
+        }}>
+          {/* Header: month nav */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <button onClick={prevMonth} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:14, padding:"2px 6px" }}>◀</button>
+            <span style={{ fontSize:12, fontWeight:700, color:C.text }}>{MONTHS[viewMonth]} {viewYear}</span>
+            <button onClick={nextMonth} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:14, padding:"2px 6px" }}>▶</button>
+          </div>
+          {/* Day headers */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:1, marginBottom:4 }}>
+            {DAYS.map(d => <div key={d} style={{ textAlign:"center", fontSize:9, color:C.muted, fontWeight:700, padding:"2px 0" }}>{d}</div>)}
+          </div>
+          {/* Day grid */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:1 }}>
+            {cells.map((day, i) => {
+              if (!day) return <div key={`e${i}`} />;
+              const iso = fmt(day);
+              const isSelected = iso === value;
+              const isToday = iso === today;
+              return (
+                <button key={i} onClick={() => { onChange(iso); setOpen(false); }} style={{
+                  width:30, height:28, borderRadius:6, border:"none", cursor:"pointer",
+                  fontSize:11, fontWeight: isSelected ? 700 : 400,
+                  background: isSelected ? C.gold+"33" : "transparent",
+                  color: isSelected ? C.gold : isToday ? C.sage : C.text,
+                  outline: isToday && !isSelected ? `1px solid ${C.sage}44` : "none",
+                  margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center",
+                }}>
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+          {/* Quick: Today */}
+          <div style={{ marginTop:8, textAlign:"center" }}>
+            <button onClick={() => { onChange(today); setOpen(false); }} style={{
+              fontSize:10, color:C.gold, background:"none", border:"none", cursor:"pointer", textDecoration:"underline"
+            }}>Today</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── PERFORMANCE INSIGHTS: period-over-period, source mix, device mix, expert playbook ───
+const PerformanceInsights = ({ analytics, propertyLabel, hideAdvice = false }) => {
+  if (!analytics?.data) return null;
+  const { periodComparison: pc, trafficSources = [], devices = [], expertPlaybook = [] } = analytics.data;
+  const fmtPct = (n) => (n >= 0 ? "+" : "") + n.toFixed(0) + "%";
+  const changeColor = (n, goodWhenPositive = true) => {
+    if (n === null || n === undefined) return C.muted;
+    if (Math.abs(n) < 2) return C.muted;
+    const isGood = goodWhenPositive ? n > 0 : n < 0;
+    return isGood ? C.sage : C.rose;
+  };
+  const arrow = (n) => (n > 2 ? "↑" : n < -2 ? "↓" : "→");
+
+  // Channel group aggregates from trafficSources
+  const channelTotals = {};
+  let totalSrcSessions = 0;
+  trafficSources.forEach(r => {
+    const g = r.channelGroup || "Other";
+    channelTotals[g] = (channelTotals[g] || 0) + r.sessions;
+    totalSrcSessions += r.sessions;
+  });
+  const channels = Object.entries(channelTotals)
+    .map(([name, sessions]) => ({ name, sessions, pct: totalSrcSessions ? sessions / totalSrcSessions : 0 }))
+    .sort((a, b) => b.sessions - a.sessions);
+
+  const channelColor = (name) => {
+    if (/Organic Search/i.test(name)) return C.sage;
+    if (/Paid Search/i.test(name)) return C.blue;
+    if (/Paid Social|Organic Social/i.test(name)) return C.gold;
+    if (/Direct/i.test(name)) return C.text;
+    if (/Referral/i.test(name)) return "#b78af7";
+    if (/Email/i.test(name)) return "#59c5d2";
+    return C.muted;
+  };
+
+  const totalDeviceSessions = devices.reduce((s, r) => s + r.sessions, 0) || 1;
+  const deviceColor = { mobile: C.blue, desktop: C.sage, tablet: C.gold };
+
+  const playbookColors = { high: C.rose, medium: C.gold, low: C.muted, success: C.sage };
+  const playbookIcons = { high: "🔴", medium: "🟡", low: "💡", success: "✅" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 14 }}>
+      {/* Period-over-period strip */}
+      {pc && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Period-over-Period · {propertyLabel}
+              </p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
+                Current range vs prior {pc.days} days ({pc.priorFrom} → {pc.priorTo})
+              </p>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+            {[
+              { key: "sessions", label: "Sessions", curr: pc.sessions.current, prior: pc.sessions.prior, change: pc.sessions.change, goodPositive: true },
+              { key: "confirmations", label: "Applications", curr: pc.confirmations.current, prior: pc.confirmations.prior, change: pc.confirmations.change, goodPositive: true },
+              { key: "convRate", label: "Conversion Rate", curr: (pc.conversionRate.current * 100).toFixed(1) + "%", prior: (pc.conversionRate.prior * 100).toFixed(1) + "%", change: pc.conversionRate.change, goodPositive: true },
+            ].map(m => (
+              <div key={m.key} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                <p style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{m.label}</p>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: C.text, fontFamily: "DM Mono,monospace" }}>{m.curr}</span>
+                  <span style={{ fontSize: 11, color: C.muted, fontFamily: "DM Mono,monospace" }}>vs {m.prior}</span>
+                </div>
+                {m.change !== null && m.change !== undefined && (
+                  <p style={{ fontSize: 11, color: changeColor(m.change, m.goodPositive), fontWeight: 600, marginTop: 4 }}>
+                    {arrow(m.change)} {fmtPct(m.change)}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Source + Device row */}
+      {(channels.length > 0 || devices.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+          {channels.length > 0 && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                Traffic Source Mix · {propertyLabel}
+              </p>
+              <p style={{ fontSize: 10, color: C.muted, marginBottom: 12 }}>Channel groups driving landing-page sessions</p>
+              {/* Stacked bar */}
+              <div style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", marginBottom: 12, background: C.bg }}>
+                {channels.map(ch => (
+                  <div key={ch.name} title={`${ch.name}: ${(ch.pct * 100).toFixed(1)}%`} style={{ width: `${ch.pct * 100}%`, background: channelColor(ch.name) }} />
+                ))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {channels.slice(0, 6).map(ch => (
+                  <div key={ch.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: channelColor(ch.name), display: "inline-block" }} />
+                      <span style={{ color: C.text }}>{ch.name}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 12, fontFamily: "DM Mono,monospace" }}>
+                      <span style={{ color: C.muted }}>{ch.sessions.toLocaleString()}</span>
+                      <span style={{ color: channelColor(ch.name), minWidth: 52, textAlign: "right" }}>{(ch.pct * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {devices.length > 0 && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                Device Split · {propertyLabel}
+              </p>
+              <p style={{ fontSize: 10, color: C.muted, marginBottom: 12 }}>Share of sessions & per-device engagement</p>
+              <div style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", marginBottom: 12, background: C.bg }}>
+                {devices.map(d => (
+                  <div key={d.device} title={`${d.device}: ${((d.sessions / totalDeviceSessions) * 100).toFixed(1)}%`} style={{ width: `${(d.sessions / totalDeviceSessions) * 100}%`, background: deviceColor[d.device] || C.muted }} />
+                ))}
+              </div>
+              <table style={{ width: "100%", fontSize: 11, fontFamily: "DM Mono,monospace", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ color: C.muted }}>
+                    <th style={{ textAlign: "left", fontWeight: 500, padding: "4px 0" }}>Device</th>
+                    <th style={{ textAlign: "right", fontWeight: 500, padding: "4px 0" }}>Sessions</th>
+                    <th style={{ textAlign: "right", fontWeight: 500, padding: "4px 0" }}>Share</th>
+                    <th style={{ textAlign: "right", fontWeight: 500, padding: "4px 0" }}>Bounce</th>
+                    <th style={{ textAlign: "right", fontWeight: 500, padding: "4px 0" }}>Engage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {devices.map(d => (
+                    <tr key={d.device} style={{ borderTop: `1px solid ${C.border}` }}>
+                      <td style={{ padding: "6px 0", color: C.text, textTransform: "capitalize" }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: deviceColor[d.device] || C.muted, display: "inline-block", marginRight: 6 }} />
+                        {d.device}
+                      </td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.text }}>{d.sessions.toLocaleString()}</td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.muted }}>{((d.sessions / totalDeviceSessions) * 100).toFixed(1)}%</td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.muted }}>{(d.bounceRate * 100).toFixed(1)}%</td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.muted }}>{(d.engagementRate * 100).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Expert Playbook (advice — hidden in investor view) */}
+      {!hideAdvice && expertPlaybook.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.sage}44`, borderRadius: 12, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 12 }}>
+            <div>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Expert SEO & Landing Page Playbook · {propertyLabel}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Prioritised, data-backed recommendations for organic growth and conversion lift</p>
+            </div>
+            <span style={{ fontSize: 9, padding: "2px 10px", borderRadius: 10, background: C.rose + "22", color: C.rose }}>
+              {expertPlaybook.filter(x => x.priority === "high").length} high priority
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {expertPlaybook.map((item, i) => {
+              const bc = playbookColors[item.priority] || C.muted;
+              return (
+                <div key={i} style={{ background: C.bg, border: `1px solid ${bc}33`, borderLeft: `3px solid ${bc}`, borderRadius: 8, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12 }}>{playbookIcons[item.priority]}</span>
+                      <span style={{ fontSize: 12.5, color: C.text, fontWeight: 600 }}>{item.title}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 8, background: bc + "18", color: bc }}>{item.priority}</span>
+                      <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 8, background: C.blue + "18", color: C.blue }}>{item.category}</span>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 6, fontStyle: "italic" }}>
+                    <span style={{ color: C.text, fontStyle: "normal", fontWeight: 500 }}>Why: </span>{item.why}
+                  </p>
+                  <p style={{ fontSize: 11, color: C.text, lineHeight: 1.55, marginBottom: 6 }}>
+                    <span style={{ color: C.text, fontWeight: 500 }}>Action: </span>
+                    <span style={{ color: C.muted }}>{item.action}</span>
+                  </p>
+                  <p style={{ fontSize: 10, color: bc, fontFamily: "DM Mono,monospace" }}>{item.metric}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── MAIN ─────────────────────────────────────────────────────────────────────
+// ─── REPUTATION ────────────────────────────────────────────────────────────
+// TrustYou-style reputation view built only from connected sources. Category
+// sentiment is keyword-based (v1) over the review text we hold — labelled as
+// such in the UI. Nothing is estimated when a source is not connected.
+const REP_CATEGORIES = [
+  { key: "staff",       label: "Staff & Service",     re: /\b(staff|reception|team|yasm[ie]n|tamika|security|helpful|welcoming|professional|management|manager|front of house)\b/i },
+  { key: "cleanliness", label: "Cleanliness",         re: /\b(clean|dirty|filthy|hygien|black marks|dust|murky|razor)\w*/i },
+  { key: "room",        label: "Room & Comfort",      re: /\b(room|bed|tiny|spacious|comfort|comfy|studio)\w*/i },
+  { key: "climate",     label: "Air Con & Ventilation", re: /\b(air ?con|ac\b|ventilat|vents?|breathe|air quality|hot|heatwave|degrees|windows? (don't|do not|can't|sealed)|temperature|cold)\w*/i },
+  { key: "maintenance", label: "Maintenance & Lifts", re: /\b(lift|lifts|broken|maintenance|repair|electric|tripping|leak|oven|gate|malfunction)\w*/i },
+  { key: "facilities",  label: "Facilities & Wellness", re: /\b(sauna|cold plunge|gym|spa|pilates|yoga|trx|co-?working|studio|terrace|garden|pool|meditation|podcast|laundry|kitchen|facilit)\w*/i },
+  { key: "community",   label: "Community & Events",  re: /\b(community|friends|connections|events|dinner|vibe|atmosphere|social|welcome)\w*/i },
+  { key: "location",    label: "Location & Transport", re: /\b(location|heathrow|airport|transport|shuttle|links|local area|view)\w*/i },
+  { key: "value",       label: "Value & Price",       re: /\b(price|pricing|value|expensive|cheap|fees?|exchange rate|£\d+)\w*/i },
+  { key: "deposit",     label: "Deposit & Contract",  re: /\b(deposit|contract|licen[cs]e|refund|withh[eo]ld|cancel)\w*/i },
+  { key: "pests",       label: "Pests",               re: /\b(rat|rats|rodent|pest|infestation|droppings)\b/i },
+  { key: "food",        label: "Food & Breakfast",    re: /\b(breakfast|food|meal|toast|cafe|bar|fridge)\w*/i },
+];
+const REP_WINDOWS = [
+  { key: "7d",  label: "Last 7 days",  days: 7 },
+  { key: "30d", label: "Last 30 days", days: 30 },
+  { key: "3m",  label: "Previous 3 months", days: 92 },
+  { key: "6m",  label: "Previous 6 months", days: 183 },
+  { key: "12m", label: "Previous 12 months", days: 365 },
+];
+const repPct = (rating, scale) => rating != null && scale ? Math.round((rating / scale) * 100) : null;
+const repCol = (p) => p == null ? C.muted : p >= 80 ? C.sage : p >= 60 ? C.gold : C.rose;
+const SRC_META = {
+  trustpilot: { color: "#00b67a", glyph: "★" },
+  google:     { color: "#4285f4", glyph: "G" },
+  booking:    { color: "#003580", glyph: "B" },
+  airbnb:     { color: "#ff5a5f", glyph: "A" },
+  tripadvisor:{ color: "#34e0a1", glyph: "T" },
+};
+
+function computeReputation(data, windowKey) {
+  const sources = (data?.sources || []);
+  const connected = sources.filter(s => s.connected && s.rating != null);
+  const win = REP_WINDOWS.find(w => w.key === windowKey) || REP_WINDOWS[4];
+  const now = new Date(); const from = new Date(now.getTime() - win.days * 864e5);
+  const prevFrom = new Date(from.getTime() - win.days * 864e5);
+  const iso = d => d.toISOString().slice(0, 10);
+  const allReviews = connected.flatMap(s => (s.reviews || []).map(r => ({ ...r, source: s.key, sourceName: s.name, scale: s.scale || 5 })));
+  const inWin = allReviews.filter(r => r.date >= iso(from) && r.date <= iso(now));
+  const inPrev = allReviews.filter(r => r.date >= iso(prevFrom) && r.date < iso(from));
+
+  // Overall score: count-weighted average of each source's lifetime rating, on /100
+  const wSum = connected.reduce((a, s) => a + (s.count || 0), 0);
+  const overall = wSum ? Math.round(connected.reduce((a, s) => a + repPct(s.rating, s.scale) * (s.count || 0), 0) / wSum) : null;
+  // Performance in window: average star of reviews in window (/100) vs previous window
+  const avg = (list) => list.length ? list.reduce((a, r) => a + (r.rating / r.scale) * 100, 0) / list.length : null;
+  const perf = avg(inWin), perfPrev = avg(inPrev);
+
+  // Categories over the window
+  const cats = REP_CATEGORIES.map(c => {
+    const hits = inWin.filter(r => c.re.test(`${r.title || ""} ${r.text || ""}`));
+    const prevHits = inPrev.filter(r => c.re.test(`${r.title || ""} ${r.text || ""}`));
+    const pos = hits.filter(r => r.rating / r.scale >= 0.8).length, neg = hits.filter(r => r.rating / r.scale <= 0.4).length;
+    const score = hits.length ? Math.round(hits.reduce((a, r) => a + (r.rating / r.scale) * 10, 0) / hits.length * 10) / 10 : null;
+    const prevScore = prevHits.length ? prevHits.reduce((a, r) => a + (r.rating / r.scale) * 10, 0) / prevHits.length : null;
+    return { ...c, mentions: hits.length, pos, neg, neu: hits.length - pos - neg, score, trend: score != null && prevScore != null ? score - prevScore : null };
+  }).filter(c => c.mentions > 0).sort((a, b) => b.mentions - a.mentions);
+  const rated = cats.filter(c => c.mentions >= 2);
+  const best = rated.length ? [...rated].sort((a, b) => b.score - a.score)[0] : null;
+  const worst = rated.length ? [...rated].sort((a, b) => a.score - b.score)[0] : null;
+
+  // Volume + responses in window
+  const bySource = {};
+  inWin.forEach(r => { bySource[r.sourceName] = (bySource[r.sourceName] || 0) + 1; });
+  const topSource = Object.entries(bySource).sort((a, b) => b[1] - a[1])[0] || null;
+  const replied = inWin.filter(r => r.replied).length;
+  const negWin = inWin.filter(r => r.rating / r.scale <= 0.4);
+  const negReplied = negWin.filter(r => r.replied).length;
+
+  // Comparison: our Trustpilot vs named peers (public Trustpilot figures)
+  const tp = connected.find(s => s.key === "trustpilot");
+  const peers = tp?.competitors || [];
+  const peerAvg = peers.length ? peers.reduce((a, p) => a + p.rating, 0) / peers.length : null;
+  const compIndex = tp && peerAvg ? Math.round((tp.rating / peerAvg) * 100) / 100 : null;
+
+  return { win, connected, overall, perf: perf != null ? Math.round(perf) : null, perfPrev: perfPrev != null ? Math.round(perfPrev) : null,
+           cats, best, worst, inWin, inPrev, topSource, replied, negWin: negWin.length, negReplied, peers, peerAvg, compIndex, tp, allReviews };
+}
+
+const ScoreRing = ({ pct, size = 92, color, label }) => {
+  const r = 40, c = 2 * Math.PI * r, d = pct == null ? 0 : (pct / 100) * c;
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r={r} fill="none" stroke={C.border} strokeWidth="9"/>
+      <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="9" strokeDasharray={`${d} ${c}`} strokeDashoffset={c * 0.25} strokeLinecap="round"/>
+      <text x="50" y="48" textAnchor="middle" fill={C.text} fontSize="24" fontWeight="800" fontFamily="DM Mono,monospace">{pct == null ? "—" : pct}</text>
+      {label && <text x="50" y="64" textAnchor="middle" fill={C.muted} fontSize="8">{label}</text>}
+    </svg>
+  );
+};
+
+const RepCard = ({ title, children, right, style }) => (
+  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, ...style }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 8 }}>
+      <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{title}</p>
+      {right}
+    </div>
+    {children}
+  </div>
+);
+
+const sourcesOf = (data) => (data?.sources || []);
+function ReputationTab({ data, loading, propertyName, investor }) {
+  const [win, setWin] = useState("12m");
+  const [expanded, setExpanded] = useState(null);
+  const [filterCat, setFilterCat] = useState(null);
+  const [detail, setDetail] = useState(false);
+  const R = useMemo(() => computeReputation(data, win), [data, win]);
+  const totalReviews = R.connected.reduce((a, s) => a + (s.count || 0), 0);
+  const booking = sourcesOf(data).find(s => s.key === "booking" && s.connected);
+  const unrepliedNeg = R.allReviews.filter(r => r.rating / r.scale <= 0.4 && !r.replied).sort((a, b) => b.date.localeCompare(a.date));
+  const sources = data?.sources || [];
+  const notConnected = sources.filter(s => !s.connected);
+  const overallCol = repCol(R.overall);
+  const label = (p) => p == null ? "No data" : p >= 90 ? "Excellent" : p >= 80 ? "Very good" : p >= 70 ? "Good" : p >= 60 ? "Fair" : "Poor";
+  const sentBar = (c) => {
+    const tot = c.mentions || 1;
+    return (
+      <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", width: 90, background: C.border }} title={`${c.pos} positive · ${c.neu} neutral · ${c.neg} negative`}>
+        <div style={{ width: `${c.pos / tot * 100}%`, background: C.sage }}/>
+        <div style={{ width: `${c.neu / tot * 100}%`, background: C.gold }}/>
+        <div style={{ width: `${c.neg / tot * 100}%`, background: C.rose }}/>
+      </div>
+    );
+  };
+  const reviewsShown = (filterCat ? R.inWin.filter(r => REP_CATEGORIES.find(c => c.key === filterCat).re.test(`${r.title || ""} ${r.text || ""}`)) : R.inWin)
+    .slice().sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <div style={{ padding: "22px 26px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+        <div>
+          <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>{propertyName} · Guest reviews across platforms{loading ? " · loading…" : ""}</p>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: "4px 0 0" }}>Reputation</h2>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <button onClick={() => setDetail(v => !v)} style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${detail ? C.gold : C.border}`, background: detail ? C.gold + "22" : "transparent", color: detail ? C.gold : C.muted, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{detail ? "Simple view" : "Detailed view"}</button>
+          {detail && <>
+            <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 4px 0 8px" }}>Timeframe</span>
+            {REP_WINDOWS.map(w => (
+              <button key={w.key} onClick={() => setWin(w.key)} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${win === w.key ? C.gold : C.border}`, background: win === w.key ? C.gold + "22" : "transparent", color: win === w.key ? C.gold : C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{w.label}</button>
+            ))}
+          </>}
+        </div>
+      </div>
+
+      {/* ── HERO: one score, one line per platform ── */}
+      {R.connected.length > 0 && (
+        <div style={{ background: `linear-gradient(135deg, ${C.card}, ${C.bg})`, border: `1px solid ${overallCol}55`, borderRadius: 16, padding: 20, marginBottom: 12, display: "grid", gridTemplateColumns: "minmax(220px, 300px) 1fr", gap: 20, alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <ScoreRing pct={R.overall} size={110} color={overallCol} label="/100"/>
+            <div>
+              <p style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>Overall reputation</p>
+              <p style={{ fontSize: 22, fontWeight: 800, color: overallCol, lineHeight: 1.1, marginTop: 2 }}>{label(R.overall)}</p>
+              <p style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{totalReviews} reviews across {R.connected.length} platform{R.connected.length === 1 ? "" : "s"}</p>
+              <p style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Weighted by review count · lifetime</p>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+            {sources.map(s => {
+              const m = SRC_META[s.key] || { color: C.muted, glyph: "•" };
+              const p = s.connected ? repPct(s.rating, s.scale) : null;
+              return (
+                <a key={s.key} href={s.connected && s.url ? s.url : undefined} target="_blank" rel="noreferrer" style={{ textDecoration: "none", background: C.bg, border: `1px solid ${s.connected ? m.color + "55" : C.border}`, borderRadius: 12, padding: "10px 12px", opacity: s.connected ? 1 : 0.6, cursor: s.connected ? "pointer" : "default" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ width: 22, height: 22, borderRadius: 6, background: m.color + "33", color: m.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 11 }}>{m.glyph}</span>
+                    <span style={{ fontSize: 11, color: C.text, fontWeight: 700 }}>{s.name}</span>
+                  </div>
+                  {s.connected && s.rating != null ? (<>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: repCol(p), fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{s.rating}<span style={{ fontSize: 11, color: C.muted, fontWeight: 400 }}>/{s.scale}</span></p>
+                    <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>{s.count} reviews · {p}/100{s.label ? ` · ${s.label}` : ""}</p>
+                  </>) : s.connected ? (<>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: C.text, lineHeight: 1 }}>New</p>
+                    <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>listed · no reviews yet</p>
+                  </>) : (<>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: C.muted, lineHeight: 1 }}>—</p>
+                    <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>{s.notListed ? "not listed yet" : "not connected"}</p>
+                  </>)}
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── SIMPLE VIEW: what guests rate + what needs a reply ── */}
+      {!detail && R.connected.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 12 }}>
+          {booking?.categories?.length > 0 && (
+            <RepCard title="What guests rate — Booking.com" right={<span style={{ fontSize: 9, color: C.muted }}>platform category scores · /10</span>}>
+              {[...booking.categories].sort((a, b) => b.score - a.score).map(c => (
+                <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+                  <span style={{ fontSize: 11, color: C.text, width: 110, flexShrink: 0 }}>{c.name}</span>
+                  <div style={{ flex: 1, height: 7, background: C.border, borderRadius: 4 }}><div style={{ width: `${c.score * 10}%`, height: "100%", background: c.score >= 9 ? C.sage : c.score >= 8 ? "#3d82c4" : C.gold, borderRadius: 4 }}/></div>
+                  <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", fontWeight: 700, color: C.text, width: 30, textAlign: "right" }}>{c.score}</span>
+                </div>
+              ))}
+            </RepCard>
+          )}
+          {(() => { const g = sources.find(s => s.key === "google" && s.connected && s.topics?.length); if (!g || booking?.categories?.length) return null; return (
+            <RepCard title="What guests talk about — Google" right={<span style={{ fontSize: 9, color: C.muted }}>review topics Google surfaces · mentions</span>}>
+              {g.topics.map(tp => (
+                <div key={tp.name} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+                  <span style={{ fontSize: 11, color: C.text, width: 110, flexShrink: 0, textTransform: "capitalize" }}>{tp.name}</span>
+                  <div style={{ flex: 1, height: 7, background: C.border, borderRadius: 4 }}><div style={{ width: `${Math.min(100, tp.mentions / Math.max(...g.topics.map(x => x.mentions)) * 100)}%`, height: "100%", background: "#4285f4", borderRadius: 4 }}/></div>
+                  <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", fontWeight: 700, color: C.text, width: 30, textAlign: "right" }}>{tp.mentions}×</span>
+                </div>
+              ))}
+            </RepCard>
+          ); })()}
+          {R.cats.length > 0 && (
+            <RepCard title={`What guests talk about — ${R.connected.filter(s => (s.reviews || []).length).map(s => s.name).join(" + ") || "reviews"}`} right={<span style={{ fontSize: 9, color: C.muted }}>last 12 months · keyword-based · /10</span>}>
+              {[...R.cats].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 8).map(c => (
+                <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+                  <span style={{ fontSize: 11, color: C.text, width: 130, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.label}</span>
+                  <div style={{ flex: 1, height: 7, background: C.border, borderRadius: 4 }}><div style={{ width: `${(c.score || 0) * 10}%`, height: "100%", background: c.score >= 8 ? C.sage : c.score >= 6 ? C.gold : C.rose, borderRadius: 4 }}/></div>
+                  <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", fontWeight: 700, color: c.score >= 8 ? C.sage : c.score >= 6 ? C.gold : C.rose, width: 30, textAlign: "right" }}>{c.score}</span>
+                  <span style={{ fontSize: 9, color: C.muted, width: 22, textAlign: "right" }}>{c.mentions}×</span>
+                </div>
+              ))}
+            </RepCard>
+          )}
+          <RepCard title="Needs a reply" right={<span style={{ fontSize: 9, color: C.muted }}>negative reviews with no owner response</span>}>
+            {unrepliedNeg.length ? (<>
+              <p style={{ fontSize: 26, fontWeight: 800, color: C.rose, fontFamily: "DM Mono,monospace", lineHeight: 1, marginBottom: 8 }}>{unrepliedNeg.length}</p>
+              {unrepliedNeg.slice(0, 4).map(r => (
+                <div key={r.id} style={{ borderLeft: `3px solid ${C.rose}`, paddingLeft: 8, marginBottom: 6 }}>
+                  <p style={{ fontSize: 11, color: C.text, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title || r.text.slice(0, 60)}</p>
+                  <p style={{ fontSize: 9, color: C.muted }}>{r.sourceName} · {new Date(r.date + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · {Math.round(r.rating / r.scale * 5)}★</p>
+                </div>
+              ))}
+              {R.tp?.response && <p style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>Trustpilot: replied to {R.tp.response.negativeRepliedPct}% of negative reviews, {R.tp.response.typicalReplyTime}.</p>}
+            </>) : <p style={{ fontSize: 12, color: C.sage }}>Every negative review we hold has an owner reply.</p>}
+          </RepCard>
+          {(booking?.highlights?.length || sources.find(s => s.key === "google")?.highlights?.length) ? (
+            <RepCard title="Guests said" right={<span style={{ fontSize: 9, color: C.muted }}>platform-selected highlights</span>}>
+              {(booking?.highlights || []).slice(0, 3).map((h, i) => <p key={"b" + i} style={{ fontSize: 11, color: C.text, marginBottom: 6, lineHeight: 1.5 }}>“{h.text}” <span style={{ color: C.muted, fontSize: 9 }}>— {h.author}, Booking.com</span></p>)}
+              {(sources.find(s => s.key === "google")?.highlights || []).slice(0, 2).map((h, i) => <p key={"g" + i} style={{ fontSize: 11, color: C.text, marginBottom: 6, lineHeight: 1.5 }}>“{h}” <span style={{ color: C.muted, fontSize: 9 }}>— Google</span></p>)}
+            </RepCard>
+          ) : null}
+        </div>
+      )}
+
+      {detail && <>
+
+      {!R.connected.length && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, marginBottom: 16 }}>
+          <p style={{ fontSize: 13, color: C.text, fontWeight: 700 }}>No review platform is connected for {propertyName} yet.</p>
+          <p style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Scores appear here only from live or collected platform data — nothing is estimated.</p>
+        </div>
+      )}
+
+      {/* Row 1: Overall · Performance · Comparison · Sentiment */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12, marginBottom: 12 }}>
+        <RepCard title="Overall score" right={<span style={{ fontSize: 9, color: C.muted }}>lifetime · all connected sources</span>}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ width: 64, height: 64, borderRadius: 12, background: overallCol + "22", border: `1px solid ${overallCol}55`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: 28, fontWeight: 800, color: overallCol, fontFamily: "DM Mono,monospace" }}>{R.overall ?? "—"}</span>
+            </div>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{label(R.overall)}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{R.connected.length ? `${R.connected.map(s => s.name).join(" + ")} · ${R.connected.reduce((a, s) => a + (s.count || 0), 0)} reviews` : "no connected sources"}</p>
+              <p style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Count-weighted average of each platform's rating, on a 0–100 scale</p>
+            </div>
+          </div>
+        </RepCard>
+        <RepCard title="Performance" right={<span style={{ fontSize: 9, color: C.muted }}>{R.win.label.toLowerCase()}</span>}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <ScoreRing pct={R.perf} color={repCol(R.perf)} label="/100"/>
+            <div>
+              <p style={{ fontSize: 12, color: C.text }}>{R.inWin.length} review{R.inWin.length === 1 ? "" : "s"} in period</p>
+              {R.perfPrev != null && R.perf != null && (
+                <p style={{ fontSize: 11, color: R.perf >= R.perfPrev ? C.sage : C.rose, marginTop: 4 }}>{R.perf >= R.perfPrev ? "↑" : "↓"} {Math.abs(R.perf - R.perfPrev)} pts vs previous {R.win.days}d ({R.perfPrev})</p>
+              )}
+              {R.worst && <p style={{ fontSize: 10, color: C.rose, marginTop: 6 }}>↓ {R.worst.score} {R.worst.label} · {R.worst.neg} complaint{R.worst.neg === 1 ? "" : "s"}</p>}
+              {R.best && <p style={{ fontSize: 10, color: C.sage, marginTop: 2 }}>↑ {R.best.score} {R.best.label} · {R.best.pos} compliment{R.best.pos === 1 ? "" : "s"}</p>}
+            </div>
+          </div>
+        </RepCard>
+        <RepCard title="Comparison" right={<span style={{ fontSize: 9, color: C.muted }}>Trustpilot peers</span>}>
+          {R.compIndex != null ? (
+            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 800, color: R.compIndex >= 1 ? C.sage : C.rose, fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{R.compIndex.toFixed(2)}</p>
+                <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>CompIndex</p>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {[{ n: propertyName, v: R.tp.rating, c: C.gold }, { n: "Peer average", v: R.peerAvg, c: C.muted }].map(x => (
+                  <div key={x.n} style={{ marginBottom: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted }}><span>{x.n}</span><span style={{ color: x.c, fontFamily: "DM Mono,monospace" }}>{repPct(x.v, 5)}/100</span></div>
+                    <div style={{ height: 5, background: C.border, borderRadius: 3, marginTop: 3 }}><div style={{ width: `${repPct(x.v, 5)}%`, height: "100%", background: x.c, borderRadius: 3 }}/></div>
+                  </div>
+                ))}
+                <p style={{ fontSize: 9, color: C.muted }} title={R.peers.map(p => `${p.name} ${p.rating} (${p.count})`).join(" · ")}>{R.peers.map(p => p.name).join(", ")}</p>
+              </div>
+            </div>
+          ) : <p style={{ fontSize: 12, color: C.muted }}>Needs a connected Trustpilot profile.</p>}
+        </RepCard>
+        <RepCard title="Sentiment" right={<span style={{ fontSize: 9, color: C.muted }}>keyword-based · {R.win.label.toLowerCase()}</span>}>
+          {R.best || R.worst ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <p style={{ fontSize: 10, color: C.muted, marginBottom: 4 }}>Best rated</p>
+                {R.best ? <><span style={{ fontSize: 11, background: C.sage + "22", color: C.sage, padding: "3px 8px", borderRadius: 8, fontWeight: 600 }}>{R.best.label}</span><p style={{ fontSize: 10, color: C.muted, marginTop: 6 }}><b style={{ color: C.sage }}>{R.best.mentions}</b> mentions · {R.best.score}/10</p></> : <p style={{ fontSize: 11, color: C.muted }}>—</p>}
+              </div>
+              <div>
+                <p style={{ fontSize: 10, color: C.muted, marginBottom: 4 }}>Worst rated</p>
+                {R.worst ? <><span style={{ fontSize: 11, background: C.rose + "22", color: C.rose, padding: "3px 8px", borderRadius: 8, fontWeight: 600 }}>{R.worst.label}</span><p style={{ fontSize: 10, color: C.muted, marginTop: 6 }}><b style={{ color: C.rose }}>{R.worst.mentions}</b> mentions · {R.worst.score}/10</p></> : <p style={{ fontSize: 11, color: C.muted }}>—</p>}
+              </div>
+            </div>
+          ) : <p style={{ fontSize: 12, color: C.muted }}>Not enough reviews in this period.</p>}
+        </RepCard>
+      </div>
+
+      {/* Row 2: Sources overview · Volume · Responses */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 12 }}>
+        <RepCard title="Sources overview" right={<span style={{ fontSize: 9, color: C.muted }}>{sources.filter(s => s.connected).length} of {sources.length} connected</span>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {sources.map(s => {
+              const m = SRC_META[s.key] || { color: C.muted, glyph: "•" };
+              const p = s.connected ? repPct(s.rating, s.scale) : null;
+              return (
+                <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 10, opacity: s.connected ? 1 : 0.7 }}>
+                  <span style={{ width: 26, height: 26, borderRadius: 7, background: m.color + "33", color: m.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{m.glyph}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{s.name}{s.url && s.connected && <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 9, color: C.muted, marginLeft: 6, textDecoration: "none" }}>open ↗</a>}</span>
+                      {s.connected && s.rating != null
+                        ? <span style={{ fontSize: 12, fontFamily: "DM Mono,monospace", color: repCol(p), fontWeight: 700 }}>{p}<span style={{ color: C.muted, fontWeight: 400 }}>/100</span> <span style={{ fontSize: 10, color: C.muted }}>· {s.rating}/{s.scale} · {s.count}</span></span>
+                        : s.connected ? <span style={{ fontSize: 10, color: C.text }}>● connected · no reviews yet</span>
+                        : <span style={{ fontSize: 10, color: C.muted }}>○ {s.notListed ? "not listed yet" : "not connected"}</span>}
+                    </div>
+                    <p style={{ fontSize: 9, color: C.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={s.connected ? `${s.method || ""} · fetched ${s.fetchedAt || ""}${s.scope ? " · " + s.scope : ""}` : s.needs}>
+                      {s.connected ? `${s.scope || s.method || ""}${s.fetchedAt ? " · " + new Date(s.fetchedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}` : (investor ? "Awaiting connection" : `Needs: ${s.needs}`)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </RepCard>
+        <RepCard title="Volume" right={<span style={{ fontSize: 9, color: C.muted }}>{R.win.label.toLowerCase()}</span>}>
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+            <div>
+              <p style={{ fontSize: 30, fontWeight: 800, color: C.text, fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{R.inWin.length}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>reviews</p>
+              {R.inPrev.length > 0 && <p style={{ fontSize: 10, color: R.inWin.length >= R.inPrev.length ? C.sage : C.rose, marginTop: 2 }}>{R.inWin.length >= R.inPrev.length ? "↑" : "↓"} vs {R.inPrev.length} previous period</p>}
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 10, color: C.muted }}>Highest volume</p>
+              <p style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{R.topSource ? `${R.topSource[0]} · ${R.topSource[1]}` : "—"}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 8 }}>Rating mix in period</p>
+              <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                {[5, 4, 3, 2, 1].map(st => { const n = R.inWin.filter(r => Math.round(r.rating / r.scale * 5) === st).length; return <span key={st} style={{ fontSize: 10, color: n ? C.text : C.muted, fontFamily: "DM Mono,monospace" }}>{st}★ {n}</span>; })}
+              </div>
+            </div>
+          </div>
+        </RepCard>
+        <RepCard title="Responses" right={<span style={{ fontSize: 9, color: C.muted }}>{R.win.label.toLowerCase()}</span>}>
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+            <div>
+              <p style={{ fontSize: 30, fontWeight: 800, color: R.inWin.length ? repCol(Math.round(R.replied / R.inWin.length * 100)) : C.muted, fontFamily: "DM Mono,monospace", lineHeight: 1 }}>{R.inWin.length ? Math.round(R.replied / R.inWin.length * 100) : "—"}{R.inWin.length ? "%" : ""}</p>
+              <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>reviews replied to</p>
+              <div style={{ height: 5, background: C.border, borderRadius: 3, marginTop: 6, width: 90 }}><div style={{ width: `${R.inWin.length ? R.replied / R.inWin.length * 100 : 0}%`, height: "100%", background: C.sage, borderRadius: 3 }}/></div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 10, color: C.muted }}>Negative reviews replied to</p>
+              <p style={{ fontSize: 12, color: R.negWin && R.negReplied < R.negWin ? C.rose : C.text, fontWeight: 600 }}>{R.negWin ? `${R.negReplied} of ${R.negWin}` : "none in period"}</p>
+              {R.tp?.response && <>
+                <p style={{ fontSize: 10, color: C.muted, marginTop: 8 }}>Trustpilot says</p>
+                <p style={{ fontSize: 11, color: C.text }}>Replied to {R.tp.response.negativeRepliedPct}% of negative reviews · {R.tp.response.typicalReplyTime}</p>
+              </>}
+            </div>
+          </div>
+        </RepCard>
+      </div>
+
+      {/* Category table */}
+      <RepCard title="Categories" right={<span style={{ fontSize: 9, color: C.muted }}>score = avg rating of reviews mentioning the topic (/10) · keyword-based v1 · click a row to filter reviews</span>} style={{ marginBottom: 12 }}>
+        {R.cats.length ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                {["Category", "Score", "Trend", "Sentiment", "Mentions"].map(h => <th key={h} style={{ padding: "6px 10px", textAlign: h === "Category" ? "left" : "right", color: C.muted, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {R.cats.map(c => (
+                  <tr key={c.key} onClick={() => setFilterCat(filterCat === c.key ? null : c.key)} style={{ borderBottom: `1px solid ${C.border}22`, cursor: "pointer", background: filterCat === c.key ? C.gold + "11" : "transparent" }}>
+                    <td style={{ padding: "8px 10px", color: C.text, fontWeight: 600 }}>{c.label}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "DM Mono,monospace", color: c.score == null ? C.muted : c.score >= 8 ? C.sage : c.score >= 6 ? C.gold : C.rose, fontWeight: 700 }}>{c.score ?? "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, color: c.trend == null ? C.muted : c.trend > 0.2 ? C.sage : c.trend < -0.2 ? C.rose : C.muted }}>{c.trend == null ? "—" : c.trend > 0.2 ? "↑" : c.trend < -0.2 ? "↓" : "→"}</td>
+                    <td style={{ padding: "8px 10px" }}><div style={{ display: "flex", justifyContent: "flex-end" }}>{sentBar(c)}</div></td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "DM Mono,monospace", color: C.text }}>{c.mentions}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p style={{ fontSize: 12, color: C.muted }}>No review text in this period.</p>}
+      </RepCard>
+
+      {/* Reviews */}
+      <RepCard title={`Reviews${filterCat ? ` · ${REP_CATEGORIES.find(c => c.key === filterCat).label}` : ""}`} right={filterCat ? <button onClick={() => setFilterCat(null)} style={{ fontSize: 10, padding: "3px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, cursor: "pointer" }}>Clear filter</button> : <span style={{ fontSize: 9, color: C.muted }}>{reviewsShown.length} in period · newest first</span>}>
+        {reviewsShown.length ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reviewsShown.map(r => {
+              const p = r.rating / r.scale; const col = p >= 0.8 ? C.sage : p <= 0.4 ? C.rose : C.gold; const m = SRC_META[r.source] || {};
+              const open = expanded === r.id;
+              return (
+                <div key={r.id} onClick={() => setExpanded(open ? null : r.id)} style={{ background: C.bg, border: `1px solid ${col}33`, borderLeft: `3px solid ${col}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0 }}>
+                      <span style={{ fontSize: 12, color: col, fontFamily: "DM Mono,monospace", fontWeight: 700 }}>{"★".repeat(Math.round(p * 5))}<span style={{ opacity: 0.25 }}>{"★".repeat(5 - Math.round(p * 5))}</span></span>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{r.title || (r.text || "").slice(0, 60)}</span>
+                    </div>
+                    <span style={{ fontSize: 10, color: C.muted, whiteSpace: "nowrap" }}>
+                      <span style={{ color: m.color || C.muted, fontWeight: 700 }}>{r.sourceName}</span> · {new Date(r.date + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}{!investor && r.author ? ` · ${r.author}` : ""} · {r.replied ? <span style={{ color: C.sage }}>replied{r.replyDate ? " " + new Date(r.replyDate + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}</span> : <span style={{ color: p <= 0.4 ? C.rose : C.muted }}>no reply</span>}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5, ...(open ? {} : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }) }}>{r.text}</p>
+                </div>
+              );
+            })}
+          </div>
+        ) : <p style={{ fontSize: 12, color: C.muted }}>No reviews in this period{filterCat ? " for this category" : ""}.</p>}
+      </RepCard>
+
+      </>}
+
+      {!investor && notConnected.some(s => !s.notListed) && (
+        <div style={{ marginTop: 12, background: C.card, border: `1px solid ${C.gold}44`, borderRadius: 14, padding: 16 }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: C.gold, marginBottom: 6 }}>To connect the remaining platforms</p>
+          {notConnected.filter(s => !s.notListed).map(s => <p key={s.key} style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}><b style={{ color: C.text }}>{s.name}:</b> {s.needs}</p>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const [tab, setTab] = useState("summary");
+  // Investor view: facts only. Hides internal tools (annotations, target editing,
+  // manual inputs, messaging), advice blocks and the Forecast tab. Activated by
+  // ?view=investor in the URL or the header switch; remembered per browser.
+  const [investor, setInvestorRaw] = useState(false);
+  const setInvestor = (v) => { setInvestorRaw(v); try { localStorage.setItem("southall_view_v1", v ? "investor" : "team"); } catch {} try { const u = new URL(window.location.href); if (v) u.searchParams.set("view","investor"); else u.searchParams.delete("view"); window.history.replaceState(null, "", u.toString()); } catch {} };
+  useEffect(() => { try { const q = new URLSearchParams(window.location.search).get("view"); const ls = localStorage.getItem("southall_view_v1"); const on = q ? q === "investor" : ls === "investor"; setInvestorRaw(on); if (on && (tab === "forecast")) setTab("summary"); } catch {} }, []);
+  const [property, setProperty] = useState("southall");
+  const [sdTab, setSdTab] = useState("marketing");
+  const [preset, setPreset] = useState(30);
+  const todayISO = new Date().toISOString().slice(0,10);
+  const [from, setFrom] = useState(()=>{const d=new Date();d.setDate(d.getDate()-29);return d.toISOString().slice(0,10);});
+  const [to,   setTo]   = useState(todayISO);
+
+  useEffect(()=>{
+    if(!preset) return;
+    const end=new Date(), start=new Date(end);
+    start.setDate(end.getDate()-preset+1);
+    setFrom(start.toISOString().slice(0,10));
+    setTo(end.toISOString().slice(0,10));
+  },[preset]);
+
+  const rangeLabel = preset ? `Last ${preset}d` : `${from} → ${to}`;
+
+  // ─── LIVE DATA: Meta + Google via Windsor.ai ────────────────────────────────
+  const [liveMetaData, setLiveMetaData] = useState(null);
+  const [liveGoogleData, setLiveGoogleData] = useState(null);
+  const [metaIsLive, setMetaIsLive] = useState(false);
+  const [googleIsLive, setGoogleIsLive] = useState(false);
+  const [adLoading, setAdLoading] = useState(false);
+
+  const fetchLiveMeta = useCallback(async (dateFrom, dateTo, prop) => {
+    try {
+      const r = await fetch(`/api/meta?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
+      const j = await r.json();
+      if (j.configured && j.data) { setLiveMetaData(j.data); setMetaIsLive(true); }
+      else { setLiveMetaData(null); setMetaIsLive(false); }
+    } catch(e) { console.log("Meta fetch error:", e.message); setLiveMetaData(null); setMetaIsLive(false); }
+  }, []);
+
+  const fetchLiveGoogle = useCallback(async (dateFrom, dateTo, prop) => {
+    try {
+      const r = await fetch(`/api/google?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
+      const j = await r.json();
+      if (j.configured && j.data) { setLiveGoogleData(j.data); setGoogleIsLive(true); }
+      else { setLiveGoogleData(null); setGoogleIsLive(false); }
+    } catch(e) { console.log("Google fetch error:", e.message); setLiveGoogleData(null); setGoogleIsLive(false); }
+  }, []);
+
+  // ─── LIVE DATA: GA4 Landing Page Analytics ──────────────────────────────────
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [sdAnalyticsData, setSdAnalyticsData] = useState(null);
+
+  const fetchAnalytics = useCallback(async (dateFrom, dateTo, prop) => {
+    try {
+      const r = await fetch(`/api/analytics?dateFrom=${dateFrom}&dateTo=${dateTo}&property=${prop}`);
+      const j = await r.json();
+      if (j.configured && j.data) return j.data;
+      return null;
+    } catch(e) { console.log("Analytics fetch error:", e.message); return null; }
+  }, []);
+
+  // ─── PRIOR PERIOD (same length, immediately before `from`) ──────────────────
+  // Every KPI shows a delta against this window. Meta/Google/GA4 are fetched a
+  // second time for it; RH/Lavanda/GHL are computed from data already in memory.
+  const prior = useMemo(() => {
+    const f = new Date(from + "T00:00:00Z"), t = new Date(to + "T00:00:00Z");
+    const days = Math.round((t - f) / 864e5) + 1;
+    const pt = new Date(f.getTime() - 864e5), pf = new Date(pt.getTime() - (days - 1) * 864e5);
+    return { from: pf.toISOString().slice(0,10), to: pt.toISOString().slice(0,10), days,
+             label: `prev ${days}d` };
+  }, [from, to]);
+  const [prevMetaData, setPrevMetaData] = useState(null);
+  const [prevGoogleData, setPrevGoogleData] = useState(null);
+  const [prevAnalyticsData, setPrevAnalyticsData] = useState(null);
+
+  // ─── LAST REFRESHED per source ───────────────────────────────────────────────
+  const [lastRefreshed, setLastRefreshed] = useState({});
+  const stamp = useCallback((k, at) => setLastRefreshed(p => ({ ...p, [k]: at || Date.now() })), []);
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => { const i = setInterval(() => setNowTick(Date.now()), 60 * 1000); return () => clearInterval(i); }, []);
+  const STALE_MS = 60 * 60 * 1000;
+  const freshness = useCallback((k) => {
+    const t = lastRefreshed[k];
+    if (!t) return { t: null, stale: false, label: "—" };
+    const age = nowTick - t;
+    return { t, stale: age > STALE_MS, ageMin: Math.round(age / 60000),
+             label: new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) };
+  }, [lastRefreshed, nowTick]);
+
+  useEffect(()=>{
+    setAdLoading(true);
+    setAnalyticsLoading(true);
+    const fetchPrevJson = async (url) => { try { const r = await fetch(url); const j = await r.json(); return (j.configured && j.data) ? j.data : null; } catch { return null; } };
+    Promise.all([
+      fetchLiveMeta(from, to, property).then(() => stamp("meta")),
+      fetchLiveGoogle(from, to, property).then(() => stamp("google")),
+      fetchAnalytics(from, to, "southall").then(d => { setAnalyticsData(d); stamp("ga4"); }),
+      fetchAnalytics(from, to, "shoreditch").then(d => setSdAnalyticsData(d)),
+      fetchPrevJson(`/api/meta?dateFrom=${prior.from}&dateTo=${prior.to}&property=${property}`).then(setPrevMetaData),
+      fetchPrevJson(`/api/google?dateFrom=${prior.from}&dateTo=${prior.to}&property=${property}`).then(setPrevGoogleData),
+      fetchPrevJson(`/api/analytics?dateFrom=${prior.from}&dateTo=${prior.to}&property=southall`).then(setPrevAnalyticsData),
+    ]).finally(()=>{ setAdLoading(false); setAnalyticsLoading(false); });
+  }, [from, to, property, prior.from, prior.to]);
+
+  // ─── COMPUTED: prefer live data, fall back to static ────────────────────────
+  const metaRows  = useMemo(()=>META_DAILY.filter(r=>r.iso>=from&&r.iso<=to),[from,to]);
+
+  // Chart data: live or static
+  const chartData = useMemo(()=>{
+    if (metaIsLive && liveMetaData?.daily) {
+      return liveMetaData.daily.map(d => {
+        const gDay = googleIsLive && liveGoogleData?.daily ? liveGoogleData.daily.find(g=>g.date===d.date) : null;
+        const dt = new Date(d.date);
+        return { d: `${dt.getDate()}/${dt.getMonth()+1}`, meta: d.spend, google: gDay ? gDay.spend : 0, leads: d.leads, cpl: d.leads > 0 ? d.spend/d.leads : 0 };
+      });
+    }
+    return metaRows.map(r=>({d:r.d,meta:r.spend,google:GOOGLE_DAILY_SPEND[r.iso]??0,leads:r.leads,cpl:r.cpl}));
+  },[metaIsLive, liveMetaData, googleIsLive, liveGoogleData, metaRows]);
+
+  const metaSpend = metaIsLive && liveMetaData ? liveMetaData.totalSpend : metaRows.reduce((s,r)=>s+r.spend,0);
+  const metaLeads = metaIsLive && liveMetaData ? liveMetaData.totalLeads : metaRows.reduce((s,r)=>s+r.leads,0);
+  const metaCpl   = metaLeads>0 ? metaSpend/metaLeads : 0;
+  const gSpend    = googleIsLive && liveGoogleData ? liveGoogleData.totalSpend : metaRows.reduce((s,r)=>s+(GOOGLE_DAILY_SPEND[r.iso]??0),0);
+  const gConvs    = googleIsLive && liveGoogleData ? liveGoogleData.totalConversions : GOOGLE_CAMPAIGNS.reduce((s,c)=>s+c.convs,0);
+  const googleCostPerSubmit = gConvs>0 ? gSpend/gConvs : 0;
+  const blendedAvgCPL = (metaLeads+gConvs)>0 ? (metaSpend+gSpend)/(metaLeads+gConvs) : 0;
+
+  // Prior-window marketing metrics (from the second Meta/Google/GA4 fetch)
+  const pm = useMemo(() => {
+    const ms = prevMetaData?.totalSpend ?? null, ml = prevMetaData?.totalLeads ?? null;
+    const gs = prevGoogleData?.totalSpend ?? null, gc = prevGoogleData?.totalConversions ?? null;
+    const mCpl = (ms!=null && ml>0) ? ms/ml : null;
+    const gCps = (gs!=null && gc>0) ? gs/gc : null;
+    const blended = (ms!=null && gs!=null && (ml+gc)>0) ? (ms+gs)/(ml+gc) : null;
+    const total = (ms!=null || gs!=null) ? (ms||0)+(gs||0) : null;
+    return { ms, ml, gs, gc, mCpl, gCps, blended, total };
+  }, [prevMetaData, prevGoogleData]);
+  // Daily sparkline series for the current window (live only)
+  const mSpark = useMemo(() => ({
+    metaSpend: liveMetaData?.daily?.map(d=>d.spend) || null,
+    metaLeads: liveMetaData?.daily?.map(d=>d.leads) || null,
+    metaCpl:   liveMetaData?.daily?.map(d=>d.leads>0?d.spend/d.leads:0) || null,
+    gSpend:    liveGoogleData?.daily?.map(d=>d.spend) || null,
+    gConv:     liveGoogleData?.daily?.map(d=>d.conversions ?? d.convs ?? 0) || null,
+    total:     (liveMetaData?.daily && liveGoogleData?.daily) ? liveMetaData.daily.map(d=>{const g=liveGoogleData.daily.find(x=>x.date===d.date); return d.spend+(g?g.spend:0);}) : null,
+  }), [liveMetaData, liveGoogleData]);
+  const liveCampaigns = googleIsLive && liveGoogleData?.campaigns ? liveGoogleData.campaigns : GOOGLE_CAMPAIGNS;
+
+  // ─── COST PER BOOKING (Southall) ──────────────────────────────────────────
+  // Joins RH bookings (by email) ↔ GHL opps (utmSource in attributions) ↔ Meta/Google spend.
+  // A "booking" = any RH record whose booking-reference date falls in [from,to]
+  // and whose building is Southall. Bookings are attributed to a channel only
+  // if we find the guest's email on a GHL opp with a Facebook/Google utmSource;
+  // otherwise they count as "Other" for blended CAC.
+  const [rhAllBookings, setRhAllBookings] = useState([]);
+  const [rhAllUnits, setRhAllUnits] = useState([]);
+  const [ghlData, setGhlData] = useState(null);
+  const [cpbExpanded, setCpbExpanded] = useState(false);
+  const buildCac = useCallback((from, to, metaSpend, gSpend) => {
+    const opps = ghlData?.allOpps || [];
+    // Wide lookback pool for email→channel attribution: catches Meta leads
+    // captured 40–180d before dateFrom who book inside the current window.
+    const lookupOpps = ghlData?.allOppsLookup || opps;
+    const bookings = rhAllBookings || [];
+    if (!opps.length || !bookings.length) return null;
+
+    // Classify a raw utmSource/source string into a channel.
+    // Returns null when the value is empty OR doesn't match any known platform
+    // (so the caller can keep walking the attributions list).
+    // Returns "other" ONLY for explicit non-paid sources (referrals, organic, etc).
+    const classifyChannel = (s) => {
+      const v = (s || "").toLowerCase().trim();
+      if (!v) return null;
+      // Meta variants observed in GHL: facebook, fb, ig, instagram, meta
+      // plus common ad-platform suffixes
+      if (/^(facebook|fb|meta|ig|instagram)(\.com|_ads|ads|-ads)?$/.test(v)) return "meta";
+      // Google variants: adwords, google, google_ads
+      if (/^(google|adwords)(_ads|ads)?$/.test(v)) return "google";
+      // Explicit non-paid sources — treat as "other" so the walk stops
+      return "other";
+    };
+    // Meta signal in utmMedium (Facebook Lead Forms often set
+    // utmMedium="Broad ... - Lead Form" or similar when utmSource is empty).
+    const mediumSignalsMeta = (m) => {
+      const v = (m || "").toLowerCase();
+      if (!v) return false;
+      // "lead form" is the strongest Meta signal; guard against Google
+      // campaigns that happen to include "google" in the name.
+      if (/google|adwords/.test(v)) return false;
+      return /\blead[\s._-]?form\b/.test(v);
+    };
+    // Pick the best channel for an opp by walking all attributions:
+    //   1. Prefer the isLast=true attribution if it classifies cleanly.
+    //   2. Otherwise walk backwards (most recent first) and take the first
+    //      classifiable touch. This rescues cases where isLast has empty
+    //      utmSource but an earlier touch was Meta/Google.
+    //   3. Finally fall back to the opp's top-level `source` field.
+    const getOppChannel = (o) => {
+      const attrs = o.attributions || [];
+      const tryAttr = (a) => {
+        if (!a) return null;
+        const bySrc = classifyChannel(a.utmSource);
+        if (bySrc === "meta" || bySrc === "google") return bySrc;
+        if (mediumSignalsMeta(a.utmMedium)) return "meta";
+        return bySrc; // null or "other"
+      };
+      const last = attrs.find(a => a.isLast);
+      const fromLast = tryAttr(last);
+      if (fromLast === "meta" || fromLast === "google") return fromLast;
+      for (let i = attrs.length - 1; i >= 0; i--) {
+        if (attrs[i] === last) continue;
+        const ch = tryAttr(attrs[i]);
+        if (ch === "meta" || ch === "google") return ch;
+      }
+      if (fromLast === "other") return "other";
+      return classifyChannel(o.source) || "other";
+    };
+
+    // Email → latest-opp channel lookup.
+    // Walk the WIDE lookup pool so leads captured months ago still attribute
+    // when they book in the current window. If multiple opps share an email,
+    // prefer the one with the strongest (Meta/Google) signal, then most recent.
+    const channelRank = { meta: 3, google: 2, other: 1 };
+    const emailMap = {};
+    for (const o of lookupOpps) {
+      const email = (o.contact?.email || "").toLowerCase().trim();
+      if (!email) continue;
+      const ch = getOppChannel(o);
+      const oppDate = o.createdAt || o.dateAdded || "";
+      const existing = emailMap[email];
+      if (!existing) {
+        emailMap[email] = { channel: ch, oppDate };
+        continue;
+      }
+      const newRank = channelRank[ch] || 0;
+      const oldRank = channelRank[existing.channel] || 0;
+      if (newRank > oldRank || (newRank === oldRank && oppDate > existing.oppDate)) {
+        emailMap[email] = { channel: ch, oppDate };
+      }
+    }
+
+    // "YYYYMMDD-NNNN" → ISO
+    const refToIso = (ref) => {
+      if (!ref || ref.length < 8) return null;
+      return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+    };
+    // Uses the shared LOS_BANDS (28-night boundary) so CAC by length of stay
+    // reconciles with the LoS breakdowns everywhere else on the dashboard.
+    const banding = (d) => (d == null || d < 0) ? null : losBandFor(d).key;
+    const bandLabel = LOS_BANDS.reduce((o, b) => { o[b.key] = `${b.note} (${b.label})`; return o; }, {});
+    const BAND_KEYS = LOS_BANDS.map(b => b.key);
+
+    const rows = [];
+    const lags = [];
+    for (const b of bookings) {
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) continue;
+      const refIso = refToIso(b.bookingReference);
+      const email = (b.bookingContact?.emailAddress || "").toLowerCase().trim();
+      const losDays = (b.startDate && b.endDate)
+        ? Math.round((new Date(b.endDate) - new Date(b.startDate)) / 86400000)
+        : null;
+      const band = banding(losDays);
+      const value = parseFloat(b.netAmount || 0) + parseFloat(b.vatAmount || 0);
+      const match = email ? emailMap[email] : null;
+      const channel = match?.channel || "other";
+
+      // lag (historical, all matched — independent of window)
+      if (match && refIso && match.oppDate) {
+        const oppIso = (match.oppDate || "").slice(0,10);
+        if (oppIso) {
+          const lag = Math.round((new Date(refIso) - new Date(oppIso)) / 86400000);
+          if (lag >= 0 && lag <= 365) lags.push(lag);
+        }
+      }
+
+      // in-window filter
+      if (!refIso) continue;
+      if (from && refIso < from) continue;
+      if (to && refIso > to) continue;
+
+      rows.push({
+        bookingId: b.bookingId, ref: b.bookingReference, refIso,
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        email, start: b.startDate, end: b.endDate,
+        losDays, band, value, channel,
+        status: b.roomStayStatus, unit: b.unit?.name,
+      });
+    }
+
+    const counts = { meta:0, google:0, other:0, total: rows.length };
+    const valueByChannel = { meta:0, google:0, other:0 };
+    const losBandCounts = BAND_KEYS.reduce((o,k)=>{o[k]=0;return o;},{});
+    const losBandValue  = BAND_KEYS.reduce((o,k)=>{o[k]=0;return o;},{});
+    const losBandChannel = BAND_KEYS.reduce((o,k)=>{o[k]={meta:0,google:0,other:0};return o;},{});
+    for (const r of rows) {
+      counts[r.channel]++;
+      valueByChannel[r.channel] += r.value;
+      if (r.band) { losBandCounts[r.band]++; losBandValue[r.band] += r.value; losBandChannel[r.band][r.channel]++; }
+    }
+
+    const totalSpend = metaSpend + gSpend;
+    const blendedCAC = counts.total > 0 ? totalSpend / counts.total : 0;
+    const metaCAC    = counts.meta  > 0 ? metaSpend   / counts.meta  : 0;
+    const googleCAC  = counts.google> 0 ? gSpend      / counts.google: 0;
+
+    const bandCAC = {}, bandAvgValue = {}, bandCacPctValue = {};
+    for (const band of BAND_KEYS) {
+      const c = losBandChannel[band], total = losBandCounts[band];
+      if (total > 0) {
+        const costAttributed = (c.meta * metaCAC) + (c.google * googleCAC) + (c.other * blendedCAC);
+        bandCAC[band] = costAttributed / total;
+        bandAvgValue[band] = losBandValue[band] / total;
+        bandCacPctValue[band] = bandAvgValue[band] > 0 ? (bandCAC[band] / bandAvgValue[band]) * 100 : 0;
+      } else {
+        bandCAC[band] = 0; bandAvgValue[band] = 0; bandCacPctValue[band] = 0;
+      }
+    }
+
+    let medianLag = null;
+    if (lags.length) {
+      const sorted = lags.slice().sort((a,b)=>a-b);
+      medianLag = sorted[Math.floor(sorted.length/2)];
+    }
+
+    return {
+      counts, valueByChannel,
+      totalSpend, blendedCAC, metaCAC, googleCAC,
+      losBandCounts, losBandValue, losBandChannel, bandCAC, bandAvgValue, bandCacPctValue, bandLabel,
+      medianLag, lagSampleSize: lags.length,
+      rows: rows.sort((a,b) => (b.refIso || "").localeCompare(a.refIso || "")),
+    };
+  }, [ghlData, rhAllBookings]);
+  const cacStats = useMemo(() => buildCac(from, to, metaSpend, gSpend), [buildCac, from, to, metaSpend, gSpend]);
+  const prevCacStats = useMemo(() => (pm.ms != null || pm.gs != null) ? buildCac(prior.from, prior.to, pm.ms || 0, pm.gs || 0) : null, [buildCac, prior, pm]);
+
+  // GHL
+  const [ghlLoading, setGhlLoad] = useState(false);
+  const [ghlError,   setGhlErr]  = useState("");
+  const [ghlConn,    setGhlConn] = useState(false);
+  const [manualBookings, setManualBookings] = useState(0);
+  const [manualValue, setManualValue] = useState(0);
+
+  const [prevGhlData, setPrevGhlData] = useState(null);
+  const runGHL = useCallback(async(f,t)=>{
+    setGhlLoad(true); setGhlErr("");
+    try { setGhlData(await loadGHL(f,t)); setGhlConn(true); stamp("ghl"); }
+    catch(e) { setGhlErr(e.message); console.log("GHL Error:", e.message); }
+    finally { setGhlLoad(false); }
+    // prior window, non-blocking — powers the pipeline delta chips
+    try {
+      const fd = new Date(f+"T00:00:00Z"), td = new Date(t+"T00:00:00Z");
+      const days = Math.round((td-fd)/864e5)+1;
+      const pt = new Date(fd.getTime()-864e5), pf = new Date(pt.getTime()-(days-1)*864e5);
+      loadGHL(pf.toISOString().slice(0,10), pt.toISOString().slice(0,10)).then(setPrevGhlData).catch(()=>setPrevGhlData(null));
+    } catch {}
+  },[]);
+
+  useEffect(()=>{ runGHL(from,to); }, []);
+  useEffect(()=>{ if(ghlConn) runGHL(from,to); },[from,to]);
+
+  // PMS
+  // (Res Harmonics credentials removed — Lavanda is the only PMS)
+  const [pmsLoad,setPmsLoad]=useState(false), [pmsErr,setPmsErr]=useState("");
+  const [pmsConn,setPmsConn]=useState(false), [pmsData,setPmsData]=useState(null);
+  const [mOcc,setMOcc]=useState(72), [mRate,setMRate]=useState(1450);
+  const [mBook,setMBook]=useState(14), [mRen,setMRen]=useState(18), [mChurn,setMChurn]=useState(4);
+  const [forecastRenewalRate, setForecastRenewalRate] = useState(60);
+  const [forecastNewPerMonth, setForecastNewPerMonth] = useState(50);
+  const [salesCycleDays, setSalesCycleDays] = useState(47);
+  // LoS mix override — null means "use live distribution from Res Harmonics"
+  // Shape: { short:{share,avgDays}, medium:{...}, long:{...}, annual:{...} }
+  const [losOverride, setLosOverride] = useState(null);
+  const [rateAdjustments, setRateAdjustments] = useState({});
+  const [forecastAwrOverride, setForecastAwrOverride] = useState(null); // null = use live AWR from RH
+  // Offline rooms now default to the ops register rather than a manual guess.
+  // Still overridable, but the register is the starting point so usable-room
+  // maths matches what's actually held. (v2 key so the old manual value doesn't
+  // stick and silently understate the holds.)
+  // Pacing targets (persisted per browser). Defaults come from the existing
+  // revenue-target model and the forecast sliders.
+  const [pacingTargets, setPacingTargetsRaw] = useState({ revenue: TARGET_MONTHLY, bookings: 50, occPct: 95, adr: 40 });
+  const [pacingEdit, setPacingEdit] = useState(false);
+  const setPacingTargets = (fn) => setPacingTargetsRaw(prev => { const next = typeof fn === "function" ? fn(prev) : fn; try { localStorage.setItem("southall_pacing_targets_v1", JSON.stringify(next)); } catch {} return next; });
+  useEffect(() => { try { const v = JSON.parse(localStorage.getItem("southall_pacing_targets_v1") || "null"); if (v && typeof v === "object") setPacingTargetsRaw(p => ({ ...p, ...v })); } catch {} }, []);
+  // ─── CHART ANNOTATIONS ──────────────────────────────────────────────────────
+  // Manual markers ("lift 2 out of service", "Nomad rates +10%") drawn as
+  // vertical lines on every date-based chart, so a dip or spike carries its
+  // explanation with it. Persisted per browser; exportable as JSON.
+  const [annotations, setAnnotationsRaw] = useState([]);
+  const setAnnotations = (fn) => setAnnotationsRaw(prev => { const next = typeof fn === "function" ? fn(prev) : fn; try { localStorage.setItem("southall_annotations_v1", JSON.stringify(next)); } catch {} return next; });
+  useEffect(() => { try { const v = JSON.parse(localStorage.getItem("southall_annotations_v1") || "[]"); if (Array.isArray(v)) setAnnotationsRaw(v); } catch {} }, []);
+  const [annoDraft, setAnnoDraft] = useState({ date: new Date().toISOString().slice(0,10), label: "", color: "#d4a843" });
+  const ANNO_COLORS = ["#d4a843","#c95c54","#3d82c4","#3d9e75","#9b72cf"];
+  // Map annotations onto a chart's x-axis given the chart's label formatter
+  const annosFor = useCallback((fmtDate) => {
+    const seen = new Set();
+    return annotations.map(a => ({ ...a, x: fmtDate(a.date) })).filter(a => a.x && !seen.has(a.x) && seen.add(a.x));
+  }, [annotations]);
+  const annoDayLabel = (iso) => { const d = new Date(iso + "T00:00:00"); return `${d.getDate()}/${d.getMonth()+1}`; };
+  const annoMonthLabel = (iso) => { const d = new Date(iso + "T00:00:00"); return d.getFullYear() === new Date().getFullYear() ? d.toLocaleDateString("en-GB",{month:"short"}) : null; };
+  const annoLongDayLabel = (iso) => new Date(iso + "T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  const annoLine = (a, i) => (
+    <ReferenceLine key={"anno"+i} x={a.x} stroke={a.color || C.gold} strokeDasharray="4 3" strokeWidth={1.5}
+      label={{ value: a.label, position: "insideTopRight", fill: a.color || C.gold, fontSize: 9, fontWeight: 700 }} />
+  );
+
+  const REGISTER_OFFLINE = Object.keys(offlineRoomMap).length + OFFLINE_UNLISTED;
+  const [offlineRooms, setOfflineRoomsRaw] = useState(REGISTER_OFFLINE);
+  const [offlineIsManual, setOfflineIsManual] = useState(false);
+  const setOfflineRooms = (v) => {
+    setOfflineRoomsRaw(v); setOfflineIsManual(true);
+    try { localStorage.setItem("southall_offline_rooms_v2", String(v)); } catch {}
+  };
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("southall_offline_rooms_v2");
+      if (v != null && !isNaN(+v)) { setOfflineRoomsRaw(+v); setOfflineIsManual(true); }
+    } catch {}
+  }, []);
+  const [occupancyOverrides, setOccupancyOverrides] = useState({}); // monthIdx → occupancy % (0-100)
+
+  // ── Lavanda Short-Stay Data ──
+  const LAVANDA_KEY = "75a866b799804d3baee167aa47644576";
+  const [lavandaData, setLavandaData] = useState(null);
+  const [lavandaLoad, setLavandaLoad] = useState(false);
+  const [lavandaErr, setLavandaErr] = useState("");
+  const [lavandaConn, setLavandaConn] = useState(false);
+
+  // Static data from Lavanda artifact — used as initial/fallback
+  const LAVANDA_STATIC = {"generated":"2026-07-28T09:12:34.088140+00:00","today":"2026-07-28","account":"andSoul - Southall &Soul - London","kpis":{"occ_tonight":1,"blocked_tonight":12,"units":30,"available_tonight":17,"in_house":1,"arrivals7":3,"departures7":2,"future_rev":2562.53,"total_conf_value":4137.73,"adr":40.17,"confirmed":9,"canceled":6,"total_inventory":140},"daily":[{"date":"2026-06-30","booked":2,"blocked":28,"total":30,"available":0,"rate":156.0},{"date":"2026-07-01","booked":2,"blocked":28,"total":30,"available":0,"rate":160.0},{"date":"2026-07-02","booked":2,"blocked":28,"total":30,"available":0,"rate":154.0},{"date":"2026-07-03","booked":2,"blocked":27,"total":30,"available":1,"rate":176.0},{"date":"2026-07-04","booked":2,"blocked":27,"total":30,"available":1,"rate":192.0},{"date":"2026-07-05","booked":2,"blocked":27,"total":30,"available":1,"rate":106.0},{"date":"2026-07-06","booked":2,"blocked":28,"total":30,"available":0,"rate":132.0},{"date":"2026-07-07","booked":2,"blocked":28,"total":30,"available":0,"rate":134.0},{"date":"2026-07-08","booked":2,"blocked":28,"total":30,"available":0,"rate":129.0},{"date":"2026-07-09","booked":2,"blocked":13,"total":30,"available":15,"rate":50.0},{"date":"2026-07-10","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-11","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-12","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-13","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-14","booked":2,"blocked":12,"total":30,"available":16,"rate":50.0},{"date":"2026-07-15","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-16","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-17","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-18","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-19","booked":1,"blocked":11,"total":30,"available":18,"rate":40.0},{"date":"2026-07-20","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-21","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-22","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-23","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-24","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-25","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-26","booked":1,"blocked":13,"total":30,"available":16,"rate":40.0},{"date":"2026-07-27","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-28","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-29","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-07-30","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-07-31","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-01","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-02","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-03","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-04","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-05","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-06","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-07","booked":2,"blocked":12,"total":30,"available":16,"rate":40.0},{"date":"2026-08-08","booked":1,"blocked":12,"total":30,"available":17,"rate":40.0},{"date":"2026-08-09","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-10","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-11","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-12","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-13","booked":0,"blocked":12,"total":30,"available":18,"rate":40.0},{"date":"2026-08-14","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-08-15","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-16","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-17","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-18","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-19","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-20","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-21","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-22","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-23","booked":2,"blocked":11,"total":30,"available":17,"rate":45.0},{"date":"2026-08-24","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-25","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-26","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-27","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-28","booked":3,"blocked":11,"total":30,"available":16,"rate":45.0},{"date":"2026-08-29","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-08-30","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-08-31","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-09-01","booked":0,"blocked":12,"total":30,"available":18,"rate":45.0},{"date":"2026-09-02","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-03","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-04","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-05","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-06","booked":0,"blocked":3,"total":30,"available":27,"rate":45.0},{"date":"2026-09-07","booked":0,"blocked":3,"total":30,"available":27,"rate":55.0},{"date":"2026-09-08","booked":0,"blocked":3,"total":30,"available":27,"rate":57.0},{"date":"2026-09-09","booked":0,"blocked":3,"total":30,"available":27,"rate":59.0},{"date":"2026-09-10","booked":0,"blocked":3,"total":30,"available":27,"rate":55.0},{"date":"2026-09-11","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-12","booked":0,"blocked":3,"total":30,"available":27,"rate":57.0},{"date":"2026-09-13","booked":0,"blocked":3,"total":30,"available":27,"rate":53.0},{"date":"2026-09-14","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-15","booked":0,"blocked":3,"total":30,"available":27,"rate":57.0},{"date":"2026-09-16","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-17","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-18","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-19","booked":0,"blocked":3,"total":30,"available":27,"rate":60.0},{"date":"2026-09-20","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-21","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-22","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-23","booked":0,"blocked":3,"total":30,"available":27,"rate":54.0},{"date":"2026-09-24","booked":0,"blocked":3,"total":30,"available":27,"rate":55.0},{"date":"2026-09-25","booked":0,"blocked":3,"total":30,"available":27,"rate":56.0},{"date":"2026-09-26","booked":0,"blocked":3,"total":30,"available":27,"rate":60.0},{"date":"2026-09-27","booked":0,"blocked":3,"total":30,"available":27,"rate":64.0},{"date":"2026-09-28","booked":0,"blocked":3,"total":30,"available":27,"rate":65.0},{"date":"2026-09-29","booked":0,"blocked":3,"total":30,"available":27,"rate":65.0},{"date":"2026-09-30","booked":0,"blocked":3,"total":30,"available":27,"rate":65.0},{"date":"2026-10-01","booked":0,"blocked":3,"total":30,"available":27,"rate":63.0},{"date":"2026-10-02","booked":0,"blocked":3,"total":30,"available":27,"rate":66.0},{"date":"2026-10-03","booked":0,"blocked":3,"total":30,"available":27,"rate":69.0},{"date":"2026-10-04","booked":0,"blocked":2,"total":30,"available":28,"rate":63.0},{"date":"2026-10-05","booked":0,"blocked":2,"total":30,"available":28,"rate":65.0},{"date":"2026-10-06","booked":0,"blocked":2,"total":30,"available":28,"rate":65.0},{"date":"2026-10-07","booked":0,"blocked":2,"total":30,"available":28,"rate":65.0},{"date":"2026-10-08","booked":0,"blocked":2,"total":30,"available":28,"rate":66.0},{"date":"2026-10-09","booked":0,"blocked":2,"total":30,"available":28,"rate":65.0},{"date":"2026-10-10","booked":0,"blocked":2,"total":30,"available":28,"rate":67.0},{"date":"2026-10-11","booked":0,"blocked":2,"total":30,"available":28,"rate":64.0},{"date":"2026-10-12","booked":0,"blocked":2,"total":30,"available":28,"rate":64.0},{"date":"2026-10-13","booked":0,"blocked":2,"total":30,"available":28,"rate":62.0},{"date":"2026-10-14","booked":0,"blocked":19,"total":30,"available":11,"rate":66.0},{"date":"2026-10-15","booked":0,"blocked":19,"total":30,"available":11,"rate":64.0},{"date":"2026-10-16","booked":0,"blocked":19,"total":30,"available":11,"rate":67.0},{"date":"2026-10-17","booked":0,"blocked":2,"total":30,"available":28,"rate":67.0},{"date":"2026-10-18","booked":0,"blocked":2,"total":30,"available":28,"rate":66.0},{"date":"2026-10-19","booked":0,"blocked":1,"total":30,"available":29,"rate":64.0},{"date":"2026-10-20","booked":0,"blocked":1,"total":30,"available":29,"rate":66.0},{"date":"2026-10-21","booked":0,"blocked":1,"total":30,"available":29,"rate":67.0},{"date":"2026-10-22","booked":0,"blocked":1,"total":30,"available":29,"rate":65.0},{"date":"2026-10-23","booked":0,"blocked":1,"total":30,"available":29,"rate":64.0},{"date":"2026-10-24","booked":0,"blocked":1,"total":30,"available":29,"rate":66.0},{"date":"2026-10-25","booked":0,"blocked":1,"total":30,"available":29,"rate":61.0},{"date":"2026-10-26","booked":0,"blocked":1,"total":30,"available":29,"rate":65.0},{"date":"2026-10-27","booked":0,"blocked":1,"total":30,"available":29,"rate":64.0},{"date":"2026-10-28","booked":0,"blocked":1,"total":30,"available":29,"rate":68.0}],"monthly":[{"month":"2026-06","revenue":172.82},{"month":"2026-07","revenue":1635.6},{"month":"2026-08","revenue":2329.31}],"tiers":[{"tier":"Spacious","units":54,"booked":0,"blocked":0,"available":54,"rate":null,"shortstay":false},{"tier":"Nomad (short-stay)","units":30,"booked":1,"blocked":12,"available":17,"rate":40.0,"shortstay":true},{"tier":"Cosy","units":30,"booked":0,"blocked":0,"available":30,"rate":null,"shortstay":false},{"tier":"Roomy","units":26,"booked":0,"blocked":0,"available":26,"rate":null,"shortstay":false}],"upcoming":[{"guest":"Angela Beesley","start":"2026-06-28","end":"2026-07-28","nights":30,"value":963.2,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Niamatulla Kamran","start":"2026-07-28","end":"2026-08-01","nights":4,"value":165.16,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Claire Fox","start":"2026-07-30","end":"2026-08-08","nights":9,"value":306.27,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Abdulrazak Abdullah  Moahmed","start":"2026-08-01","end":"2026-08-09","nights":8,"value":306.32,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Gokhan Aladag","start":"2026-08-15","end":"2026-08-29","nights":14,"value":723.0,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Gökhan Aladağ","start":"2026-08-15","end":"2026-08-29","nights":14,"value":621.35,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Gearoid Mcsherry","start":"2026-08-17","end":"2026-08-20","nights":3,"value":135.12,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"},{"guest":"Rebecca Daffeh","start":"2026-08-24","end":"2026-08-29","nights":5,"value":305.31,"platform":"Booking.com","status":"confirmed","unit":"Southall &Soul - Nomad Ensuite"}]};
+
+  // Load Lavanda data — live from API, static snapshot as fallback
+  // Honesty rule: the July static file is a shape fallback only — it is never
+  // presented as connected. Short-stay figures appear once the live feed answers.
+  useEffect(() => {
+    setLavandaData(LAVANDA_STATIC);
+    setLavandaConn(false);
+    setLavandaLoad(true);
+    fetch(`/api/lavanda?action=dashboard&apiKey=${LAVANDA_KEY}`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(d => {
+        if (d && d.kpis && d.daily && d.daily.length > 0) {
+          setLavandaData(d); stamp("lavanda"); setLavandaConn(true);
+          setLavandaErr("");
+          console.log("Lavanda live data loaded:", d.kpis, d.errors);
+        } else {
+          console.warn("Lavanda live fetch returned unexpected shape", d);
+          setLavandaErr("Lavanda live fetch failed — short-stay figures unavailable");
+        }
+      })
+      .catch(e => {
+        console.warn("Lavanda live fetch failed:", e.message);
+        setLavandaErr("Lavanda live fetch failed — short-stay figures unavailable");
+      })
+      .finally(() => setLavandaLoad(false));
+  }, []);
+
+  // ── Canopy Reference Checks (loaded from Redis via webhook data) ──
+  const [canopyData, setCanopyData] = useState(null); // { byEmail: { email -> { signal, rawStatus, ... } }, totalRecords }
+  const [canopyLoad, setCanopyLoad] = useState(false);
+  const [canopyErr, setCanopyErr] = useState("");
+  const [canopyConn, setCanopyConn] = useState(false);
+
+  const fetchCanopy = useCallback(async () => {
+    setCanopyLoad(true); setCanopyErr("");
+    try {
+      const res = await fetch("/api/canopy-webhook");
+      if (!res.ok) throw new Error(`Canopy load ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      const data = await res.json();
+      if (data.ok) {
+        setCanopyData({ byEmail: data.byEmail || {}, totalRecords: data.totalRecords || 0 });
+        setCanopyConn(true);
+      }
+    } catch (err) {
+      setCanopyErr(err.message);
+      console.error("Canopy fetch error:", err);
+    } finally {
+      setCanopyLoad(false);
+    }
+  }, []);
+
+  // Auto-load Canopy data when renewals tab is opened
+  useEffect(() => { if (tab === "renewals" && !canopyConn && !canopyLoad) fetchCanopy(); }, [tab]);
+
+  // ── Renewals state ──
+  const [renewalTrackerFrom, setRenewalTrackerFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0,10);
+  });
+  const [renewalTrackerTo, setRenewalTrackerTo] = useState(() => new Date().toISOString().slice(0,10));
+  const [renewalTrackerPreset, setRenewalTrackerPreset] = useState("7d");
+  const [renewalSelectedMonth, setRenewalSelectedMonth] = useState(null);
+  const [renewalSort, setRenewalSort] = useState({ col: "expiry", dir: "asc" }); // default sort by expiry ascending
+  const [renewalSearch, setRenewalSearch] = useState("");
+  const [smsModal, setSmsModal] = useState(null);
+  const [smsText, setSmsText] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsResult, setSmsResult] = useState(null);
+
+  // Leaving reason options
+  const LEAVING_REASONS = [
+    "Travel / Temporary / Nomadic Stay",
+    "Heating / Comfort / Health Issues",
+    "Found Alternative Accommodation",
+    "Affordability / Financial Constraints",
+    "No Reason Given",
+    "Canopy Not Passed",
+  ];
+
+  // Clipboard feedback: briefly show "Copied!" after clicking a name to copy email
+  const [copiedEmail, setCopiedEmail] = useState(null);
+  const copyEmail = useCallback((email, id) => {
+    if (!email) return;
+    navigator.clipboard.writeText(email).catch(() => {});
+    setCopiedEmail(id);
+    setTimeout(() => setCopiedEmail(null), 1500);
+  }, []);
+
+  // Table copy to clipboard (tab-separated for Excel paste)
+  const [copiedTable, setCopiedTable] = useState(null);
+  const copyTable = useCallback((rows, id) => {
+    const tsv = rows.map(r => r.join("\t")).join("\n");
+    navigator.clipboard.writeText(tsv).catch(() => {});
+    setCopiedTable(id);
+    setTimeout(() => setCopiedTable(null), 2000);
+  }, []);
+
+  // Manual "leaving" markers — persisted in Redis (with localStorage fallback)
+  const [leavingSet, setLeavingSet] = useState(() => {
+    if (typeof window === "undefined") return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem("renewal_leaving_v1") || "[]")); } catch { return new Set(); }
+  });
+
+  // Leaving reasons map: roomStayId → reason string
+  const [leavingReasons, setLeavingReasons] = useState(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem("renewal_leaving_reasons_v1") || "{}"); } catch { return {}; }
+  });
+
+  // Manual "pending renewal" markers — for cases where RH has a pending room stay
+  // that the API doesn't expose (API excludes PENDING status)
+  const [pendingSet, setPendingSet] = useState(() => {
+    if (typeof window === "undefined") return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem("renewal_pending_v1") || "[]")); } catch { return new Set(); }
+  });
+
+  // Early termination markers: roomStayId → true (subset of leavingSet)
+  const [earlyTermSet, setEarlyTermSet] = useState(() => {
+    if (typeof window === "undefined") return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem("renewal_early_term_v1") || "[]")); } catch { return new Set(); }
+  });
+
+  // Customer reference map: roomStayId → free-text reference
+  const [customerRefs, setCustomerRefs] = useState(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem("renewal_customer_refs_v1") || "{}"); } catch { return {}; }
+  });
+
+  // Lead Source CSV upload removed — the Marketing "Lead Source Breakdown" it fed
+  // was a manual CSV last refreshed 26 May and duplicated the LIVE GHL-attributed
+  // breakdown shown under Recent Booking Activity (Occupancy tab).
+
+  // Save customer ref locally (and to RH API if connected)
+  const saveCustomerRef = useCallback((roomStayId, bookingId, value) => {
+    setCustomerRefs(prev => {
+      const next = { ...prev, [roomStayId]: value };
+      try { localStorage.setItem("renewal_customer_refs_v1", JSON.stringify(next)); } catch {}
+      return next;
+    });
+    // Also persist customerRefs to Redis (merge — API now does read-merge-write)
+    setCustomerRefs(prev => {
+      fetch("/api/renewal-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerRefs: prev }),
+      }).catch(() => {});
+      return prev;
+    });
+  }, []);
+
+  // Helper: save both sets + leaving reasons to Redis + localStorage
+  const persistRenewalState = useCallback((newLeaving, newPending, newReasons, newEarlyTerm) => {
+    const lArr = [...newLeaving];
+    const pArr = [...newPending];
+    const reasons = newReasons || leavingReasons;
+    const etArr = newEarlyTerm ? [...newEarlyTerm] : [...earlyTermSet];
+    try { localStorage.setItem("renewal_leaving_v1", JSON.stringify(lArr)); } catch {}
+    try { localStorage.setItem("renewal_pending_v1", JSON.stringify(pArr)); } catch {}
+    try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(reasons)); } catch {}
+    try { localStorage.setItem("renewal_early_term_v1", JSON.stringify(etArr)); } catch {}
+    fetch("/api/renewal-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leaving: lArr, pending: pArr, leavingReasons: reasons, earlyTerm: etArr }),
+    }).catch(() => {});
+  }, [leavingReasons, earlyTermSet]);
+
+  // Load from Redis on mount — overrides localStorage with server state
+  useEffect(() => {
+    fetch("/api/renewal-state")
+      .then(r => r.json())
+      .then(data => {
+        if (data.leaving && data.leaving.length > 0) {
+          const ls = new Set(data.leaving);
+          setLeavingSet(ls);
+          try { localStorage.setItem("renewal_leaving_v1", JSON.stringify(data.leaving)); } catch {}
+        }
+        if (data.pending && data.pending.length > 0) {
+          const ps = new Set(data.pending);
+          setPendingSet(ps);
+          try { localStorage.setItem("renewal_pending_v1", JSON.stringify(data.pending)); } catch {}
+        }
+        if (data.leavingReasons && Object.keys(data.leavingReasons).length > 0) {
+          setLeavingReasons(data.leavingReasons);
+          try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(data.leavingReasons)); } catch {}
+        }
+        if (data.customerRefs && Object.keys(data.customerRefs).length > 0) {
+          setCustomerRefs(data.customerRefs);
+          try { localStorage.setItem("renewal_customer_refs_v1", JSON.stringify(data.customerRefs)); } catch {}
+        }
+        if (data.earlyTerm && data.earlyTerm.length > 0) {
+          setEarlyTermSet(new Set(data.earlyTerm));
+          try { localStorage.setItem("renewal_early_term_v1", JSON.stringify(data.earlyTerm)); } catch {}
+        }
+      })
+      .catch(() => {}); // fall back to localStorage values already in state
+  }, []);
+
+  // Set a leaving reason for a roomStayId and persist
+  const setLeavingReason = useCallback((roomStayId, reason) => {
+    setLeavingReasons(prev => {
+      const next = { ...prev, [roomStayId]: reason };
+      try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(next)); } catch {}
+      // persist with current sets
+      setLeavingSet(ls => {
+        setPendingSet(ps => {
+          persistRenewalState(ls, ps, next);
+          return ps;
+        });
+        return ls;
+      });
+      return next;
+    });
+  }, [persistRenewalState]);
+
+  const toggleLeaving = useCallback((roomStayId) => {
+    setLeavingSet(prev => {
+      const next = new Set(prev);
+      if (next.has(roomStayId)) {
+        next.delete(roomStayId);
+        // Clear reason + early term when undoing
+        setLeavingReasons(prevR => {
+          const nextR = { ...prevR };
+          delete nextR[roomStayId];
+          try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(nextR)); } catch {}
+          setEarlyTermSet(prevET => {
+            const nextET = new Set(prevET);
+            nextET.delete(roomStayId);
+            try { localStorage.setItem("renewal_early_term_v1", JSON.stringify([...nextET])); } catch {}
+            setPendingSet(prevP => {
+              const nextP = new Set(prevP);
+              nextP.delete(roomStayId);
+              persistRenewalState(next, nextP, nextR, nextET);
+              return nextP;
+            });
+            return nextET;
+          });
+          return nextR;
+        });
+      } else {
+        next.add(roomStayId);
+        // Also remove from pendingSet
+        setPendingSet(prevP => {
+          const nextP = new Set(prevP);
+          nextP.delete(roomStayId);
+          persistRenewalState(next, nextP);
+          return nextP;
+        });
+      }
+      return next;
+    });
+  }, [persistRenewalState]);
+
+  const toggleEarlyTerm = useCallback((roomStayId) => {
+    setEarlyTermSet(prev => {
+      const next = new Set(prev);
+      if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
+      try { localStorage.setItem("renewal_early_term_v1", JSON.stringify([...next])); } catch {}
+      persistRenewalState(leavingSet, pendingSet, leavingReasons, next);
+      return next;
+    });
+  }, [leavingSet, pendingSet, leavingReasons, persistRenewalState]);
+
+  const togglePending = useCallback((roomStayId) => {
+    setPendingSet(prev => {
+      const next = new Set(prev);
+      if (next.has(roomStayId)) next.delete(roomStayId); else next.add(roomStayId);
+      // Also remove from leavingSet
+      setLeavingSet(prevL => {
+        const nextL = new Set(prevL);
+        nextL.delete(roomStayId);
+        persistRenewalState(nextL, next);
+        return nextL;
+      });
+      return next;
+    });
+  }, [persistRenewalState]);
+
+  // ─── Two-way sync: auto-clear "leaving" markers when RH shows a follow-on ───
+  // If someone was manually marked as leaving, but Res Harmonics later gets a
+  // PENDING or CONFIRMED follow-on booking, automatically remove the leaving flag.
+  useEffect(() => {
+    if (!pmsData?.renewalMonths?.length) return;
+    const renewedOrPendingRsIds = new Set();
+    pmsData.renewalMonths.forEach(m => {
+      m.entries.forEach(e => {
+        if (e.isRenewed || e.isPendingRenewal) renewedOrPendingRsIds.add(e.roomStayId);
+      });
+    });
+    setLeavingSet(prev => {
+      let changed = false;
+      const next = new Set(prev);
+      const clearedIds = [];
+      next.forEach(rsId => {
+        if (renewedOrPendingRsIds.has(rsId)) {
+          next.delete(rsId);
+          clearedIds.push(rsId);
+          changed = true;
+        }
+      });
+      if (changed) {
+        console.log(`Auto-cleared leaving markers for ${clearedIds.length} entries — RH shows follow-on bookings:`, clearedIds);
+        setLeavingReasons(prevR => {
+          const nextR = { ...prevR };
+          clearedIds.forEach(id => delete nextR[id]);
+          try { localStorage.setItem("renewal_leaving_reasons_v1", JSON.stringify(nextR)); } catch {}
+          return nextR;
+        });
+        try { localStorage.setItem("renewal_leaving_v1", JSON.stringify([...next])); } catch {}
+        persistRenewalState(next, pendingSet);
+      }
+      return changed ? next : prev;
+    });
+  }, [pmsData?.renewalMonths]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Messaging state — supports SMS and Email via GHL
+  const [msgChannel, setMsgChannel] = useState("sms"); // "sms" | "email"
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+
+  // ── Recent Booking Activity state ──
+  const [activityFrom, setActivityFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0,10);
+  });
+  const [activityTo, setActivityTo] = useState(() => new Date().toISOString().slice(0,10));
+  const [activityPreset, setActivityPreset] = useState("7d");
+
+  const buildActivity = useCallback((activityFrom, activityTo) => {
+    if (!rhAllBookings || !rhAllBookings.length) return { newBookings:[], renewals:[], pending:[], all:[], losBuckets:{"<32d":0,"32-91d":0,"92-181d":0,"182-364d":0,"365d+":0}, roomBuckets:{}, stats:{newCount:0,renewalCount:0,pendingCount:0,totalActivity:0} };
+
+    const bookings = rhAllBookings;
+    // Parse creation date from booking reference "YYYYMMDD-NNNNN"
+    const parseCreated = (ref, b) => {
+      if (b?.created) return b.created.slice(0,10);
+      if (!ref || ref.length < 8 || !/^\d{8}-/.test(ref)) return null;
+      return `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+    };
+
+    // Build unit ID → room type map from the unit list
+    const unitTypeMap = {};
+    for (const u of (rhAllUnits || [])) {
+      const tn = (u.unitTypeName || "").toLowerCase();
+      let rt = "Other";
+      if (tn.includes("nook")) rt = "Nook";
+      else if (tn.includes("ensuite") || tn.includes("nomad")) rt = "Ensuite/Nomad";
+      else if (tn.includes("snug plus") || tn.includes("snug +")) rt = "Snug / +";
+      else if (tn.includes("snug")) rt = "Snug / +";
+      else if (tn.includes("cosy") || tn.includes("cozy")) rt = "Cosy";
+      else if (tn.includes("roomy")) rt = "Roomy";
+      else if (tn.includes("spacious")) rt = "Spacious";
+      else if (tn.includes("deluxe accessible") || tn.includes("dda")) rt = "Deluxe/DDA";
+      else if (tn.includes("deluxe")) rt = "Deluxe/DDA";
+      unitTypeMap[u.id] = rt;
+    }
+
+    // Filter to Southall, active statuses, created within date range
+    const activeStatuses = new Set(["PENDING","CONFIRMED","CHECKED_IN"]);
+    const candidates = [];
+    for (const b of bookings) {
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) continue;
+      const status = (b.roomStayStatus ?? "").toUpperCase();
+      if (!activeStatuses.has(status)) continue;
+      const start = b.startDate?.slice(0,10);
+      const end = b.endDate?.slice(0,10);
+      if (!start || !end) continue;
+      const losDays = Math.round((new Date(end) - new Date(start)) / 86400000);
+      // Short breaks (<28 nights) are now kept and shown in their own band
+      // rather than being dropped, so the totals reconcile.
+      if (losDays < 1) continue;
+      const created = parseCreated(b.bookingReference, b);
+      if (!created) continue;
+      if (created < activityFrom || created > activityTo) continue;
+      // Classify room type from unit ID → unitTypeName map
+      const roomType = unitTypeMap[b.unit?.id] || "Other";
+      // Compute AWR and PCM from netAmount + vatAmount
+      const net = parseFloat(b.netAmount ?? 0);
+      const vat = parseFloat(b.vatAmount ?? 0);
+      const gross = net + (isNaN(vat) ? 0 : vat);
+      const weeklyRate = (losDays > 0 && net > 0) ? Math.round((net / losDays) * 7) : 0;
+      const weeklyRateGross = (losDays > 0 && gross > 0) ? Math.round((gross / losDays) * 7) : 0;
+      // True contracted rate from the RH roomStay detail where available,
+      // otherwise derived from value ÷ days (never snapped to a price list)
+      const pcmGross = (losDays > 0 && gross > 0) ? pcmGrossFor(b, gross, losDays) : 0;
+      candidates.push({
+        source: "rh",
+        bookingReference: b.bookingReference,
+        created,
+        startDate: start,
+        endDate: end,
+        losDays,
+        status,
+        firstName: b.bookingContact?.firstName || "",
+        lastName: b.bookingContact?.lastName || "",
+        name: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+        contactId: b.contactId || b.bookingContact?.id,
+        room: b.unit?.name || "—",
+        roomType,
+        roomStayId: b.roomStayId,
+        bookingType: b.bookingType || "",
+        bookingId: b.bookingId,
+        netAmount: net,
+        grossAmount: gross,
+        weeklyRate,
+        weeklyRateGross,
+        pcmGross,
+        email: (b.bookingContact?.emailAddress || "").toLowerCase().trim(),
+      });
+    }
+
+    // ── Short-stay bookings created in the same window (Lavanda) ──
+    // Included so the activity panel covers every booking taken, not just
+    // long-stay. Tracked separately so the breakdown can be split by source.
+    const lavCandidates = [];
+    if (lavandaConn && lavandaData?.bookingsLite) {
+      lavandaData.bookingsLite.forEach(b => {
+        if (b.nomad === false) return; // long-stay rooms come via the snapshot — avoid double counting
+        if (!b.created || b.created < activityFrom || b.created > activityTo) return;
+        if (!b.nights || b.nights < 1) return;
+        lavCandidates.push({
+          source: "lav",
+          bookingReference: b.code || "—",
+          created: b.created, startDate: b.start, endDate: b.end,
+          losDays: b.nights, status: "CONFIRMED",
+          name: b.guest, room: b.room ? `Room: ${b.room}` : "—",
+          roomType: "Ensuite/Nomad",
+          grossAmount: b.value, platform: b.platform,
+        });
+      });
+    }
+
+    // LoS breakdown — shared bands, split by source so long-stay (Res Harmonics)
+    // and short-stay (Lavanda) can be read separately as well as combined
+    const mkBand = () => LOS_BANDS.reduce((o, b) => { o[b.short] = 0; return o; }, {});
+    const losBuckets = mkBand();       // combined (kept for existing consumers)
+    const losDaysBuckets = mkBand();
+    const losBySource = { rh: mkBand(), lav: mkBand() };
+    const losDaysBySource = { rh: mkBand(), lav: mkBand() };
+    const srcTotals = { rh: { count: 0, days: 0 }, lav: { count: 0, days: 0 } };
+    [...candidates, ...lavCandidates].forEach(c => {
+      const k = losBandFor(c.losDays).short;
+      const src = c.source === "lav" ? "lav" : "rh";
+      losBuckets[k]++; losDaysBuckets[k] += c.losDays;
+      losBySource[src][k]++; losDaysBySource[src][k] += c.losDays;
+      srcTotals[src].count++; srcTotals[src].days += c.losDays;
+    });
+    const totalDaysBooked = candidates.reduce((s, c) => s + c.losDays, 0) +
+                            lavCandidates.reduce((s, c) => s + c.losDays, 0);
+
+    // Room type breakdown
+    const roomBuckets = {};
+    const roomDaysBuckets = {};
+    for (const c of candidates) {
+      roomBuckets[c.roomType] = (roomBuckets[c.roomType] || 0) + 1;
+      roomDaysBuckets[c.roomType] = (roomDaysBuckets[c.roomType] || 0) + c.losDays;
+    }
+
+    // Move-in by month breakdown (next 6 months: May–Oct or whatever the current window is)
+    const moveInMonths = {};
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    for (const c of candidates) {
+      const d = new Date(c.startDate);
+      const key = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+      moveInMonths[key] = (moveInMonths[key] || 0) + 1;
+    }
+    // Build ordered list of months from earliest to latest move-in
+    const moveInOrdered = Object.entries(moveInMonths)
+      .map(([month, count]) => ({ month, count }))
+      .sort((a, b) => {
+        const parse = s => { const [m, y] = s.split(" "); return new Date(`${m} 1, ${y}`); };
+        return parse(a.month) - parse(b.month);
+      });
+
+    // AWR summary — gross (inc-VAT) as primary, net (ex-VAT) as secondary
+    const awrCandidates = candidates.filter(c => c.weeklyRateGross > 0 && c.weeklyRateGross < 5000);
+    const avgAwr = awrCandidates.length > 0 ? Math.round(awrCandidates.reduce((s, c) => s + c.weeklyRateGross, 0) / awrCandidates.length) : 0;
+    const avgAwrNet = awrCandidates.length > 0 ? Math.round(awrCandidates.reduce((s, c) => s + c.weeklyRate, 0) / awrCandidates.length) : 0;
+    const minAwr = awrCandidates.length > 0 ? Math.min(...awrCandidates.map(c => c.weeklyRateGross)) : 0;
+    const minAwrNet = awrCandidates.length > 0 ? Math.min(...awrCandidates.map(c => c.weeklyRate)) : 0;
+    const maxAwr = awrCandidates.length > 0 ? Math.max(...awrCandidates.map(c => c.weeklyRateGross)) : 0;
+    const maxAwrNet = awrCandidates.length > 0 ? Math.max(...awrCandidates.map(c => c.weeklyRate)) : 0;
+    const totalContractValue = candidates.reduce((s, c) => s + c.grossAmount, 0);
+    const totalContractValueNet = candidates.reduce((s, c) => s + c.netAmount, 0);
+
+    // Build contact history from ALL bookings (not just filtered) to detect renewals
+    // Only include 27+ day Southall stays from DIFFERENT booking references
+    const contactHistory = {};
+    for (const b of bookings) {
+      const cid = b.contactId || b.bookingContact?.id;
+      if (!cid) continue;
+      const bld = (b.unit?.buildingName || "").toLowerCase();
+      if (!bld.includes("southall")) continue;
+      const start = b.startDate?.slice(0,10);
+      const end = b.endDate?.slice(0,10);
+      if (!start || !end) continue;
+      const los = Math.round((new Date(end) - new Date(start)) / 86400000);
+      if (los < 27) continue; // Only track meaningful stays for renewal detection
+      if (!contactHistory[cid]) contactHistory[cid] = [];
+      contactHistory[cid].push({ start, end, roomStayId: b.roomStayId, bookingRef: b.bookingReference });
+    }
+
+    // Classify each candidate as new or renewal
+    // A renewal = contact has a prior 27+ day Southall stay from a DIFFERENT booking reference
+    const newBookings = [];
+    const renewalBookings = [];
+    const pendingBookings = [];
+    for (const c of candidates) {
+      const cid = c.contactId;
+      const history = cid ? (contactHistory[cid] || []) : [];
+      const hasPrior = history.some(h => h.bookingRef !== c.bookingReference && h.roomStayId !== c.roomStayId && h.end <= c.startDate);
+      const isRenewal = hasPrior;
+      c.activityType = isRenewal ? "Returning" : "New";
+      if (isRenewal) {
+        renewalBookings.push(c);
+      } else {
+        newBookings.push(c);
+      }
+      if (c.status === "PENDING") {
+        pendingBookings.push(c);
+      }
+    }
+
+    // Sort by created descending
+    candidates.sort((a,b) => b.created.localeCompare(a.created));
+
+    return {
+      newBookings, renewals: renewalBookings, pending: pendingBookings,
+      all: candidates,
+      losBuckets, losDaysBuckets, losBySource, losDaysBySource, srcTotals, lavCandidates,
+      totalDaysBooked, roomBuckets, roomDaysBuckets, moveInOrdered,
+      awrSummary: { avg: avgAwr, avgNet: avgAwrNet, min: minAwr, minNet: minAwrNet, max: maxAwr, maxNet: maxAwrNet, totalContractValue, totalContractValueNet, count: awrCandidates.length },
+      stats: {
+        newCount: newBookings.length,
+        renewalCount: renewalBookings.length,
+        pendingCount: pendingBookings.length,
+        totalActivity: newBookings.length + renewalBookings.length,
+      }
+    };
+  }, [rhAllBookings, rhAllUnits, lavandaConn, lavandaData]);
+  const recentActivity = useMemo(() => buildActivity(activityFrom, activityTo), [buildActivity, activityFrom, activityTo]);
+  const prevActivityWindow = useMemo(() => {
+    const f = new Date(activityFrom + 'T00:00:00Z'), t = new Date(activityTo + 'T00:00:00Z');
+    const days = Math.round((t - f) / 864e5) + 1;
+    const pt = new Date(f.getTime() - 864e5), pf = new Date(pt.getTime() - (days - 1) * 864e5);
+    return { from: pf.toISOString().slice(0,10), to: pt.toISOString().slice(0,10), label: `prev ${days}d` };
+  }, [activityFrom, activityTo]);
+  const prevActivity = useMemo(() => buildActivity(prevActivityWindow.from, prevActivityWindow.to), [buildActivity, prevActivityWindow]);
+
+  // ── Lead source attribution (async GHL lookup) ──
+  const [leadSources, setLeadSources] = useState({});
+  const [lsLoading, setLsLoading] = useState(false);
+  const lsCache = useRef({});
+  useEffect(() => {
+    if (!recentActivity.all.length || !ghlConn) return;
+    const uncached = recentActivity.all.filter(b => b.name && !lsCache.current[b.name]);
+    if (!uncached.length) {
+      // All cached — just set from cache
+      const mapped = {};
+      recentActivity.all.forEach(b => { if (b.name) mapped[b.name] = lsCache.current[b.name] || "direct"; });
+      setLeadSources(mapped);
+      return;
+    }
+    // De-duplicate by name
+    const unique = {};
+    uncached.forEach(b => { if (!unique[b.name]) unique[b.name] = b; });
+    const entries = Object.values(unique);
+    let cancelled = false;
+    (async () => {
+      setLsLoading(true);
+      const results = {};
+      // Process in batches of 5
+      for (let i = 0; i < entries.length; i += 5) {
+        if (cancelled) break;
+        const batch = entries.slice(i, i + 5);
+        await Promise.all(batch.map(async (b) => {
+          try {
+            let ghlContact = null;
+            // Strategy 1: Search by email
+            if (b.email) {
+              try {
+                const r = await ghlGet(`/contacts/?locationId=${GHL_LOCATION}&query=${encodeURIComponent(b.email)}&limit=5`);
+                const contacts = r?.contacts || [];
+                if (contacts.length > 0) ghlContact = contacts.sort((a,c) => (c.dateAdded||"").localeCompare(a.dateAdded||""))[0];
+              } catch(e) { console.log("LS email search failed:", b.email, e.message); }
+            }
+            // Strategy 2: Search by full name
+            if (!ghlContact && b.name) {
+              try {
+                const r = await ghlGet(`/contacts/?locationId=${GHL_LOCATION}&query=${encodeURIComponent(b.name)}&limit=5`);
+                const contacts = r?.contacts || [];
+                if (contacts.length > 0) ghlContact = contacts.sort((a,c) => (c.dateAdded||"").localeCompare(a.dateAdded||""))[0];
+              } catch(e) { console.log("LS name search failed:", b.name, e.message); }
+            }
+            // Strategy 3: Search by last name, filter by first name
+            if (!ghlContact && b.lastName) {
+              try {
+                const r = await ghlGet(`/contacts/?locationId=${GHL_LOCATION}&query=${encodeURIComponent(b.lastName)}&limit=10`);
+                const contacts = r?.contacts || [];
+                const fn = (b.firstName || "").toLowerCase();
+                const filtered = contacts.filter(c => {
+                  const cfn = (c.firstName || "").toLowerCase();
+                  return cfn.includes(fn) || fn.includes(cfn) || (cfn[0] && fn[0] && cfn[0] === fn[0]);
+                });
+                if (filtered.length > 0) ghlContact = filtered.sort((a,c) => (c.dateAdded||"").localeCompare(a.dateAdded||""))[0];
+              } catch(e) { console.log("LS lastName search failed:", b.lastName, e.message); }
+            }
+            if (ghlContact) {
+              // Fetch full contact details for attribution data
+              try {
+                const full = await ghlGet(`/contacts/${ghlContact.id}`);
+                const c = full?.contact || full || {};
+                results[b.name] = classifyLeadSource(c);
+              } catch(e) {
+                console.log("LS contact detail failed:", ghlContact.id, e.message);
+                results[b.name] = "direct";
+              }
+            } else {
+              results[b.name] = "not_found";
+            }
+          } catch(e) {
+            console.log("LS lookup error:", b.name, e.message);
+            results[b.name] = "error";
+          }
+        }));
+      }
+      if (!cancelled) {
+        Object.assign(lsCache.current, results);
+        const mapped = {};
+        recentActivity.all.forEach(b => { if (b.name) mapped[b.name] = lsCache.current[b.name] || "direct"; });
+        setLeadSources(mapped);
+        setLsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [recentActivity.all, ghlConn]);
+
+  // Compute lead source summary counts
+  const lsSummary = useMemo(() => {
+    const counts = {};
+    Object.values(leadSources).forEach(code => {
+      counts[code] = (counts[code] || 0) + 1;
+    });
+    return counts;
+  }, [leadSources]);
+
+  const openSmsModal = useCallback((entry, channel = "sms") => {
+    const firstName = entry.name.split(" ")[0];
+    const expiryStr = new Date(entry.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
+    const smsTemplate = `Hi ${firstName}, your stay at &Soul Southall is coming to an end on ${expiryStr}. We'd love to have you stay with us! Reply to this message or speak to the front desk to discuss your renewal options.`;
+    const emailSub = `Your Stay at &Soul Southall — Renewal`;
+    const emailTpl = `Hi ${firstName},\n\nWe hope you've been enjoying your time at &Soul Southall.\n\nYour current stay is due to end on ${expiryStr}, and we'd love the opportunity to discuss your renewal options with you.\n\nWhether you'd like to extend in your current room or explore other options within the building, our team is here to help make the process as smooth as possible.\n\nPlease feel free to reply to this email, or pop down to the front desk at your convenience.\n\nWarm regards,\nThe &Soul Team`;
+    setSmsText(smsTemplate);
+    setEmailSubject(emailSub);
+    setEmailBody(emailTpl);
+    setSmsResult(null);
+    setMsgChannel(channel);
+    setSmsModal(entry);
+  }, []);
+
+  const sendMessage = useCallback(async () => {
+    if (!smsModal) return;
+    const isSms = msgChannel === "sms";
+    const body = isSms ? smsText.trim() : emailBody.trim();
+    if (!body || (!isSms && !emailSubject.trim())) return;
+    setSmsSending(true);
+    setSmsResult(null);
+    try {
+      // Step 1: Find GHL contact by email, then phone
+      let contactId = null;
+      if (smsModal.email) {
+        const r1 = await ghlGet(`/contacts/search/duplicate?locationId=${GHL_LOCATION}&email=${encodeURIComponent(smsModal.email)}`);
+        contactId = r1?.contact?.id;
+      }
+      if (!contactId && smsModal.phone) {
+        const r2 = await ghlGet(`/contacts/search/duplicate?locationId=${GHL_LOCATION}&phone=${encodeURIComponent(smsModal.phone)}`);
+        contactId = r2?.contact?.id;
+      }
+      if (!contactId) { setSmsResult("error:Contact not found in GHL. Add them first."); return; }
+
+      // Step 2: Send via GHL conversations API
+      const payload = isSms
+        ? { type: "SMS", contactId, message: body }
+        : { type: "Email", contactId, subject: emailSubject.trim(), message: body, emailFrom: "stay@andsoul.com" };
+      const res = await fetch(`/api/ghl?path=${encodeURIComponent("/conversations/messages")}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) { const d = await res.json().catch(()=>({})); throw new Error(d.message || d.error || `HTTP ${res.status}`); }
+      setSmsResult(isSms ? "sms_sent" : "email_sent");
+    } catch (e) {
+      setSmsResult("error:" + e.message);
+    } finally { setSmsSending(false); }
+  }, [smsModal, smsText, emailBody, emailSubject, msgChannel]);
+
+  // Combined occupancy — RH rooms plus Lavanda short-stay rooms, de-duplicated
+  // (a room booked in both systems is one occupied room), measured against
+  // USABLE rooms so this ties out with the Summary tab.
+  const occupied = (() => {
+    if (!(pmsConn && pmsData)) return Math.round(BEDS * mOcc / 100);
+    const rhRooms = new Set(pmsData.occupiedRoomNumbers || []);
+    const d = new Date().toISOString().slice(0, 10);
+    const ssRooms = (lavandaConn && lavandaData?.ssStays)
+      ? [...new Set(lavandaData.ssStays.filter(s => s.start <= d && s.end >= d).map(s => s.room))]
+      : [];
+    const extra = ssRooms.filter(r => !rhRooms.has(r)).length;
+    return pmsData.occupied + extra;
+  })();
+  // Guests in house right now (stays, Lavanda's "Active stays" definition)
+  const inHouseGuests = (() => {
+    if (!(pmsConn && pmsData)) return 0;
+    const rhRooms = new Set(pmsData.occupiedRoomNumbers || []);
+    const d = new Date().toISOString().slice(0, 10);
+    const ssStays = (lavandaConn && lavandaData?.ssStays) ? lavandaData.ssStays.filter(s => s.start <= d && s.end >= d && !rhRooms.has(s.room)).length : 0;
+    return (pmsData.inHouseGuests || pmsData.occupied) + ssStays;
+  })();
+  // BEDS (302) is the confirmed building count; Lavanda's record count (303) is
+  // only used if the constant were ever unset.
+  const totalBedrooms = BEDS || (rhAllUnits || []).filter(u => /^Room:/i.test((u.unitName || "").trim())).length;
+  const usableRooms = Math.max(1, totalBedrooms - offlineRooms);
+
+  // ─── DOUBLE BOOKINGS ─────────────────────────────────────────────────────────
+  // Same room, genuinely overlapping dates. Two sources:
+  //   cross  = Res Harmonics long-stay tenant vs a Lavanda short-stay guest
+  //            (neither system can see the other, so neither flags it)
+  //   lav    = two short-stay bookings clashing inside Lavanda
+  // Consecutive stay records for the same guest pair are merged, so a tenant
+  // with back-to-back contracts reads as one clash rather than several.
+  const doubleBookings = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const raw = [];
+    if (lavandaConn && lavandaData?.ssStays && pmsConn && rhAllUnits?.length && rhAllBookings?.length) {
+      const lavByRoom = {};
+      lavandaData.ssStays.forEach(s => { if (s.room) (lavByRoom[s.room] = lavByRoom[s.room] || []).push(s); });
+      const bookingsByUnit = {};
+      rhAllBookings.forEach(b => {
+        const id = b.unit?.id ?? b.unitId;
+        if (id) (bookingsByUnit[id] = bookingsByUnit[id] || []).push(b);
+      });
+      rhAllUnits.filter(u => /^Room:/i.test((u.unitName || "").trim())).forEach(u => {
+        const no = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
+        const stays = lavByRoom[no];
+        if (!stays) return;
+        (bookingsByUnit[u.id] || []).forEach(b => {
+          const st = (b.roomStayStatus || "").toUpperCase();
+          if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(st)) return;
+          const f = (b.startDate || "").slice(0, 10), t = (b.endDate || "").slice(0, 10);
+          if (!f || !t || t < today) return;
+          stays.forEach(s => {
+            const os = f > s.start ? f : s.start, oe = t < s.end ? t : s.end;
+            if (Math.round((new Date(oe) - new Date(os)) / 864e5) <= 0) return;
+            raw.push({
+              kind: "cross", room: no, from: os, to: oe,
+              aLabel: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim() || "—",
+              aMeta: `${b.bookingReference || "—"} · long-stay`,
+              bLabel: s.guest || "—",
+              bMeta: `${s.code || "—"} · ${s.platform || "short-stay"}`,
+            });
+          });
+        });
+      });
+    }
+    (lavandaData?.conflicts || []).forEach(c => raw.push({
+      kind: "lav", room: c.room, from: c.from, to: c.to,
+      aLabel: c.a.guest || "—", aMeta: `${c.a.code || "—"} · ${c.a.platform || "short-stay"}`,
+      bLabel: c.b.guest || "—", bMeta: `${c.b.code || "—"} · ${c.b.platform || "short-stay"}`,
+    }));
+    // Merge touching/overlapping windows for the same room + guest pair
+    const groups = {};
+    raw.forEach(x => {
+      const k = `${x.room}|${x.kind}|${x.aLabel}|${x.bLabel}`;
+      (groups[k] = groups[k] || []).push(x);
+    });
+    const merged = [];
+    Object.values(groups).forEach(list => {
+      list.sort((p, q) => p.from.localeCompare(q.from));
+      let cur = null;
+      list.forEach(x => {
+        if (cur && x.from <= cur.to) { if (x.to > cur.to) cur.to = x.to; }
+        else { if (cur) merged.push(cur); cur = { ...x }; }
+      });
+      if (cur) merged.push(cur);
+    });
+    merged.forEach(m => {
+      m.nights = Math.round((new Date(m.to) - new Date(m.from)) / 864e5);
+      if (investor) {
+        // Investor view: no guest names or booking references — facts about the clash only.
+        m.aLabel = m.kind === "cross" ? "Long-stay tenant" : "Short-stay guest";
+        m.bLabel = "Short-stay guest";
+        m.aMeta = m.kind === "cross" ? "Lavanda · long-stay" : (m.aMeta.split(" · ")[1] || "short-stay");
+        m.bMeta = m.bMeta.split(" · ")[1] || "short-stay";
+      }
+    });
+    return merged.sort((a, b) => a.from.localeCompare(b.from));
+  }, [lavandaConn, lavandaData, pmsConn, rhAllUnits, rhAllBookings, investor]);
+
+  // Renewal month stats with manual leaving/pending markers applied — mirrors
+  // the Renewals tab derivation so Room Availability (now on Occupancy) sees
+  // the same "leaving" population.
+  const monthStatsGlobal = useMemo(() => {
+    const months = pmsData?.renewalMonths || [];
+    return months.map(m => {
+      const leaving = m.entries.filter(e => {
+        if (leavingSet.has(e.roomStayId)) return true;
+        if (e.isRenewed || e.isPendingRenewal || pendingSet.has(e.roomStayId)) return false;
+        return e.expired;
+      });
+      return { ...m, leaving };
+    });
+  }, [pmsData, leavingSet, pendingSet]);
+
+  // ─── DAILY HISTORY ENGINE ────────────────────────────────────────────────────
+  // Builds day-by-day series for the last 75 days from data already in memory,
+  // so every RH/Lavanda KPI can show a prior-period delta and a 30-day sparkline
+  // without extra API calls. Nights basis throughout (checkout day excluded).
+  const history = useMemo(() => {
+    const DAYS = 75;
+    const today = new Date(); today.setUTCHours(0,0,0,0);
+    const dates = [];
+    for (let i = DAYS - 1; i >= 0; i--) dates.push(new Date(today.getTime() - i * 864e5).toISOString().slice(0,10));
+    const idx = Object.fromEntries(dates.map((d,i)=>[d,i]));
+    const z = () => new Array(DAYS).fill(0);
+    const S = { dates, occ: z(), rev: z(), revGross: z(), awrSum: z(), awrN: z(), newBk: z(), arrivals: z(), departures: z(),
+                ssOcc: z(), ssRev: z(), ssBooked: z(), ssNights: z() };
+    const bedroomIds = new Set((rhAllUnits||[]).filter(u=>/^Room:/i.test((u.unitName||"").trim())).map(u=>u.id));
+    const first = dates[0], last = dates[DAYS-1];
+    const occSets = dates.map(() => new Set());
+    (rhAllBookings||[]).forEach(b => {
+      const st = (b.roomStayStatus||"").toUpperCase();
+      const f = (b.startDate||"").slice(0,10), t = (b.endDate||"").slice(0,10);
+      if (!f || !t) return;
+      const uid = b.unit?.id ?? b.unitId;
+      const isRoom = bedroomIds.size === 0 || bedroomIds.has(uid);
+      const nights = Math.round((new Date(t) - new Date(f)) / 864e5);
+      // creation date from reference
+      const ref = b.bookingReference || "";
+      if (ref.length >= 8 && isRoom) {
+        const c = `${ref.slice(0,4)}-${ref.slice(4,6)}-${ref.slice(6,8)}`;
+        if (idx[c] != null && ["CHECKED_IN","CONFIRMED","PENDING","CHECKED_OUT"].includes(st)) S.newBk[idx[c]]++;
+      }
+      if (!["CHECKED_IN","CONFIRMED","CHECKED_OUT"].includes(st) || !isRoom) return;
+      if (idx[f] != null) S.arrivals[idx[f]]++;
+      if (idx[t] != null) S.departures[idx[t]]++;
+      if (nights < 1) return;
+      const net = parseFloat(b.netAmount||0), vat = parseFloat(b.vatAmount||0);
+      const gross = net + (isNaN(vat)?0:vat);
+      const perNightNet = net > 0 ? net / nights : 0, perNightGross = gross > 0 ? gross / nights : 0;
+      const weeklyGross = (gross > 0 && nights >= MIN_STAY_DAYS) ? (gross / nights) * 7 : null;
+      // iterate nights within window
+      const lo = f > first ? f : first;
+      const hiExcl = t < last ? t : new Date(new Date(last).getTime() + 864e5).toISOString().slice(0,10);
+      for (let d = new Date(lo + "T00:00:00Z"); d.toISOString().slice(0,10) < hiExcl; d = new Date(d.getTime() + 864e5)) {
+        const k = d.toISOString().slice(0,10); const i2 = idx[k]; if (i2 == null) continue;
+        if (nights >= MIN_STAY_DAYS && uid) occSets[i2].add(uid);
+        S.rev[i2] += perNightNet; S.revGross[i2] += perNightGross;
+        if (weeklyGross != null && weeklyGross < 5000) { S.awrSum[i2] += weeklyGross; S.awrN[i2]++; }
+      }
+    });
+    for (let i = 0; i < DAYS; i++) S.occ[i] = occSets[i].size;
+    S.awr = S.awrSum.map((v,i)=> S.awrN[i] ? v / S.awrN[i] : null);
+    // Lavanda
+    if (lavandaConn && lavandaData?.daily) {
+      lavandaData.daily.forEach(d => { const i2 = idx[d.date]; if (i2 == null) return;
+        S.ssOcc[i2] = d.booked || 0; S.ssRev[i2] = d.rev || 0; });
+      (lavandaData.bookingsLite||[]).forEach(b => { if (b.nomad === false) return; const i2 = idx[b.created]; if (i2 != null) S.ssBooked[i2]++; });
+    }
+    S.ssAdr = S.ssRev.map((r,i)=> S.ssOcc[i] > 0 ? r / S.ssOcc[i] : null);
+    // helpers
+    const rangeIdx = (a, b) => { const lo = Math.max(0, idx[a] ?? 0), hi = Math.min(DAYS-1, idx[b] ?? (DAYS-1)); return [lo, hi]; };
+    const sum = (arr, a, b) => { const [lo,hi] = rangeIdx(a,b); let s=0; for (let i=lo;i<=hi;i++) s += (arr[i]||0); return s; };
+    const avg = (arr, a, b) => { const [lo,hi] = rangeIdx(a,b); let s=0,n=0; for (let i=lo;i<=hi;i++) { if (arr[i]!=null && !isNaN(arr[i])) { s+=arr[i]; n++; } } return n ? s/n : null; };
+    const at  = (arr, dStr) => { const i2 = idx[dStr]; return i2 == null ? null : arr[i2]; };
+    const ratio = (num, den, a, b) => { const n = sum(num, a, b), d = sum(den, a, b); return d > 0 ? n / d : null; };
+    const last30 = (arr) => arr.slice(DAYS-30).map(v => v == null ? 0 : v);
+    const daysAgo = (n) => dates[Math.max(0, DAYS-1-n)];
+    return { ...S, sum, avg, at, ratio, last30, daysAgo, today: last };
+  }, [rhAllBookings, rhAllUnits, lavandaConn, lavandaData]);
+
+  // Convenience: current-vs-prior over the range picker window
+  const pp = useMemo(() => ({
+    sum: (arr) => mkDelta(history.sum(arr, from, to), history.sum(arr, prior.from, prior.to), { label: prior.label }),
+    avg: (arr, invert=false) => mkDelta(history.avg(arr, from, to), history.avg(arr, prior.from, prior.to), { label: prior.label, invert }),
+    point30: (arr, invert=false) => mkDelta(history.at(arr, history.today), history.at(arr, history.daysAgo(30)), { label: "30 days ago", invert }),
+    ratio: (num, den, invert=false) => mkDelta(history.ratio(num, den, from, to), history.ratio(num, den, prior.from, prior.to), { label: prior.label, invert }),
+  }), [history, from, to, prior]);
+  // ─── RANGE REVENUE (single source of truth) ──────────────────────────────────
+  // Used by the Summary revenue card, the narrative and the attention feed so
+  // they can never disagree. Nights basis: value × (nights in range ÷ nights).
+  const rangeRevenueFor = useCallback((rFrom, rTo) => {
+    let lsRev = 0, lsRevGross = 0, shortBreakRev = 0;
+    if (pmsConn && rhAllBookings && rhAllBookings.length > 0) {
+      rhAllBookings.forEach(b => {
+        const st = (b.roomStayStatus ?? "").toUpperCase();
+        if (!["CHECKED_IN","CONFIRMED","CHECKED_OUT"].includes(st)) return;
+        const f = (b.startDate ?? "").slice(0,10), t = (b.endDate ?? "").slice(0,10);
+        if (!f || !t) return;
+        const totalDays = Math.max(1, (new Date(t) - new Date(f)) / 864e5);
+        const net = parseFloat(b.netAmount ?? 0), vat = parseFloat(b.vatAmount ?? 0);
+        if (isNaN(net) || net <= 0) return;
+        const lastNight = new Date(new Date(t).getTime() - 864e5).toISOString().slice(0,10);
+        if (f > rTo || lastNight < rFrom) return;
+        const oS = f > rFrom ? f : rFrom, oE = lastNight < rTo ? lastNight : rTo;
+        const days = Math.max(0, (new Date(oE) - new Date(oS)) / 864e5 + 1);
+        const gross = net + (isNaN(vat) ? 0 : vat);
+        if (totalDays >= 28) { lsRev += (net / totalDays) * days; lsRevGross += (gross / totalDays) * days; }
+        else { shortBreakRev += (gross / totalDays) * days; }
+      });
+      lsRev = Math.round(lsRev); lsRevGross = Math.round(lsRevGross); shortBreakRev = Math.round(shortBreakRev);
+    } else if (pmsConn && pmsData) { lsRev = pmsData.revenue; lsRevGross = pmsData.revenue; }
+    let ssRev = 0, ssRevCovered = true;
+    if (lavandaConn && lavandaData && lavandaData.daily) {
+      lavandaData.daily.forEach(d => { if (d.date >= rFrom && d.date <= rTo && d.rev != null) ssRev += d.rev; });
+      ssRev = Math.round(ssRev);
+      const firstDay = lavandaData.daily[0]?.date;
+      if (firstDay && rFrom < firstDay) ssRevCovered = false;
+    }
+    return { lsRev, lsRevGross, shortBreakRev, ssRev, ssRevCovered, total: lsRevGross + shortBreakRev + ssRev };
+  }, [pmsConn, rhAllBookings, pmsData, lavandaConn, lavandaData]);
+  const rangeRevenue = useMemo(() => rangeRevenueFor(from, to), [rangeRevenueFor, from, to]);
+  const rangeRevenuePrev = useMemo(() => rangeRevenueFor(prior.from, prior.to), [rangeRevenueFor, prior]);
+
+  // Short-stay arrivals/departures: next 7 days vs the 7 before today
+  const ssMove = useMemo(() => {
+    const bl = (lavandaData?.bookingsLite || []).filter(b => b.nomad !== false);
+    const d0 = history.today;
+    const plus = (n) => new Date(new Date(d0+"T00:00:00Z").getTime() + n*864e5).toISOString().slice(0,10);
+    const inWin = (x, a, b) => x >= a && x < b;
+    return {
+      arrNext7: bl.filter(b => inWin(b.start, d0, plus(7))).length,
+      arrPrev7: bl.filter(b => inWin(b.start, plus(-7), d0)).length,
+      depNext7: bl.filter(b => inWin(b.end, d0, plus(7))).length,
+      depPrev7: bl.filter(b => inWin(b.end, plus(-7), d0)).length,
+    };
+  }, [lavandaData, history]);
+
+  // ─── FACTS (shared by Needs Attention + weekly narrative) ────────────────────
+  const facts = useMemo(() => {
+    const today = history.today;
+    const d30 = history.daysAgo(30);
+    const occNow = (pmsData?.occupied || 0);
+    const ssRoomsNow = lavandaData?.kpis?.occ_tonight || 0;
+    const occ30 = (history.at(history.occ, d30) || 0) + (history.at(history.ssOcc, d30) || 0);
+    const totalOccNow = occNow + ssRoomsNow;
+    const usable = Math.max(1, totalBedrooms - offlineRooms);
+    const revCur = rangeRevenue.total;
+    const revPrev = rangeRevenuePrev.total;
+    const awrNow = history.at(history.awr, today), awr30 = history.at(history.awr, d30);
+    const adrCur = history.ratio(history.ssRev, history.ssOcc, from, to), adrPrev = history.ratio(history.ssRev, history.ssOcc, prior.from, prior.to);
+    const newBkCur = history.sum(history.newBk, from, to) + history.sum(history.ssBooked, from, to);
+    const newBkPrev = history.sum(history.newBk, prior.from, prior.to) + history.sum(history.ssBooked, prior.from, prior.to);
+    // sellable-now rooms: bedrooms with no forward booking in RH (or Lavanda for Nomad) and not on the register
+    const busy = new Set();
+    (rhAllBookings||[]).forEach(b => { const st=(b.roomStayStatus||"").toUpperCase(); if(!["CHECKED_IN","CONFIRMED","PENDING"].includes(st)) return; const e=(b.endDate||"").slice(0,10); if(!e||e<today) return; const id=b.unit?.id??b.unitId; if(id) busy.add(id); });
+    const ssBooked = new Set(lavandaData?.ssUnitStatus?.bookedRoomNumbers || []);
+    let emptyRooms = 0, sellableRooms = 0, heldEmpty = 0, heldStillBookable = 0;
+    const heldExpiring = [];
+    const in7 = new Date(new Date(today+"T00:00:00Z").getTime()+7*864e5).toISOString().slice(0,10);
+    (rhAllUnits||[]).filter(u=>/^Room:/i.test((u.unitName||"").trim())).forEach(u => {
+      const t = baseRoomType(u.unitTypeName); if (!t) return;
+      const no = (u.unitName||"").replace(/^Room:\s*/i,"").trim();
+      const reg = offlineInfoFor(u.unitName);
+      if (reg && u.bookable !== false) heldStillBookable++;
+      if (reg && reg.until && reg.until >= today && reg.until <= in7) heldExpiring.push({ room: no, until: reg.until, reason: reg.reason });
+      const isBusy = busy.has(u.id) || (t === "Ensuite" && ssBooked.has(no));
+      if (isBusy) return;
+      emptyRooms++;
+      if (reg || u.bookable === false) heldEmpty++; else sellableRooms++;
+    });
+    return { today, occNow, ssRoomsNow, totalOccNow, occ30, usable, occPct: Math.round(totalOccNow/usable*100),
+             revCur, revPrev, awrNow, awr30, adrCur, adrPrev, newBkCur, newBkPrev,
+             emptyRooms, sellableRooms, heldEmpty, heldStillBookable, heldExpiring,
+             cac: cacStats?.blendedCAC ?? null, cacPrev: prevCacStats?.blendedCAC ?? null,
+             metaCpl, metaCplPrev: pm.mCpl, spend: metaSpend + gSpend, spendPrev: pm.total,
+             leads: metaLeads + gConvs, leadsPrev: (pm.ml!=null||pm.gc!=null) ? (pm.ml||0)+(pm.gc||0) : null,
+             doubleBookings, rangeDays: prior.days, priorLabel: prior.label };
+  }, [history, pmsData, lavandaData, totalBedrooms, offlineRooms, from, to, prior, rhAllBookings, rhAllUnits, cacStats, prevCacStats, metaCpl, pm, metaSpend, gSpend, metaLeads, gConvs, doubleBookings, rangeRevenue, rangeRevenuePrev]);
+
+  // ─── NEEDS ATTENTION ────────────────────────────────────────────────────────
+  // One feed for everything that needs a human, ranked by severity.
+  const attention = useMemo(() => {
+    const items = [];
+    const F = facts;
+    const pct = (a,b) => (a!=null && b!=null && b!==0) ? ((a-b)/Math.abs(b))*100 : null;
+    // 1. Double bookings
+    F.doubleBookings.forEach(c => items.push({
+      sev: 3, kind: "Double booking", title: `Room ${c.room} · ${c.nights} night${c.nights!==1?"s":""} · ${c.from} → ${c.to}`,
+      detail: `${c.aLabel} ↔ ${c.bLabel}${c.from <= F.today ? " · LIVE NOW" : ""}`, tab: "bookings",
+    }));
+    // 2. Held rooms still bookable in the PMS
+    if (F.heldStillBookable > 0) items.push({
+      sev: 2, kind: "PMS mismatch", title: `${F.heldStillBookable} held room${F.heldStillBookable!==1?"s":""} still open on the Lavanda calendar`,
+      detail: "Sales can sell a linen/staff/maintenance room without anything stopping them. Close them on the Lavanda calendar.", tab: "bookings",
+    });
+    // 3. Holds expiring this week
+    F.heldExpiring.forEach(h => items.push({
+      sev: 1, kind: "Hold expiring", title: `Room ${h.room} returns to stock on ${h.until}`,
+      detail: h.reason, tab: "bookings",
+    }));
+    // 4. Stale / disconnected sources
+    [["rh","Lavanda bookings",pmsConn],["lavanda","Lavanda short-stay",lavandaConn],["ghl","GHL CRM",ghlConn],["meta","Meta",metaIsLive],["google","Google Ads",googleIsLive]].forEach(([k,name,on]) => {
+      const f = freshness(k);
+      if (!on) items.push({ sev: 2, kind: "Source down", title: `${name} not connected`, detail: "Figures depending on it are stale or missing.", tab: null });
+      else if (f.stale) items.push({ sev: 1, kind: "Stale data", title: `${name} last refreshed ${f.label} (${f.ageMin} min ago)`, detail: "Feed hasn't updated in over an hour.", tab: null });
+    });
+    // 5. Cost spikes
+    const cacD = pct(F.cac, F.cacPrev);
+    if (cacD != null && cacD > 25 && F.cacPrev > 0) items.push({ sev: 2, kind: "Cost spike", title: `Blended CAC up ${Math.round(cacD)}% vs ${F.priorLabel} (£${Math.round(F.cac)} vs £${Math.round(F.cacPrev)})`, detail: "Check attribution volume and channel mix before reacting — small booking counts swing this hard.", tab: "marketing" });
+    const cplD = pct(F.metaCpl, F.metaCplPrev);
+    if (cplD != null && cplD > 30 && F.metaCplPrev > 0) items.push({ sev: 1, kind: "Cost spike", title: `Meta CPL up ${Math.round(cplD)}% vs ${F.priorLabel}`, detail: `£${F.metaCpl.toFixed(2)} vs £${F.metaCplPrev.toFixed(2)} per lead.`, tab: "marketing" });
+    // 6. Occupancy drop
+    const occD = pct(F.totalOccNow, F.occ30);
+    if (occD != null && occD < -3) items.push({ sev: 2, kind: "Occupancy", title: `Occupancy down ${Math.abs(occD).toFixed(1)}% vs 30 days ago (${F.totalOccNow} vs ${F.occ30} rooms)`, detail: `${F.sellableRooms} rooms sellable now.`, tab: "bookings" });
+    // 7. Pacing behind
+    const now = new Date(); const elapsed = now.getDate() / new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    const mS = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
+    const revMtd = history.sum(history.revGross, mS, F.today) + history.sum(history.ssRev, mS, F.today);
+    if (pmsConn && pacingTargets.revenue > 0 && revMtd < pacingTargets.revenue * elapsed * 0.85) items.push({ sev: 1, kind: "Pacing", title: `Revenue behind pace — ${fmt(revMtd)} MTD vs ${fmt(Math.round(pacingTargets.revenue*elapsed))} expected by today`, detail: `Projecting ${fmt(Math.round(revMtd/Math.max(elapsed,0.01)))} for the month against ${fmt(pacingTargets.revenue)}.`, tab: "summary" });
+    // 8. Empty sellable stock (info)
+    if (F.sellableRooms > 0) items.push({ sev: 0, kind: "Stock", title: `${F.sellableRooms} room${F.sellableRooms!==1?"s":""} empty and sellable right now`, detail: `${F.emptyRooms} empty in total, ${F.heldEmpty} of them held offline.`, tab: "bookings" });
+    return items.sort((a,b) => b.sev - a.sev);
+  }, [facts, pmsConn, lavandaConn, ghlConn, metaIsLive, googleIsLive, freshness, history, pacingTargets]);
+
+  // ─── WEEKLY NARRATIVE ────────────────────────────────────────────────────────
+  // Deterministic three-paragraph read of the numbers. If ANTHROPIC_API_KEY is
+  // set on Vercel, /api/narrative rewrites it with a model; otherwise this text
+  // is shown as-is.
+  const narrativeLocal = useMemo(() => {
+    const F = facts;
+    const pctStr = (a,b) => { if (a==null||b==null||b===0) return null; const d=(a-b)/Math.abs(b)*100; return `${d>=0?"up":"down"} ${Math.abs(d).toFixed(Math.abs(d)<10?1:0)}%`; };
+    const money = (v) => v==null?"—":fmt(Math.round(v));
+    const occLine = (() => {
+      const d = pctStr(F.totalOccNow, F.occ30);
+      return `Southall is at ${F.totalOccNow} of ${F.usable} usable rooms tonight (${F.occPct}%), ${d ? d + " on 30 days ago" : "with no 30-day comparison yet"} — ${F.occNow} long-stay${F.ssRoomsNow?` and ${F.ssRoomsNow} short-stay`:""}.`;
+    })();
+    const stockLine = F.emptyRooms === 0 ? "There is no empty stock." :
+      `${F.emptyRooms} rooms are empty, but only ${F.sellableRooms} can actually be sold — the other ${F.heldEmpty} are held on the offline register${F.heldStillBookable?` (${F.heldStillBookable} of the held rooms are still open on the Lavanda calendar, which is a risk)`:""}.`;
+    const dbLine = F.doubleBookings.length ? ` ${F.doubleBookings.length} double booking${F.doubleBookings.length!==1?"s":""} need${F.doubleBookings.length===1?"s":""} resolving: ${F.doubleBookings.map(c=>`room ${c.room} (${c.from}→${c.to})`).join(", ")}.` : " No double bookings are open.";
+    const p1 = `${occLine} ${stockLine}${dbLine}`;
+    const revD = pctStr(F.revCur, F.revPrev), awrD = pctStr(F.awrNow, F.awr30), adrD = pctStr(F.adrCur, F.adrPrev);
+    const p2 = `Revenue for the selected ${F.rangeDays}-day window is ${money(F.revCur)} gross, ${revD ? revD + " on the " + F.priorLabel : "with no prior window to compare"}${F.revPrev?` (${money(F.revPrev)})`:""}. ` +
+      `Long-stay AWR is ${F.awrNow?`£${Math.round(F.awrNow)} gross`:"unavailable"}${awrD?`, ${awrD} on 30 days ago`:""}${F.awrNow && F.awrNow < TARGET_RATE ? `, still £${Math.round(TARGET_RATE-F.awrNow)} under the £${TARGET_RATE} target` : F.awrNow ? `, above the £${TARGET_RATE} target` : ""}. ` +
+      (F.adrCur!=null ? `Short-stay ADR averaged £${F.adrCur.toFixed(0)} a night${adrD?`, ${adrD} on the prior window`:""}.` : "Short-stay ADR has no data for this window.");
+    const spD = pctStr(F.spend, F.spendPrev), ldD = pctStr(F.leads, F.leadsPrev), cacD = pctStr(F.cac, F.cacPrev), bkD = pctStr(F.newBkCur, F.newBkPrev);
+    const top = attention.find(a => a.sev >= 2);
+    const p3 = `Marketing spent ${money(F.spend)}${spD?` (${spD})`:""} for ${F.leads} leads${ldD?` (${ldD})`:""}, a Meta CPL of £${F.metaCpl.toFixed(2)}. ` +
+      `${F.newBkCur} bookings were created in the window${bkD?`, ${bkD} on the ${F.priorLabel}`:""}${F.cac!=null?`, giving a blended CAC of £${Math.round(F.cac)}${cacD?` (${cacD})`:""}`:""}. ` +
+      (top ? `The one thing to act on first: ${top.title.toLowerCase()}.` : "Nothing on the attention feed is above informational.");
+    return [p1, p2, p3];
+  }, [facts, attention]);
+  const [narrativeAI, setNarrativeAI] = useState(null);
+  const [narrativeBusy, setNarrativeBusy] = useState(false);
+  const fetchNarrative = useCallback(async () => {
+    setNarrativeBusy(true);
+    try {
+      const r = await fetch("/api/narrative", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ facts, draft: narrativeLocal, attention: attention.slice(0,6) }) });
+      const j = await r.json();
+      setNarrativeAI(j?.paragraphs?.length ? j.paragraphs : null);
+    } catch { setNarrativeAI(null); }
+    finally { setNarrativeBusy(false); }
+  }, [facts, narrativeLocal, attention]);
+  const occPct = pmsConn && pmsData ? Math.round(occupied / usableRooms * 100) : mOcc;
+  const monthRev  = pmsConn&&pmsData ? pmsData.revenue : occupied*mRate;
+  const weekRev   = pmsConn&&pmsData ? (pmsData.weeklyRevenue??0) : 0;
+  const renewRate = (mRen+mChurn)>0 ? Math.round(mRen/(mRen+mChurn)*100) : 0;
+
+  // Adjust GHL confirmed counts with manual values
+  const adjConfirmed = ghlConn && ghlData ? ghlData.confirmed + manualBookings : ghlData?.confirmed ?? 0;
+  const adjConfirmedValue = ghlConn && ghlData ? ghlData.confirmedValue + manualValue : ghlData?.confirmedValue ?? 0;
+  const adjConvRate = ghlConn && ghlData && ghlData.toursBooked > 0 ? Math.round(adjConfirmed/ghlData.toursBooked*100) : ghlData?.convRate;
+
+
+  // ── Server snapshot (fast path) ─────────────────────────────────────────
+  // /api/snapshot holds a Redis copy of the full RH dataset (bookings, stays,
+  // units, room-stay details). Applying it takes ~2s instead of 60–90s of
+  // per-browser API pulls. If it's older than SNAPSHOT_MAX_AGE_MIN we drive
+  // the incremental server builder in the background and re-apply when done.
+  const SNAPSHOT_MAX_AGE_MIN = 15;
+  const [snapState, setSnapState] = useState("pending"); // pending | applied | none
+  const [snapInfo, setSnapInfo] = useState(null);        // { builtAt, ageMin, refreshing, stage, progress }
+  const snapBusy = useRef(false);
+
+  const applySnapshot = useCallback((snap) => {
+    if (!snap?.ok || !Array.isArray(snap.bookings) || snap.bookings.length < 50 || (snap.guestStays || []).length < 50) return false;
+    const details = snap.details || {};
+    const bookings = snap.bookings.map(b => {
+      const d = b.roomStayId != null ? details[b.roomStayId] : null;
+      if (!d) return b;
+      return { ...b, _rateType: d.rateType, _trueRatePcm: d.truePcm, _originalRatePcm: d.originalRate, _rateName: d.rateName, _rateCode: d.rateCode };
+    });
+    const metrics = computePmsMetrics(snap.guestStays, bookings, snap.units || []);
+    [...(metrics.pendingRenewals || []), ...(metrics.confirmedRenewals || [])].forEach(r => {
+      const d = r.roomStayId != null ? details[r.roomStayId] : null;
+      if (!d) return;
+      r.conversionDate = d.conversionDate; r.confirmedDate = d.confirmedDate;
+      r.contractSignedDate = d.contractSignedDate; r.lastStatusChangeDate = d.lastStatusChangeDate;
+    });
+    setPmsData(metrics);
+    setRhAllBookings(bookings);
+    setRhAllUnits(snap.units || []);
+    setPmsConn(true); setPmsErr("");
+    const at = snap.builtAt ? new Date(snap.builtAt).getTime() : Date.now();
+    stamp("rh", at);
+    setSnapInfo(i => ({ ...(i || {}), builtAt: snap.builtAt, source: snap.source || "rh", ageMin: Math.round((Date.now() - at) / 60000), refreshing: false }));
+    console.log(`Snapshot applied: ${bookings.length} bookings, built ${snap.builtAt}`);
+    return true;
+  }, [stamp]);
+
+  // Drive the server builder to completion (each call = one bounded step), then re-apply.
+  const refreshSnapshot = useCallback(async (reason) => {
+    if (snapBusy.current) return;
+    snapBusy.current = true;
+    setSnapInfo(i => ({ ...(i || {}), refreshing: true, stage: "starting", reason }));
+    try {
+      for (let step = 0; step < 60; step++) {
+        const r = await fetch("/api/snapshot?action=build", { method: "POST" });
+        const j = await r.json();
+        setSnapInfo(i => ({ ...(i || {}), refreshing: true, stage: j.stage, progress: j.progress }));
+        if (j.done) break;
+        if (j.stage === "error") { console.warn("Snapshot build error:", j.error); setSnapInfo(i => ({ ...(i || {}), buildError: j.error })); break; }
+        if (j.stage === "locked") await new Promise(res => setTimeout(res, 4000));
+      }
+      const snap = await (await fetch("/api/snapshot")).json();
+      applySnapshot(snap);
+    } catch (e) { console.warn("Snapshot refresh failed:", e.message); }
+    finally { snapBusy.current = false; setSnapInfo(i => ({ ...(i || {}), refreshing: false, stage: null })); }
+  }, [applySnapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setPmsLoad(true);
+        const snap = await (await fetch("/api/snapshot")).json();
+        if (cancelled) return;
+        if (applySnapshot(snap)) {
+          setSnapState("applied");
+          const ageMin = Math.round((Date.now() - new Date(snap.builtAt).getTime()) / 60000);
+          if (ageMin >= SNAPSHOT_MAX_AGE_MIN) refreshSnapshot(`snapshot ${ageMin} min old`);
+        } else {
+          setSnapState("none");
+          // No snapshot yet: build it now (Lavanda pull takes ~20s server-side).
+          refreshSnapshot("no snapshot");
+        }
+      } catch (e) { if (!cancelled) setSnapState("none"); }
+      finally { if (!cancelled) setPmsLoad(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // No direct PMS pull any more — Lavanda is read via the server snapshot only.
+
+
+  // Auto-refresh PMS data every 5 minutes so new bookings appear live.
+  // Snapshot path: nudge the server builder (cheap for the browser) and re-apply.
+  useEffect(()=>{
+    if (!pmsConn) return;
+    const tick = () => { refreshSnapshot("periodic"); };
+    const interval = setInterval(tick, 5 * 60 * 1000);
+    return ()=> clearInterval(interval);
+  }, [pmsConn, snapState, refreshSnapshot]);
+
+  // Auto-refresh GA4 analytics every 5 minutes
+  useEffect(()=>{
+    if (!analyticsData && !sdAnalyticsData) return;
+    const interval = setInterval(()=>{
+      console.log("Analytics silent refresh started");
+      fetchAnalytics(from, to, "southall").then(d => { if (d) setAnalyticsData(d); });
+      fetchAnalytics(from, to, "shoreditch").then(d => { if (d) setSdAnalyticsData(d); });
+    }, 5 * 60 * 1000);
+    return ()=> clearInterval(interval);
+  }, [analyticsData, sdAnalyticsData, from, to, fetchAnalytics]);
+
+
+  // Reputation — per property, from /api/reputation (bundled collector data +
+  // Redis ingest + live Google Places when configured). Never estimated.
+  const [repData, setRepData] = useState({ southall: null, shoreditch: null });
+  const [repLoading, setRepLoading] = useState(false);
+  useEffect(() => {
+    setRepLoading(true);
+    Promise.all(["southall", "shoreditch"].map(pr => fetch(`/api/reputation?property=${pr}`).then(r => r.json()).then(d => [pr, d]).catch(() => [pr, null])))
+      .then(pairs => setRepData(Object.fromEntries(pairs)))
+      .finally(() => setRepLoading(false));
+  }, []);
+  // Summary card shape: { google, airbnb, trustpilot, booking } → {rating,count} | null
+  const reputation = useMemo(() => {
+    const out = { google: null, airbnb: null, trustpilot: null, booking: null };
+    (repData.southall?.sources || []).forEach(src => { if (src.connected) out[src.key] = src.rating != null ? { rating: src.rating, scale: src.scale || 5, count: src.count || 0 } : { empty: true }; });
+    return out;
+  }, [repData]);
+
+  // Shoreditch
+  const [sdGhlLoading, setSdGhlLoad] = useState(false);
+  const [sdGhlError, setSdGhlErr] = useState("");
+  const [sdGhlData, setSdGhlData] = useState(null);
+  const [sdGhlConn, setSdGhlConn] = useState(false);
+  // Merge saved flat data with SD_FLATS defaults so new fields (floor, wing, notes, size, etc.) are always present
+  const mergeSdFlats = (saved) => {
+    if (!Array.isArray(saved) || saved.length === 0) return SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
+    return SD_FLATS.map((def, fi) => {
+      const sv = saved[fi] || {};
+      // Merge flat-level: default fields as base, saved fields override (but only if they exist and aren't undefined)
+      const merged = { ...def, ...sv, rooms: def.rooms.map((dr, ri) => {
+        const sr = (sv.rooms && sv.rooms[ri]) || {};
+        // Merge room-level: default as base, saved overrides
+        return { ...dr, ...sr };
+      })};
+      // Ensure key metadata always comes from defaults (floor, wing, beds, notes, viewDays, pref, room sizes/labels)
+      merged.floor = def.floor;
+      merged.wing = def.wing;
+      merged.beds = def.beds;
+      // Only use default notes/viewDays/pref if saved doesn't have them (user may have edited these)
+      if (!sv.notes && sv.notes !== "") merged.notes = def.notes;
+      if (!sv.viewDays) merged.viewDays = def.viewDays;
+      if (!sv.pref) merged.pref = def.pref;
+      merged.rooms.forEach((r, ri) => {
+        // Always use default label and size (structural, not editable)
+        r.label = def.rooms[ri]?.label || r.label;
+        r.size = def.rooms[ri]?.size || r.size;
+        // If saved room has no weekly/monthly rate, use default
+        if (r.w === undefined) r.w = def.rooms[ri]?.w || 0;
+        if (r.m === undefined) r.m = def.rooms[ri]?.m || 0;
+        // Map old "VACANT" status to new "AVAILABLE"
+        if (r.s === "VACANT") r.s = "AVAILABLE";
+      });
+      return merged;
+    });
+  };
+  const [sdFlats, setSdFlats] = useState(()=>{
+    // Lazy init: localStorage first for instant paint, API will overwrite once it loads
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("sd_flats_v1");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].rooms) return mergeSdFlats(parsed);
+        }
+      } catch(e) { console.log("sdFlats load error:", e.message); }
+    }
+    return SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
+  });
+  // sdFlatsSync state: "loading" | "cloud" | "local" | "saving" | "error"
+  const [sdFlatsSync, setSdFlatsSync] = useState("loading");
+  const [sdFlatsUpdatedAt, setSdFlatsUpdatedAt] = useState(null);
+  const sdFlatsInitialLoad = useRef(true);
+  const sdFlatsSaveTimer = useRef(null);
+  const [sdExpanded, setSdExpanded] = useState({});
+  const [sdEditing, setSdEditing] = useState(null);
+  const [sdBookingsPerWeek, setSdBookingsPerWeek] = useState(2);
+
+  // On mount: fetch the canonical state from the API (Vercel KV)
+  useEffect(()=>{
+    let cancelled = false;
+    (async ()=>{
+      try {
+        const r = await fetch("/api/sd-occupancy");
+        const j = await r.json();
+        if (cancelled) return;
+        if (j.kvConfigured === false) {
+          setSdFlatsSync("local");
+          console.log("sdFlats: KV not configured, using localStorage only");
+          return;
+        }
+        if (j.flats && Array.isArray(j.flats) && j.flats.length > 0) {
+          const merged = mergeSdFlats(j.flats);
+          setSdFlats(merged);
+          setSdFlatsUpdatedAt(j.updatedAt || null);
+          try { localStorage.setItem("sd_flats_v1", JSON.stringify(merged)); } catch(e) {}
+        }
+        setSdFlatsSync("cloud");
+      } catch(e) {
+        if (cancelled) return;
+        console.log("sdFlats fetch error:", e.message);
+        setSdFlatsSync("local");
+      } finally {
+        sdFlatsInitialLoad.current = false;
+      }
+    })();
+    return ()=>{ cancelled = true; };
+  },[]);
+
+  // On sdFlats change: save to localStorage immediately + debounced POST to API
+  useEffect(()=>{
+    if (typeof window === "undefined") return;
+    try { localStorage.setItem("sd_flats_v1", JSON.stringify(sdFlats)); }
+    catch(e) { console.log("sdFlats save error:", e.message); }
+
+    // Skip the very first render (API fetch will set state)
+    if (sdFlatsInitialLoad.current) return;
+    if (sdFlatsSync === "local") return; // KV not configured, don't try API
+
+    if (sdFlatsSaveTimer.current) clearTimeout(sdFlatsSaveTimer.current);
+    setSdFlatsSync("saving");
+    sdFlatsSaveTimer.current = setTimeout(async ()=>{
+      try {
+        const r = await fetch("/api/sd-occupancy", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ flats: sdFlats, updatedBy: "dashboard" }),
+        });
+        const j = await r.json();
+        if (j.ok) {
+          setSdFlatsSync("cloud");
+          setSdFlatsUpdatedAt(j.updatedAt || new Date().toISOString());
+        } else {
+          setSdFlatsSync("error");
+          console.log("sdFlats save failed:", j.error || "unknown");
+        }
+      } catch(e) {
+        setSdFlatsSync("error");
+        console.log("sdFlats save error:", e.message);
+      }
+    }, 600);
+  },[sdFlats]);
+  const sdGoogleFiltered = useMemo(()=>SD_GOOGLE_DAILY.filter(r=>r.date>=from&&r.date<=to),[from,to]);
+  // Shoreditch live Google data (reuse the same Windsor API, which excludes GMB)
+  const [sdLiveGoogleData, setSdLiveGoogleData] = useState(null);
+  const [sdGoogleIsLive, setSdGoogleIsLive] = useState(false);
+  const fetchSdLiveGoogle = useCallback(async (dateFrom, dateTo) => {
+    try {
+      const r = await fetch(`/api/google?dateFrom=${dateFrom}&dateTo=${dateTo}&property=shoreditch`);
+      const j = await r.json();
+      if (j.configured && j.data) { setSdLiveGoogleData(j.data); setSdGoogleIsLive(true); }
+      else { setSdLiveGoogleData(null); setSdGoogleIsLive(false); }
+    } catch(e) { console.log("SD Google fetch error:", e.message); setSdLiveGoogleData(null); setSdGoogleIsLive(false); }
+  }, []);
+  useEffect(()=>{ fetchSdLiveGoogle(from, to); },[from, to]);
+  // Prefer live data (GMB excluded), fall back to static
+  // Use filtered campaigns (excl Sanctuary) for spend/conv totals
+  const sdGSpendRaw = sdGoogleIsLive && sdLiveGoogleData ? sdLiveGoogleData.totalSpend : sdGoogleFiltered.reduce((s,r)=>s+r.spend,0);
+  const sdGConvsRaw = sdGoogleIsLive && sdLiveGoogleData ? sdLiveGoogleData.totalConversions : sdGoogleFiltered.reduce((s,r)=>s+r.convs,0);
+  const sdLiveCampaignsAllTemp = sdGoogleIsLive && sdLiveGoogleData?.campaigns ? sdLiveGoogleData.campaigns : [];
+  const sdSanctuaryCamps = sdLiveCampaignsAllTemp.filter(c => (c.name||"").toLowerCase().includes("sanctuary"));
+  const sdSanctuarySpend = sdSanctuaryCamps.reduce((s,c)=>s+c.spend,0);
+  const sdSanctuaryConvs = sdSanctuaryCamps.reduce((s,c)=>s+c.convs,0);
+  const sdGSpend = sdGoogleIsLive ? sdGSpendRaw - sdSanctuarySpend : sdGSpendRaw;
+  const sdGConvs = sdGoogleIsLive ? sdGConvsRaw - sdSanctuaryConvs : sdGConvsRaw;
+  const sdGCPC = sdGConvs>0?sdGSpend/sdGConvs:0;
+  const sdLiveCampaignsAll = sdGoogleIsLive && sdLiveGoogleData?.campaigns ? sdLiveGoogleData.campaigns : [];
+  // Filter out Sanctuary campaigns — only show Shoreditch Apartments campaigns
+  const sdLiveCampaigns = sdLiveCampaignsAll.filter(c => !(c.name||"").toLowerCase().includes("sanctuary"));
+  const sdGoogleDaily = sdGoogleIsLive && sdLiveGoogleData?.daily ? sdLiveGoogleData.daily.map(r=>({date:r.date,spend:r.spend,convs:r.convs})) : sdGoogleFiltered;
+  // Shoreditch Meta: prefer live data, fall back to static
+  const sdMetaSpend = (property==="shoreditch" && metaIsLive && liveMetaData) ? liveMetaData.totalSpend : SD_META.spend;
+  const sdMetaLeads = (property==="shoreditch" && metaIsLive && liveMetaData) ? liveMetaData.totalLeads : SD_META.leads;
+  const sdMetaIsLive = property==="shoreditch" && metaIsLive && !!liveMetaData;
+  const sdMetaCpl = sdMetaLeads>0?sdMetaSpend/sdMetaLeads:0;
+  const sdTotalLeads = sdMetaLeads + sdGConvs;
+  const sdTotalSpend = sdMetaSpend + sdGSpend;
+  const sdBlendedCpl = sdTotalLeads>0 ? sdTotalSpend/sdTotalLeads : 0;
+  // Helper: derive weekly from monthly
+  const pcmToAwr = (m) => Math.round((m||0) * 12 / 52);
+  const sdOcc = useMemo(()=>{
+    let o=0,i=0,v=0,l=0,t=0;
+    let occWeeklySum=0, occIncWeeklySum=0;
+    const availRooms=[]; // for prediction
+    sdFlats.forEach(f=>f.rooms.forEach(r=>{
+      t++;
+      const wk=pcmToAwr(r.m);
+      if(r.s==="OCCUPIED"){o++;occWeeklySum+=wk;occIncWeeklySum+=wk;}
+      else if(r.s==="LEAVING"){o++;l++;occWeeklySum+=wk;occIncWeeklySum+=wk;}
+      else if(r.s==="INCOMING"){i++;occIncWeeklySum+=wk;}
+      else{v++;availRooms.push(wk);}
+    }));
+    const pct=t>0?Math.round(o/t*100):0;
+    const fut=t>0?Math.round((o+i)/t*100):0;
+    const awrOcc=o>0?Math.round(occWeeklySum/o):0;
+    const awrOccInc=(o+i)>0?Math.round(occIncWeeklySum/(o+i)):0;
+    // Target: 90% occupancy by 1st July 2026
+    const SD_TARGET_OCC=0.9;
+    const targetRooms=Math.round(t*SD_TARGET_OCC);
+    const roomsNeeded=Math.max(0,targetRooms-(o+i));
+    const today=new Date();
+    const deadline=new Date("2026-07-01");
+    const msPerWeek=7*24*60*60*1000;
+    const weeksLeft=Math.max(1,Math.ceil((deadline-today)/msPerWeek));
+    const roomsPerWeek=Math.ceil(roomsNeeded/weeksLeft);
+    return{o,i,v,l,t,pct,fut,awrOcc,awrOccInc,occWeeklySum,occIncWeeklySum,availRooms,targetRooms,roomsNeeded,weeksLeft,roomsPerWeek,targetPct:Math.round(SD_TARGET_OCC*100)};
+  },[sdFlats]);
+  const sdToggleRoom=(fi,ri)=>{setSdFlats(p=>{const n=p.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));const ss=["OCCUPIED","AVAILABLE","LEAVING","INCOMING"];const c=n[fi].rooms[ri].s;n[fi].rooms[ri].s=ss[(ss.indexOf(c)+1)%ss.length];return n;});};
+  const runSDGHL = useCallback(async(f,t)=>{
+    setSdGhlLoad(true);setSdGhlErr("");
+    try{
+      const pRes=await ghlGet("/opportunities/pipelines?locationId="+GHL_LOCATION);
+      const pipelines=pRes?.pipelines??pRes?.data??[];
+      // Find the Shoreditch pipeline
+      const pipeline=pipelines.find(p=>(p.name||"").toLowerCase().includes("shoreditch"))
+        ||pipelines.find(p=>p.name?.trim()===SD_GHL_PIPELINE);
+      if(!pipeline) throw new Error("Shoreditch pipeline not found. Available: "+pipelines.map(p=>p.name).join(", "));
+      const stages=pipeline.stages??[];
+      const opps=await fetchAllOpps(pipeline.id,f,t);
+      // Filter by "applied for villas" tag — tags live on contact.tags, NOT o.tags
+      const TAG_APPLIED="applied for villas";
+      const getOppTags = (o) => {
+        const contactTags = o.contact?.tags ?? [];
+        const relationTags = (o.relations ?? []).flatMap(r => r.tags ?? []);
+        const oppTags = o.tags ?? [];
+        return [...contactTags, ...relationTags, ...oppTags];
+      };
+      const appliedByTag=opps.filter(o=>getOppTags(o).some(tag=>tag.toLowerCase().trim()===TAG_APPLIED));
+      // Also find the applied stage for fallback display
+      const appliedStage=stages.find(s=>(s.name||"").toLowerCase().includes("applied"));
+      const appliedByStage=appliedStage?opps.filter(o=>o.pipelineStageId===appliedStage.id):[];
+      // Use tag-based count as primary, stage as secondary
+      const appliedCount=appliedByTag.length>0?appliedByTag.length:appliedByStage.length;
+      const appliedLabel=appliedByTag.length>0?"applied for villas tag":(appliedStage?.name||"Applied stage");
+      setSdGhlData({pipelineName:pipeline.name,stages:stages.map(s=>({id:s.id,name:s.name})),totalOpps:opps.length,applied:appliedCount,appliedStageName:appliedLabel,appliedByTag:appliedByTag.length,appliedByStage:appliedByStage.length});
+      setSdGhlConn(true);
+    }catch(e){setSdGhlErr(e.message);}
+    finally{setSdGhlLoad(false);}
+  },[]);
+
+  // Auto-connect Shoreditch GHL on mount + refresh on date change
+  useEffect(()=>{ runSDGHL(from,to); },[]);
+  useEffect(()=>{ if(sdGhlConn) runSDGHL(from,to); },[from,to]);
+
+  const tabBtn=(t,label,dot)=>(
+    <button onClick={()=>setTab(t)} className="tabbtn" style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,background:tab===t?C.gold:"transparent",color:tab===t?"#000":C.muted,whiteSpace:"nowrap"}}>
+      {dot&&<span style={{width:6,height:6,borderRadius:"50%",background:dot,flexShrink:0}}/>}
+      {label}
+    </button>
+  );
+
+  return (
+    <>
+      <Head>
+        <title>The Residential Dashboard</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
+          /* Phone layout (≤640px). Styles are inline throughout, so these use attribute selectors + !important. */
+          @media (max-width: 640px) {
+            [style*="padding: 22px 26px"] { padding: 14px 12px !important; }
+            [style*="padding: 13px 26px"], [style*="padding: 9px 26px"], [style*="padding: 10px 26px 0"] { padding-left: 12px !important; padding-right: 12px !important; }
+            [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+            .kpi { flex: 1 1 100% !important; }
+            .hdr-sub, .hdr-stamp { display: none !important; }
+            .hdr-pill { padding: 2px 7px !important; font-size: 10px !important; }
+            .tabbtn { padding: 8px 12px !important; font-size: 11px !important; }
+            table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+            .recharts-wrapper, .recharts-responsive-container { max-width: 100% !important; }
+            h2 { font-size: 18px !important; }
+            [style*="font-size: 36px"] { font-size: 28px !important; }
+          }
+        `}</style>
+      </Head>
+      <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+
+        {/* HEADER */}
+        <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"13px 26px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:32,height:32,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <span style={{color:"#000",fontWeight:800,fontSize:15,fontFamily:"DM Mono,monospace"}}>&</span>
+            </div>
+            <div>
+              <p style={{fontSize:"0.95rem",color:C.text,margin:"4px 0 0 0"}}>&Soul · Performance Dashboard</p>
+              <p className="hdr-sub" style={{fontSize:11,color:C.muted}}>Performance dashboard</p>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {[
+              { k:"meta",    on:metaIsLive,   name:"Meta",         col:C.gold,   bg:"#d4a84322", off:"Meta · static" },
+              { k:"google",  on:googleIsLive, name:"Google Ads",   col:C.blue,   bg:"#3d82c422", off:"Google Ads · static" },
+              { k:"ga4",     on:!!analyticsData, name:"GA4",       col:C.blue,   bg:"#3d82c422", off:"GA4" },
+              { k:"ghl",     on:ghlConn,      name:"GHL CRM",      col:C.purple, bg:"#9b72cf22", off:"GHL CRM" },
+              { k:"rh",      on:pmsConn,      name:"Lavanda · bookings",col:C.sage,   bg:"#3d9e7522", off:"Lavanda · bookings" },
+              { k:"lavanda", on:lavandaConn,  name:"Lavanda · short-stay",      col:C.blue,   bg:"#3d82c422", off:"Lavanda · short-stay" },
+            ].map(src => {
+              const f = freshness(src.k);
+              const stale = src.on && f.stale;
+              const col = stale ? C.rose : src.on ? src.col : C.muted;
+              const bg  = stale ? C.rose+"22" : src.on ? src.bg : C.border;
+              const tip = !src.on ? `${src.name} not connected`
+                        : stale ? `${src.name} last refreshed ${f.label} — ${f.ageMin} min ago. Data may be out of date.`
+                        : `${src.name} refreshed ${f.label}`;
+              return (
+                <span key={src.k} title={tip} className="hdr-pill"
+                  style={{background:bg,color:col,padding:"3px 10px",borderRadius:20,fontSize:11,display:"inline-flex",alignItems:"center",gap:5,cursor:"default"}}>
+                  {src.on ? (stale ? "⚠" : "●") : "○"} {src.on ? src.name : src.off}
+                  {src.on && f.t && <span className="hdr-stamp" style={{fontSize:9,opacity:0.8,fontFamily:"'DM Mono',monospace"}}>{f.label}</span>}
+                  {stale && <span style={{fontSize:9,fontWeight:700}}>STALE</span>}
+                </span>
+              );
+            })}
+            {snapInfo?.refreshing && (
+              <span title={`Refreshing the Lavanda snapshot on the server (${snapInfo.stage || "…"}${snapInfo.progress ? " · " + snapInfo.progress : ""}). Current figures stay on screen until the new data is in.`}
+                style={{fontSize:10,color:C.muted,display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px"}}>
+                <span style={{width:9,height:9,border:`2px solid ${C.sage}`,borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"spin 0.9s linear infinite"}}/>
+                updating Lavanda{snapInfo.stage ? ` · ${snapInfo.stage}` : ""}
+              </span>
+            )}
+            <button onClick={()=>{ setInvestor(!investor); if(!investor && tab==="forecast") setTab("summary"); }}
+              title={investor ? "Investor view: facts only — internal tools, advice and forecasts hidden. Click for team view." : "Team view: all tools visible. Click for investor view (facts only)."}
+              style={{marginLeft:8,padding:"3px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",border:`1px solid ${investor?C.gold:C.border}`,background:investor?C.gold+"22":"transparent",color:investor?C.gold:C.muted,display:"inline-flex",alignItems:"center",gap:6}}>
+              <span style={{width:22,height:12,borderRadius:6,background:investor?C.gold:C.border,position:"relative",display:"inline-block"}}>
+                <span style={{position:"absolute",top:2,left:investor?12:2,width:8,height:8,borderRadius:4,background:investor?"#000":C.muted,transition:"left 0.15s"}}/>
+              </span>
+              {investor ? "INVESTOR VIEW" : "TEAM VIEW"}
+            </button>
+          </div>
+        </div>
+
+        {/* DATE RANGE BAR */}
+        <div style={{background:"#0b0d11",borderBottom:`1px solid ${C.border}`,padding:"9px 26px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginRight:4}}>Range</span>
+          {PRESETS.map(o=>(
+            <button key={o.d} onClick={()=>setPreset(o.d)} style={{padding:"4px 13px",borderRadius:20,border:`1px solid ${preset===o.d?C.gold:C.border}`,background:preset===o.d?C.gold+"22":"transparent",color:preset===o.d?C.gold:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>Last {o.l}</button>
+          ))}
+          <CalendarPicker value={from} onChange={v=>{setFrom(v);setPreset(null);}} />
+          <span style={{fontSize:11,color:C.muted}}>→</span>
+          <CalendarPicker value={to} onChange={v=>{setTo(v);setPreset(null);}} />
+          <span style={{marginLeft:"auto",fontSize:11,color:C.gold,fontFamily:"DM Mono,monospace"}}>{from} → {to}</span>
+        </div>
+
+{/* PROPERTY SWITCHER + TABS */}
+        <div style={{padding:"10px 26px 0",borderBottom:`1px solid ${C.border}`,display:"flex",gap:0,flexWrap:"wrap",alignItems:"stretch"}}>
+          <div style={{display:"flex",gap:4,marginRight:16,borderRight:`1px solid ${C.border}`,paddingRight:16,alignItems:"center"}}>
+            <span style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginRight:4}}>Property:</span>
+            {[{k:"southall",l:"Southall"},{k:"shoreditch",l:"Shoreditch"}].map(p=>(
+              <button key={p.k} onClick={()=>setProperty(p.k)} style={{padding:"7px 14px",border:`1px solid ${property===p.k?C.gold:C.border}`,cursor:"pointer",fontWeight:700,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",borderRadius:8,background:property===p.k?C.gold+"22":"transparent",color:property===p.k?C.gold:C.muted}}>{p.l}</button>
+            ))}
+          </div>
+          {property==="southall"&&<>{tabBtn("summary","Summary")}{tabBtn("marketing","Marketing")}{tabBtn("crm","CRM Pipeline",ghlConn?C.purple:null)}{tabBtn("bookings","Occupancy")}{!investor&&tabBtn("forecast","Forecast",C.purple)}{tabBtn("shortstays","Short Stays",lavandaConn?C.blue:null)}{tabBtn("renewals","Renewals",pmsConn?C.sage:null)}{tabBtn("reputation","Reputation",(repData.southall?.sources||[]).some(x=>x.connected)?"#00b67a":null)}</>}
+          {property==="shoreditch"&&<div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setSdTab("marketing")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="marketing"?C.gold:"transparent",color:sdTab==="marketing"?"#000":C.muted}}>Marketing</button>
+            <button onClick={()=>setSdTab("crm")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="crm"?C.gold:"transparent",color:sdTab==="crm"?"#000":C.muted}}>CRM</button>
+            <button onClick={()=>setSdTab("occupancy")} style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="occupancy"?C.gold:"transparent",color:sdTab==="occupancy"?"#000":C.muted}}>Occupancy</button>
+            <button onClick={()=>setSdTab("reputation")} className="tabbtn" style={{padding:"9px 22px",border:"none",cursor:"pointer",fontWeight:600,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",borderRadius:8,background:sdTab==="reputation"?C.gold:"transparent",color:sdTab==="reputation"?"#000":C.muted}}>Reputation</button>
+          </div>}
+        </div>
+
+        {/* ════ SUMMARY ════ */}
+        {property==="southall"&&tab==="summary"&&(
+          <div style={{padding:"22px 26px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Southall &Soul · All Room Types</p>
+                <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 0"}}>Property Overview</h2>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {pmsConn && <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● Lavanda Live</span>}
+                {lavandaConn && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● Short-stay Live</span>}
+                {!pmsConn && !lavandaConn && <span style={{fontSize:10,color:C.muted}}>○ Not connected</span>}
+              </div>
+            </div>
+
+            {/* ── RH FROZEN BANNER ── */}
+            {pmsConn && snapInfo?.builtAt && (Date.now() - new Date(snapInfo.builtAt).getTime()) > 24 * 3600e3 && (
+              <div style={{background:C.rose+"14",border:`1px solid ${C.rose}66`,borderRadius:14,padding:"12px 16px",margin:"16px 0 0"}}>
+                <p style={{fontSize:13,fontWeight:700,color:C.rose}}>Lavanda data is frozen — last successful pull {new Date(snapInfo.builtAt).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
+                <p style={{fontSize:11,color:C.muted,marginTop:3}}>{snapInfo.buildError ? `Refresh is failing (${snapInfo.buildError}). ` : ""}Every long-stay figure on this dashboard (occupancy, revenue, AWR, renewals, new bookings) is as of that moment, not today. Short-stay figures from Lavanda are live.</p>
+              </div>
+            )}
+
+            {/* ── NEEDS ATTENTION ── */}
+            {(() => {
+              const sevCol = { 3: C.rose, 2: C.rose, 1: C.gold, 0: C.blue };
+              const sevName = { 3: "URGENT", 2: "HIGH", 1: "WATCH", 0: "INFO" };
+              const urgent = attention.filter(a => a.sev >= 2).length;
+              return (
+                <div style={{background:C.card,border:`1px solid ${urgent?C.rose+"66":C.border}`,borderRadius:14,padding:18,margin:"16px 0 0"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:12}}>
+                    <div>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Needs Attention</h3>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>Everything that needs a human, from every source, ranked by severity</p>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      {[3,2,1,0].map(sv => { const n = attention.filter(a=>a.sev===sv).length; if (!n) return null;
+                        return <span key={sv} style={{fontSize:10,fontWeight:700,color:sevCol[sv],background:sevCol[sv]+"1a",border:`1px solid ${sevCol[sv]}44`,padding:"2px 8px",borderRadius:20}}>{n} {sevName[sv]}</span>; })}
+                      {attention.length === 0 && <span style={{fontSize:10,fontWeight:700,color:C.sage}}>✓ ALL CLEAR</span>}
+                    </div>
+                  </div>
+                  {attention.length > 0 && (
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:8}}>
+                      {attention.map((a,i) => (
+                        <div key={i} onClick={()=>a.tab&&setTab(a.tab)} title={a.tab?`Open ${a.tab}`:""}
+                          style={{background:C.bg,border:`1px solid ${sevCol[a.sev]}44`,borderLeft:`3px solid ${sevCol[a.sev]}`,borderRadius:10,padding:"10px 12px",cursor:a.tab?"pointer":"default"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:3}}>
+                            <span style={{fontSize:9,fontWeight:700,color:sevCol[a.sev],letterSpacing:"0.06em",textTransform:"uppercase"}}>{a.kind}</span>
+                            <span style={{fontSize:9,color:C.muted}}>{sevName[a.sev]}</span>
+                          </div>
+                          <p style={{fontSize:12,color:C.text,fontWeight:600,lineHeight:1.35}}>{a.title}</p>
+                          {a.detail && <p style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>{a.detail}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── WEEKLY NARRATIVE ── */}
+            <div style={{background:`linear-gradient(135deg, ${C.card}, ${C.bg})`,border:`1px solid ${C.gold}33`,borderRadius:14,padding:18,margin:"16px 0 0"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:10}}>
+                <div>
+                  <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>This Week, In Plain English</h3>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Reads the numbers above and says what moved · {rangeLabel} vs {prior.label}</p>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:9,color:narrativeAI?C.sage:C.muted}}>{narrativeAI ? "● model-written" : "○ generated from data"}</span>
+                  <button onClick={fetchNarrative} disabled={narrativeBusy} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>{narrativeBusy?"Writing…":"Rewrite with AI"}</button>
+                  <button onClick={()=>{ try { navigator.clipboard.writeText((narrativeAI||narrativeLocal).join("\n\n")); } catch {} }} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Copy</button>
+                </div>
+              </div>
+              {(!pmsConn || lavandaLoad) ? (
+                <p style={{fontSize:13,color:C.muted,lineHeight:1.6}}>{(pmsLoad || lavandaLoad) ? "Waiting for Lavanda to finish loading — the summary is written once the full booking set is in, so it never quotes partial figures." : "Lavanda is not connected, so the weekly summary can't be written from complete data."}</p>
+              ) : (narrativeAI || narrativeLocal).map((p,i) => (
+                <p key={i} style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:i<2?10:0}}>{p}</p>
+              ))}
+            </div>
+
+            {/* ── ANNOTATIONS (team only) ── */}
+            {!investor && <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:14,margin:"16px 0 0"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <div>
+                  <p style={{fontSize:12,fontWeight:700,color:C.text}}>Chart annotations</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>Drop a marker on every date chart — so a dip carries its explanation. Saved in this browser.</p>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <input type="date" value={annoDraft.date} onChange={e=>setAnnoDraft(d=>({...d,date:e.target.value}))}
+                    style={{fontSize:11,fontFamily:"DM Mono,monospace",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 8px",color:C.text,outline:"none"}}/>
+                  <input type="text" placeholder="e.g. Lift 2 out of service" value={annoDraft.label} onChange={e=>setAnnoDraft(d=>({...d,label:e.target.value}))}
+                    onKeyDown={e=>{ if(e.key==="Enter" && annoDraft.label.trim()) { setAnnotations(a=>[...a,{id:Date.now(),...annoDraft,label:annoDraft.label.trim()}]); setAnnoDraft(d=>({...d,label:""})); } }}
+                    style={{fontSize:11,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,outline:"none",width:220}}/>
+                  <div style={{display:"flex",gap:4}}>
+                    {ANNO_COLORS.map(c => <span key={c} onClick={()=>setAnnoDraft(d=>({...d,color:c}))} style={{width:14,height:14,borderRadius:7,background:c,cursor:"pointer",outline:annoDraft.color===c?`2px solid ${C.text}`:"none",outlineOffset:1}}/>)}
+                  </div>
+                  <button onClick={()=>{ if(!annoDraft.label.trim()) return; setAnnotations(a=>[...a,{id:Date.now(),...annoDraft,label:annoDraft.label.trim()}]); setAnnoDraft(d=>({...d,label:""})); }}
+                    style={{fontSize:10,padding:"5px 12px",borderRadius:6,border:`1px solid ${C.gold}66`,background:C.gold+"22",color:C.gold,cursor:"pointer",fontWeight:700}}>Add</button>
+                </div>
+              </div>
+              {annotations.length > 0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+                  {[...annotations].sort((a,b)=>b.date.localeCompare(a.date)).map(a => (
+                    <span key={a.id} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:10,background:C.bg,border:`1px solid ${a.color}55`,borderRadius:20,padding:"3px 8px 3px 6px"}}>
+                      <span style={{width:8,height:8,borderRadius:4,background:a.color}}/>
+                      <span style={{fontFamily:"DM Mono,monospace",color:C.muted}}>{a.date}</span>
+                      <span style={{color:C.text}}>{a.label}</span>
+                      <span onClick={()=>setAnnotations(list=>list.filter(x=>x.id!==a.id))} title="Remove" style={{color:C.muted,cursor:"pointer",marginLeft:2}}>×</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>}
+
+            {/* ── DOUBLE BOOKING ALERT ── */}
+            {doubleBookings.length > 0 && (
+              <div style={{background:C.rose+"12",border:`1px solid ${C.rose}66`,borderRadius:14,padding:16,margin:"16px 0 0"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:10}}>
+                  <p style={{fontSize:13,color:C.rose,fontWeight:700}}>
+                    ⚠ {doubleBookings.length} double booking{doubleBookings.length!==1?"s":""} — same room, overlapping dates
+                  </p>
+                  <p style={{fontSize:10,color:C.muted}}>Same room, overlapping Lavanda bookings · needs resolving before arrival</p>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(330px,1fr))",gap:8}}>
+                  {doubleBookings.map((c,i) => {
+                    const live = c.from <= new Date().toISOString().slice(0,10);
+                    return (
+                      <div key={i} style={{background:C.bg,border:`1px solid ${c.kind==="cross"?C.rose+"55":C.gold+"55"}`,borderRadius:10,padding:"10px 12px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:5}}>
+                          <p style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>Room {c.room}</p>
+                          <span style={{fontSize:9,fontWeight:700,color:c.kind==="cross"?C.rose:C.gold}}>
+                            {c.kind==="cross" ? "LONG-STAY vs SHORT-STAY" : "TWO SHORT-STAYS"}
+                          </span>
+                        </div>
+                        <p style={{fontSize:11,color:live?C.rose:C.muted,fontWeight:live?700:400,marginBottom:6}}>
+                          {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                          {live && " · LIVE NOW"}
+                        </p>
+                        <p style={{fontSize:11,color:C.text}}>{c.aLabel}</p>
+                        <p style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace",marginBottom:4}}>{c.aMeta}</p>
+                        <p style={{fontSize:11,color:C.text}}>{c.bLabel}</p>
+                        <p style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>{c.bMeta}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Hero KPI row ── */}
+            {pmsLoad && !pmsConn && (
+              <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:16,margin:"16px 0 0",display:"flex",alignItems:"center",gap:12}}>
+                <span style={{width:14,height:14,border:`2px solid ${C.gold}`,borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"spin 0.9s linear infinite"}}/>
+                <div>
+                  <p style={{fontSize:13,fontWeight:700,color:C.text}}>Loading Lavanda bookings…</p>
+                  <p style={{fontSize:11,color:C.muted,marginTop:2}}>Occupancy, revenue and rates appear once the full booking set is in (a few seconds). Figures below are short-stay only until then.</p>
+                </div>
+                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+              </div>
+            )}
+            {(() => {
+              const lsOcc = pmsConn && pmsData ? pmsData.occupied : 0;
+              const lsTotal = totalBedrooms;
+              const ssOccRaw = lavandaConn && lavandaData ? lavandaData.kpis.occ_tonight : 0;
+              // A room double-booked across both systems is ONE occupied room.
+              // Subtract any Nomad room that Res Harmonics also shows occupied.
+              const todaySum = new Date().toISOString().slice(0,10);
+              const rhOccRooms = new Set((pmsConn && pmsData?.occupiedRoomNumbers) || []);
+              const ssRoomsTonight = (lavandaConn && lavandaData?.ssStays)
+                ? [...new Set(lavandaData.ssStays.filter(s => s.start <= todaySum && s.end >= todaySum).map(s => s.room))]
+                : [];
+              const ssDuplicated = ssRoomsTonight.filter(r => rhOccRooms.has(r)).length;
+              const ssOcc = ssRoomsTonight.length > 0 ? ssRoomsTonight.length - ssDuplicated : ssOccRaw;
+              const ssBlocked = lavandaConn && lavandaData ? lavandaData.kpis.blocked_tonight : 0;
+              const ssUnits = lavandaConn && lavandaData ? lavandaData.kpis.units : 0;
+              const totalOcc = lsOcc + ssOcc;
+              // Guests in house right now (stays, not rooms) — matches Lavanda's "Active stays"
+              const ssStaysNow = (lavandaConn && lavandaData?.ssStays) ? lavandaData.ssStays.filter(s => s.start <= todaySum && s.end >= todaySum && !rhOccRooms.has(s.room)).length : ssOcc;
+              const inHouseNow = (pmsConn && pmsData ? (pmsData.inHouseGuests || lsOcc) : 0) + ssStaysNow;
+              const usable = Math.max(1, lsTotal - offlineRooms); // rooms held per the offline register
+              const totalPct = usable > 0 ? Math.round(totalOcc / usable * 100) : 0;
+              const lsPct = usable > 0 ? Math.round(lsOcc / usable * 100) : 0;
+              const vacancy = Math.max(0, usable - totalOcc);
+
+              // ── Revenue for the SELECTED DATE RANGE — from the shared rangeRevenue memo ──
+              const { lsRev, lsRevGross, shortBreakRev, ssRev, ssRevCovered } = rangeRevenue;
+              const totalRev = rangeRevenue.total;
+              const rangeDays = Math.round((new Date(to) - new Date(from)) / 864e5) + 1;
+
+              const lsAWR = pmsConn && pmsData ? (pmsData.globalAwrGross || pmsData.globalAwr || 0) : 0;
+              const lsAWRNet = pmsConn && pmsData ? (pmsData.globalAwr || 0) : 0;
+              const ssADR = lavandaConn && lavandaData ? lavandaData.kpis.adr : 0;
+              const ssADRNet = ssADR > 0 ? ssADR / 1.2 : 0;
+
+              const lsCheckIns = pmsConn && pmsData ? pmsData.checkInsWeek : 0;
+              const lsCheckOuts = pmsConn && pmsData ? pmsData.checkOutsWeek : 0;
+              const ssArrivals = lavandaConn && lavandaData ? lavandaData.kpis.arrivals7 : 0;
+              const ssDepartures = lavandaConn && lavandaData ? lavandaData.kpis.departures7 : 0;
+
+              return (<>
+                {/* Top-level combined numbers */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:14,margin:"18px 0"}}>
+                  <div style={{background:`linear-gradient(135deg, ${C.card}, ${C.bg})`,border:`1px solid ${C.gold}44`,borderRadius:14,padding:20}}>
+                    <p style={{fontSize:10,color:C.gold,fontWeight:600,marginBottom:6}}>IN HOUSE NOW <span style={{color:C.muted,fontWeight:400}}>· guests in the building (Lavanda active stays)</span></p>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:10}}>
+                      <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+                        <p style={{fontSize:36,fontWeight:800,color:C.gold,fontFamily:"DM Mono,monospace",lineHeight:1}}>{inHouseNow}</p>
+                        {inHouseNow !== totalOcc && <span style={{fontSize:11,color:C.muted}}>in {totalOcc} rooms</span>}
+                        <DeltaChip delta={mkDelta(totalOcc, (history.at(history.occ, history.daysAgo(30))||0) + (history.at(history.ssOcc, history.daysAgo(30))||0), {label:"30 days ago"})} size={11}/>
+                      </div>
+                      <Spark data={history.last30(history.occ).map((v,i)=>v + history.last30(history.ssOcc)[i])} color={C.gold} width={110} height={30}/>
+                    </div>
+                    <p style={{fontSize:13,color:C.muted,marginTop:6}}>{totalPct}% of {usable} usable rooms</p>
+                    <div style={{display:"flex",height:6,borderRadius:3,overflow:"hidden",marginTop:10,background:C.border}}>
+                      <div style={{width:`${lsPct}%`,background:C.sage,transition:"width 0.4s"}}/>
+                      <div style={{width:`${usable>0?Math.round(ssOcc/usable*100):0}%`,background:C.blue,transition:"width 0.4s"}}/>
+                    </div>
+                    <div style={{display:"flex",gap:12,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap"}}>
+                      <span><span style={{color:C.sage,fontWeight:700}}>{lsOcc}</span> long-stay{pmsData?.occupiedShortBreak>0?` (${pmsData.occupiedLongStay} long-stay + ${pmsData.occupiedShortBreak} short break)`:" long-stay"}</span>
+                      <span><span style={{color:C.blue,fontWeight:700}}>{ssOcc}</span> short-stay</span>
+                      <span><span style={{fontWeight:700}}>{vacancy}</span> vacant</span>
+                    </div>
+                    {ssDuplicated > 0 && (
+                      <p style={{fontSize:9,color:C.rose,marginTop:4}}>
+                        {ssDuplicated} room{ssDuplicated!==1?"s":""} booked in both systems — counted once (see double bookings under Occupancy)
+                      </p>
+                    )}
+                  </div>
+
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+                    <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>REVENUE · {new Date(from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} ({rangeDays}d)</p>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:10}}>
+                      <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+                        <p style={{fontSize:28,fontWeight:800,color:C.text,fontFamily:"DM Mono,monospace",lineHeight:1}}>{fmt(totalRev)}</p>
+                        <DeltaChip delta={mkDelta(totalRev, rangeRevenuePrev.total, {label: prior.label})} size={11}/>
+                      </div>
+                      <Spark data={history.last30(history.revGross).map((v,i)=>v + history.last30(history.ssRev)[i])} color={C.text} width={110} height={30}/>
+                    </div>
+                    <p style={{fontSize:12,color:C.muted,marginTop:8}}>
+                      <span style={{color:C.sage}}>{fmt(lsRevGross)}</span> long-stay gross <span style={{fontSize:10}}>({fmt(lsRev)} net)</span>
+                      {shortBreakRev > 0 && <> · <span style={{color:C.gold}}>{fmt(shortBreakRev)}</span> short breaks <span style={{fontSize:10}}>(Lavanda &lt;28n)</span></>}
+                      {ssRev > 0 && <> · <span style={{color:C.blue}}>{fmt(ssRev)}</span> short-stay</>}
+                    </p>
+                    {!ssRevCovered && <p style={{fontSize:9,color:C.muted,marginTop:4}}>⚠ Short-stay data starts {lavandaData?.daily?.[0]?.date} — earlier dates not included</p>}
+                  </div>
+
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+                    <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>RATES</p>
+                    <div style={{display:"flex",gap:16,alignItems:"baseline"}}>
+                      <div>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                          <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>£{lsAWR}</p>
+                          <DeltaChip delta={pp.point30(history.awr)}/>
+                        </div>
+                        <Spark data={history.last30(history.awr)} color={C.sage} width={90} height={22}/>
+                        <p style={{fontSize:10,color:C.muted}}>AWR gross (LS)</p>
+                        <p style={{fontSize:11,color:C.sage,fontFamily:"DM Mono,monospace",marginTop:2}}>£{lsAWRNet} <span style={{color:C.muted,fontFamily:"inherit"}}>net /wk</span></p>
+                      </div>
+                      {ssADR > 0 && <div>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                          <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{ssADR.toFixed(0)}</p>
+                          <DeltaChip delta={pp.ratio(history.ssRev, history.ssOcc)}/>
+                        </div>
+                        <Spark data={history.last30(history.ssAdr)} color={C.blue} width={90} height={22}/>
+                        <p style={{fontSize:10,color:C.muted}}>ADR gross (SS)</p>
+                        <p style={{fontSize:11,color:C.blue,fontFamily:"DM Mono,monospace",marginTop:2}}>£{ssADRNet.toFixed(0)} <span style={{color:C.muted,fontFamily:"inherit"}}>net /night</span></p>
+                      </div>}
+                    </div>
+                  </div>
+
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+                    <p style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>7-DAY MOVEMENT</p>
+                    <div style={{display:"flex",gap:20}}>
+                      {(() => {
+                        const t7 = history.today, a7 = history.daysAgo(6), b7 = history.daysAgo(13), c7 = history.daysAgo(7);
+                        const arrPrev = history.sum(history.arrivals, b7, c7), depPrev = history.sum(history.departures, b7, c7);
+                        const arrCur = history.sum(history.arrivals, a7, t7), depCur = history.sum(history.departures, a7, t7);
+                        return (<>
+                      <div>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                          <p style={{fontSize:22,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>+{lsCheckIns + ssArrivals}</p>
+                          <DeltaChip delta={mkDelta(arrCur, arrPrev, {label:"prev 7d"})}/>
+                        </div>
+                        <Spark data={history.last30(history.arrivals)} color={C.sage} width={90} height={22}/>
+                        <p style={{fontSize:10,color:C.muted}}>arrivals{ssArrivals>0?` (${lsCheckIns} LS + ${ssArrivals} SS)`:""}</p>
+                      </div>
+                      <div>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                          <p style={{fontSize:22,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>-{lsCheckOuts + ssDepartures}</p>
+                          <DeltaChip delta={mkDelta(depCur, depPrev, {label:"prev 7d", invert:true})}/>
+                        </div>
+                        <Spark data={history.last30(history.departures)} color={C.rose} width={90} height={22}/>
+                        <p style={{fontSize:10,color:C.muted}}>departures{ssDepartures>0?` (${lsCheckOuts} LS + ${ssDepartures} SS)`:""}</p>
+                      </div>
+                        </>);
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── MONTH-TO-DATE PACING ── */}
+                {(() => {
+                  const now = new Date();
+                  const y = now.getFullYear(), m = now.getMonth();
+                  const dim = new Date(y, m + 1, 0).getDate();
+                  const dom = now.getDate();
+                  const elapsed = dom / dim;
+                  const mStart = `${y}-${String(m+1).padStart(2,"0")}-01`;
+                  const mLabel = now.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+                  const T = pacingTargets;
+                  const revMtd = history.sum(history.revGross, mStart, history.today) + history.sum(history.ssRev, mStart, history.today);
+                  const bkMtd  = history.sum(history.newBk, mStart, history.today) + history.sum(history.ssBooked, mStart, history.today);
+                  const adrMtd = history.ratio(history.ssRev, history.ssOcc, mStart, history.today);
+                  const occTargetRooms = Math.ceil(usable * (T.occPct / 100));
+                  if (!pmsConn || lavandaLoad) return (
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Pacing — {mLabel}</h3>
+                      <p style={{fontSize:12,color:C.muted,marginTop:4}}>{pmsLoad ? "Waiting for Lavanda to finish loading before showing month-to-date figures." : "Lavanda is not connected — pacing needs the booking data."}</p>
+                    </div>
+                  );
+                  const rows = [
+                    { key:"rev", label:"Revenue", actual:revMtd, target:T.revenue, fmtV:v=>fmt(v), color:C.gold, kind:"cumulative" },
+                    { key:"bk",  label:"New bookings", actual:bkMtd, target:T.bookings, fmtV:v=>Math.round(v).toString(), color:C.blue, kind:"cumulative" },
+                    { key:"occ", label:"Occupancy", actual:totalOcc, target:occTargetRooms, fmtV:v=>`${Math.round(v)} rooms`, color:C.sage, kind:"level", sub:`${T.occPct}% of ${usable} usable` },
+                    { key:"adr", label:"Short-stay ADR", actual:adrMtd, target:T.adr, fmtV:v=>v==null?"—":`£${v.toFixed(0)}`, color:C.purple, kind:"level" },
+                  ];
+                  return (
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:12}}>
+                        <div>
+                          <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Pacing — {mLabel}</h3>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Day {dom} of {dim} · {Math.round(elapsed*100)}% of the month elapsed · month-to-date actuals vs management targets{investor?"":" · targets editable, saved in this browser"}</p>
+                        </div>
+                        {!investor && <button onClick={()=>setPacingEdit(v=>!v)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>{pacingEdit?"Done":"Edit targets"}</button>}
+                      </div>
+                      {pacingEdit && !investor && (
+                        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12,padding:"10px 12px",background:C.bg,borderRadius:10,border:`1px solid ${C.border}`}}>
+                          {[["revenue","Monthly revenue £",1000],["bookings","New bookings / month",1],["occPct","Occupancy target %",1],["adr","Short-stay ADR £",1]].map(([k,l,step])=>(
+                            <label key={k} style={{fontSize:10,color:C.muted,display:"flex",flexDirection:"column",gap:4}}>
+                              {l}
+                              <input type="number" step={step} value={T[k]} onChange={e=>setPacingTargets(t=>({...t,[k]:+e.target.value||0}))}
+                                style={{width:120,fontSize:12,fontFamily:"DM Mono,monospace",background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",color:C.text,outline:"none"}}/>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
+                        {rows.map(r => {
+                          const hasData = r.actual != null && r.target > 0;
+                          const expected = r.kind === "cumulative" ? r.target * elapsed : r.target;
+                          const projected = r.kind === "cumulative" && elapsed > 0 ? r.actual / elapsed : r.actual;
+                          const ratio = hasData && expected > 0 ? r.actual / expected : null;
+                          const status = !hasData ? "nodata" : ratio >= 0.97 ? "on" : ratio >= 0.85 ? "close" : "behind";
+                          const scol = status === "on" ? C.sage : status === "close" ? C.gold : status === "behind" ? C.rose : C.muted;
+                          const progress = hasData ? Math.min(100, (r.actual / r.target) * 100) : 0;
+                          return (
+                            <div key={r.key} style={{background:C.bg,border:`1px solid ${scol}44`,borderRadius:10,padding:"12px 14px"}}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+                                <p style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>{r.label}</p>
+                                <span style={{fontSize:9,fontWeight:700,color:scol,background:scol+"1a",border:`1px solid ${scol}44`,padding:"2px 7px",borderRadius:20}}>
+                                  {status==="on"?"ON PACE":status==="close"?"CLOSE":status==="behind"?"BEHIND":"NO DATA"}
+                                </span>
+                              </div>
+                              <p style={{fontSize:22,fontWeight:800,color:r.color,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                                {hasData ? r.fmtV(r.actual) : "—"}
+                                <span style={{fontSize:11,color:C.muted,fontWeight:400}}> / {r.fmtV(r.target)}</span>
+                              </p>
+                              <div style={{position:"relative",height:6,background:C.border,borderRadius:3,marginTop:8,overflow:"hidden"}}>
+                                <div style={{width:`${progress}%`,height:"100%",background:scol,transition:"width 0.4s"}}/>
+                                {r.kind === "cumulative" && <div title="Where you should be today" style={{position:"absolute",top:-2,bottom:-2,left:`${Math.min(100,elapsed*100)}%`,width:2,background:C.text,opacity:0.6}}/>}
+                              </div>
+                              <p style={{fontSize:10,color:C.muted,marginTop:6}}>
+                                {!hasData ? (r.sub || "Awaiting data")
+                                 : r.kind === "cumulative"
+                                   ? (ratio >= 0.97
+                                       ? (investor ? `Ahead of today's pace (${r.fmtV(expected)} expected by day ${dom})` : `Ahead of pace · projecting ${r.fmtV(projected)} by month end`)
+                                       : (investor ? `${r.fmtV(Math.max(0, expected - r.actual))} behind today's pace (${r.fmtV(expected)} expected by day ${dom})` : `${r.fmtV(Math.max(0, expected - r.actual))} behind today's pace · projecting ${r.fmtV(projected)}`))
+                                   : (ratio >= 1 ? `Target met${r.sub?` · ${r.sub}`:""}` : `${r.fmtV(Math.max(0, r.target - r.actual))} short of target${r.sub?` · ${r.sub}`:""}`)}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ── Bed utilisation bar ── */}
+                <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                  <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:10}}>Bed Utilisation — Tonight</h3>
+                  <div style={{display:"flex",height:36,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                    {(() => {
+                      const segs = [
+                        {w: lsOcc/usable*100, bg: C.sage, label: `${lsOcc} LS`, min: 8},
+                        {w: ssOcc/usable*100, bg: C.blue, label: `${ssOcc} SS`, min: 5},
+                        {w: ssBlocked/usable*100, bg: C.muted+"66", label: `${ssBlocked} blocked`, min: 5},
+                        {w: Math.max(0, vacancy-ssBlocked)/usable*100, bg: C.bg, label: `${Math.max(0,vacancy-ssBlocked)} open`, min: 10},
+                      ];
+                      return segs.map((s,i) => (
+                        <div key={i} style={{width:`${s.w}%`,background:s.bg,display:"flex",alignItems:"center",justifyContent:"center",transition:"width 0.4s",overflow:"hidden",whiteSpace:"nowrap"}} title={s.label}>
+                          {s.w > s.min && <span style={{fontSize:10,color:i<2?"#fff":C.text,fontWeight:600}}>{s.label}</span>}
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginTop:8}}>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.sage,display:"inline-block"}}/> Long-stay</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue,display:"inline-block"}}/> Short-stay</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.muted+"66",display:"inline-block"}}/> Blocked</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.bg,border:`1px solid ${C.border}`,display:"inline-block"}}/> Available</span>
+                  </div>
+                </div>
+
+                {/* ── Offline & Maintenance Rooms ── */}
+                <div style={{background:C.card,border:`1px solid ${C.rose}44`,borderRadius:14,padding:18,marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
+                    <div>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>Offline & Maintenance Rooms</h3>
+                      <p style={{fontSize:12,color:C.muted}}>{investor ? "From the operations offline register — these rooms are excluded from usable stock." : "Manual entry — the offline register drives usable rooms. Drives usable rooms & the 95% target model."}</p>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:11,color:C.muted}}>Rooms offline:</span>
+                      {investor
+                        ? <span style={{fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{offlineRooms}</span>
+                        : <input type="number" min={0} max={50} value={offlineRooms} onChange={e=>{const v=Math.max(0,Math.min(50,+e.target.value||0));setOfflineRooms(v);}} style={{width:64,fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",textAlign:"right",outline:"none"}}/>}
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))",gap:10,marginTop:14}}>
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Rooms held offline</p>
+                      <p style={{fontSize:18,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{offlineRooms}</p>
+                      <p style={{fontSize:10,color:C.muted}}>Usable: {usable} / {lsTotal} bedrooms</p>
+                      <p style={{fontSize:9,color:offlineIsManual?C.gold:C.sage,marginTop:3}}>
+                        {offlineIsManual
+                          ? `Manual override — register has ${REGISTER_OFFLINE}`
+                          : `From the offline register (${REGISTER_OFFLINE} rooms incl. ${OFFLINE_UNLISTED} not yet itemised)`}
+                      </p>
+                    </div>
+                    <div style={{background:C.bg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"10px 14px"}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Offline register (ops)</p>
+                      <p style={{fontSize:18,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{Object.keys(offlineRoomMap).length}</p>
+                      <p style={{fontSize:10,color:C.muted}} title={Object.values(offlineRoomMap).map(r=>`${r.room}: ${r.reason}`).join("\n")}>
+                        Linen, staff, maintenance & holds — hover for list
+                      </p>
+                    </div>
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Closed on Lavanda calendar</p>
+                      <p style={{fontSize:18,fontWeight:700,color:pmsConn&&pmsData?C.rose:C.muted,fontFamily:"DM Mono,monospace"}}>{pmsConn&&pmsData?(pmsData.rhOfflineUnits??"—"):"—"}</p>
+                      <p style={{fontSize:10,color:C.rose}}>
+                        {pmsConn&&pmsData ? `${Math.max(0,Object.keys(offlineRoomMap).length-(pmsData.rhOfflineUnits||0))} held rooms NOT closed in Lavanda` : "closed units in Lavanda"}
+                      </p>
+                    </div>
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Nomad blocked tonight</p>
+                      <p style={{fontSize:18,fontWeight:700,color:lavandaConn?C.blue:C.muted,fontFamily:"DM Mono,monospace"}}>{lavandaConn&&lavandaData?ssBlocked:"—"}</p>
+                      <p style={{fontSize:10,color:C.muted}}>Incl. maintenance & unlisted nights on Booking.com</p>
+                    </div>
+                  </div>
+                  {!investor && <p style={{fontSize:10,color:C.muted,marginTop:10}}>⚠ Some maintenance rooms are within the 30 Lavanda-allocated Nomad units — avoid double counting: the manual figure should cover all rooms genuinely out of service across the building.</p>}
+                </div>
+
+                {/* ── Monthly Occupancy Trend (stacked LS + SS) ── */}
+                {pmsConn && pmsData && pmsData.forecast && (
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Monthly Occupancy — Combined</h3>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Active rooms by month (long-stay + short-stay, from Lavanda)</p>
+                    {(() => {
+                      const lavMonthly = {};
+                      const ssRevByMonth = {};
+                      if (lavandaConn && lavandaData && lavandaData.daily) {
+                        lavandaData.daily.forEach(d => {
+                          const mk = d.date.slice(0,7);
+                          if (!lavMonthly[mk]) lavMonthly[mk] = {sum:0,n:0};
+                          lavMonthly[mk].sum += d.booked;
+                          lavMonthly[mk].n++;
+                        });
+                        (lavandaData.monthly || []).forEach(m => { ssRevByMonth[m.month] = m.revenue; });
+                      }
+                      const chartData = pmsData.forecast.map(fm => {
+                        const lm = lavMonthly[fm.key];
+                        const ssAvg = lm ? Math.round(lm.sum / lm.n) : 0;
+                        const awr = fm.awrGross || pmsData.globalAwrGross || 0;
+                        const lsRev = Math.round((fm.bookedDays || 0) / 7 * awr);
+                        const ssRev = Math.round(ssRevByMonth[fm.key] || 0);
+                        return {
+                          month: (fm.label||"").split(" ")[0],
+                          ls: fm.activeStays || 0,
+                          ss: ssAvg,
+                          total: (fm.activeStays||0) + ssAvg,
+                          awr, awrNet: fm.awrNet || pmsData.globalAwr || 0,
+                          lsRev, ssRev, rev: lsRev + ssRev,
+                        };
+                      });
+                      const OccTip = ({active,payload,label}) => {
+                        if(!active||!payload?.length) return null;
+                        const d = payload[0]?.payload || {};
+                        return <div style={{background:"#13161b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12}}>
+                          <p style={{color:C.muted,marginBottom:6,fontFamily:"monospace"}}>{label}</p>
+                          <p style={{color:C.sage,margin:"2px 0"}}>Long-stay: <strong>{d.ls} rooms</strong></p>
+                          <p style={{color:C.blue,margin:"2px 0"}}>Short-stay: <strong>{d.ss} rooms</strong></p>
+                          <p style={{color:C.gold,margin:"2px 0"}}>Combined: <strong>{d.total} rooms</strong></p>
+                          <div style={{borderTop:`1px solid ${C.border}`,margin:"6px 0"}}/>
+                          <p style={{color:C.sage,margin:"2px 0"}}>AWR: <strong>£{d.awr}</strong> gross <span style={{color:C.muted}}>(£{d.awrNet} net)</span></p>
+                          <p style={{color:C.text,margin:"2px 0"}}>Revenue: <strong>{fmt(d.rev)}</strong></p>
+                          <p style={{color:C.muted,margin:"2px 0",fontSize:10}}>LS {fmt(d.lsRev)} · SS {fmt(d.ssRev)}</p>
+                        </div>;
+                      };
+                      return (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <ComposedChart data={chartData} margin={{top:4,right:8,bottom:0,left:-8}}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                            <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                            <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false}/>
+                            <Tooltip content={<OccTip/>}/>
+                            {annosFor(annoMonthLabel).map(annoLine)}
+                            <Bar dataKey="ls" name="Long-stay" stackId="a" fill={C.sage} radius={[0,0,0,0]}/>
+                            <Bar dataKey="ss" name="Short-stay" stackId="a" fill={C.blue} radius={[4,4,0,0]}/>
+                            <Line type="monotone" dataKey="total" name="Combined" stroke={C.gold} strokeWidth={2} dot={false}/>
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* ── Revenue Breakdown ── */}
+                {pmsConn && pmsData && pmsData.forecast && (
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                      <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Long-Stay Revenue by Month</h3>
+                      <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Actual booked value, gross, nights basis — the same maths as the finance export. Future months show contracted value only.</p>
+                      {(() => {
+                        const y = new Date().getFullYear(), nowM = new Date().getMonth();
+                        const rows = Array.from({length:12}, (_, m) => {
+                          const mS = `${y}-${String(m+1).padStart(2,"0")}-01`;
+                          const mE = `${y}-${String(m+1).padStart(2,"0")}-${String(new Date(y, m+1, 0).getDate()).padStart(2,"0")}`;
+                          const r = rangeRevenueFor(mS, mE);
+                          return { month: new Date(y, m, 1).toLocaleDateString("en-GB",{month:"short"}), rev: r.lsRevGross + r.shortBreakRev, future: m > nowM };
+                        });
+                        return (
+                          <ResponsiveContainer width="100%" height={180}>
+                            <BarChart data={rows} margin={{top:4,right:8,bottom:0,left:-8}}>
+                              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                              <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                              <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>v>=1000?`£${Math.round(v/1000)}k`:`£${v}`}/>
+                              <Tooltip content={<Tip/>}/>
+                              {annosFor(annoMonthLabel).map(annoLine)}
+                              <Bar dataKey="rev" name="LS Revenue" radius={[4,4,0,0]} fill={C.sage}
+                                   shape={(props) => { const {x,y,width,height,payload} = props; return <rect x={x} y={y} width={width} height={height} rx={4} fill={C.sage} opacity={payload.future?0.35:1}/>; }}/>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        );
+                      })()}
+                    </div>
+
+                    {lavandaConn && lavandaData && lavandaData.monthly && (
+                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                        <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Short-Stay Revenue by Month</h3>
+                        <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Confirmed Booking.com value, from Lavanda</p>
+                        <ResponsiveContainer width="100%" height={180}>
+                          <BarChart data={lavandaData.monthly.map(m=>({month:new Date(m.month+"-01T00:00").toLocaleDateString("en-GB",{month:"short"}),rev:Math.round(m.revenue)}))} margin={{top:4,right:8,bottom:0,left:-8}}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                            <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                            <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                            <Tooltip content={<Tip/>}/>
+                            <Bar dataKey="rev" name="SS Revenue" fill={C.blue} radius={[4,4,0,0]}/>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Upcoming Arrivals & Departures (combined) ── */}
+                {lavandaConn && lavandaData && lavandaData.upcoming && lavandaData.upcoming.length > 0 && (
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Short-Stay Arrivals & Departures</h3>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Confirmed Booking.com stays (Nomad Ensuite)</p>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Guest</th>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>In</th>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Out</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Nights</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Value</th>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lavandaData.upcoming.slice(0,6).map((b,i) => {
+                            const todayStr = new Date().toISOString().slice(0,10);
+                            const isIn = b.start === todayStr;
+                            const isOut = b.end === todayStr;
+                            const isHouse = b.start < todayStr && b.end > todayStr;
+                            return (
+                              <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                <td style={{padding:"6px 10px",color:C.text,fontWeight:500}}>{investor ? "Guest" : b.guest}</td>
+                                <td style={{padding:"6px 10px",color:C.text,fontSize:11}}>{new Date(b.start+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
+                                <td style={{padding:"6px 10px",color:C.text,fontSize:11}}>{new Date(b.end+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace"}}>{b.nights}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>£{b.value.toFixed(2)}</td>
+                                <td style={{padding:"6px 10px"}}>
+                                  {isIn && <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:999,border:`1px solid ${C.sage}`,color:C.sage}}>Arriving</span>}
+                                  {isOut && <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:999,border:`1px solid ${C.gold}`,color:C.gold}}>Departing</span>}
+                                  {isHouse && <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:999,border:`1px solid ${C.blue}`,color:C.blue}}>In-house</span>}
+                                  {!isIn && !isOut && !isHouse && <span style={{fontSize:10,color:C.muted}}>Upcoming</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Property Tier Snapshot ── */}
+                {/* Built from Res Harmonics inventory + occupancy (the source of truth for
+                    the building), with Lavanda overlaid on the Nomad tier. The old version
+                    used Lavanda's tier list, which showed every membership tier as 0 booked
+                    because long-stay tenants don't exist in Lavanda. */}
+                {pmsConn && rhAllUnits && rhAllUnits.length > 0 && (() => {
+                  const todayT = new Date().toISOString().slice(0,10);
+                  const rhOcc = new Set((pmsData?.occupiedRoomNumbers) || []);
+                  const ssBookedT = new Set(
+                    (lavandaConn && lavandaData?.ssStays)
+                      ? lavandaData.ssStays.filter(s => s.start <= todayT && s.end > todayT).map(s => s.room)
+                      : []
+                  );
+                  const tiers = {};
+                  rhAllUnits.filter(u => /^Room:/i.test((u.unitName||"").trim())).forEach(u => {
+                    const t = baseRoomType(u.unitTypeName);
+                    if (!t) return;
+                    const roomNo = (u.unitName||"").replace(/^Room:\s*/i,"").trim();
+                    if (!tiers[t]) tiers[t] = { units:0, occLs:0, occSs:0, offline:0 };
+                    tiers[t].units++;
+                    if (u.bookable === false) tiers[t].offline++;
+                    const inRh = rhOcc.has(roomNo), inSs = ssBookedT.has(roomNo);
+                    if (inRh) tiers[t].occLs++;
+                    else if (inSs) tiers[t].occSs++;   // avoid double counting a clash
+                  });
+                  const rows = Object.entries(tiers).sort((a,b)=>b[1].units-a[1].units);
+                  const T = rows.reduce((s,[,v])=>({units:s.units+v.units, occLs:s.occLs+v.occLs, occSs:s.occSs+v.occSs}),{units:0,occLs:0,occSs:0});
+                  return (
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Room Tiers — Tonight</h3>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>All Southall bedrooms by tier · occupancy from Lavanda{lavandaConn?" + Lavanda (Nomad)":""}</p>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            {["Tier","Rooms","Occupied","Long-stay","Short-stay","Empty","Occ %"].map((h,i)=>(
+                              <th key={h} style={{textAlign:i===0?"left":"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(([t,v]) => {
+                            const occ = v.occLs + v.occSs;
+                            const pct = v.units>0?Math.round(occ/v.units*100):0;
+                            return (
+                              <tr key={t} style={{borderBottom:`1px solid ${C.border}22`,background:v.occSs>0?C.blue+"08":"transparent"}}>
+                                <td style={{padding:"6px 10px",color:C.text,fontWeight:500}}>{t}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace"}}>{v.units}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:700}}>{occ}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{v.occLs}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:v.occSs>0?C.blue:C.muted}}>{v.occSs||"—"}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:v.units-occ>0?C.rose:C.muted}}>{v.units-occ}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:pct>=95?C.sage:pct>=80?C.gold:C.rose}}>{pct}%</td>
+                              </tr>
+                            );
+                          })}
+                          <tr style={{borderTop:`1px solid ${C.border}`}}>
+                            <td style={{padding:"8px 10px",color:C.text,fontWeight:700}}>Total</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700}}>{T.units}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{T.occLs+T.occSs}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.sage}}>{T.occLs}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.blue}}>{T.occSs}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.rose}}>{T.units-T.occLs-T.occSs}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{T.units>0?Math.round((T.occLs+T.occSs)/T.units*100):0}%</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>);
+                })()}
+
+                {/* Legacy Lavanda-only tier view (channel inventory) */}
+                {false && lavandaConn && lavandaData && lavandaData.tiers && (
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Room Tiers — Tonight</h3>
+                    <p style={{fontSize:12,color:C.muted,marginBottom:14}}>All Southall inventory by tier</p>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Tier</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Units</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Available</th>
+                            <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Blocked</th>
+                            <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Channel</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lavandaData.tiers.map((t,i) => (
+                            <tr key={i} style={{borderBottom:`1px solid ${C.border}22`,background:t.shortstay?C.blue+"08":"transparent"}}>
+                              <td style={{padding:"6px 10px",color:C.text,fontWeight:500}}>{t.tier}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace"}}>{t.units}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:t.booked>0?C.blue:C.muted}}>{t.booked}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{t.available}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>{t.blocked}</td>
+                              <td style={{padding:"6px 10px",fontSize:11,color:C.muted}}>{t.shortstay?"Booking.com":"Membership"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Guest Ratings (live only — no manual fallbacks) ── */}
+                {(() => {
+                  const plats = [
+                    { k:"google",     name:"Google",      color:C.blue },
+                    { k:"booking",    name:"Booking.com", color:"#3d82c4" },
+                    { k:"airbnb",     name:"Airbnb",      color:C.rose },
+                    { k:"trustpilot", name:"Trustpilot",  color:C.sage },
+                  ];
+                  const liveN = plats.filter(p => reputation[p.k]).length;
+                  return (
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:12}}>
+                        <div>
+                          <h3 style={{fontSize:14,fontWeight:700,color:C.text}}>Guest Ratings <span onClick={()=>setTab("reputation")} style={{fontSize:10,color:C.gold,cursor:"pointer",marginLeft:8,fontWeight:600}}>Open Reputation →</span></h3>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Public review platforms. A platform only shows a score when its data has been collected — nothing here is typed in by hand.</p>
+                        </div>
+                        <span style={{fontSize:10,color:liveN?C.sage:C.muted,fontWeight:600}}>{repLoading ? "○ checking…" : liveN ? `● ${liveN} of ${plats.length} with scores` : "○ no connected platforms"}</span>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:10}}>
+                        {plats.map(p => {
+                          const r0 = reputation[p.k]; const r = r0 && !r0.empty ? r0 : null;
+                          return (
+                            <div key={p.k} style={{background:C.bg,border:`1px solid ${r?p.color+"44":C.border}`,borderRadius:10,padding:"12px 14px"}}>
+                              <p style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{p.name} <span style={{fontSize:9,color:r0?C.sage:C.muted,marginLeft:4}}>{r0?"● connected":"○ not connected"}</span></p>
+                              {r ? (<>
+                                <p style={{fontSize:24,fontWeight:800,color:p.color,fontFamily:"DM Mono,monospace",lineHeight:1}}>{r.rating.toFixed(1)}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/{r.scale}</span></p>
+                                <div style={{display:"flex",gap:2,margin:"6px 0 4px"}}>{[1,2,3,4,5].map(x=>{const st=r.rating/r.scale*5;return <span key={x} style={{fontSize:13,opacity:x<=Math.floor(st)?1:x<=st?0.6:0.2}}>★</span>;})}</div>
+                                <p style={{fontSize:11,color:C.muted}}>{r.count ? `${r.count.toLocaleString()} reviews` : "review count unavailable"}</p>
+                              </>) : (
+                                <p style={{fontSize:11,color:C.muted,lineHeight:1.5}}>{r0?.empty ? "Listed, no reviews yet." : "Not connected yet — shown as blank rather than an estimate."}</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>);
+            })()}
+          </div>
+        )}
+
+        {/* ════ MARKETING ════ */}
+        {property==="southall"&&tab==="marketing"&&(
+          <div style={{padding:"22px 26px"}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall only · {rangeLabel} · {metaIsLive||googleIsLive?"live data":"static data"}{adLoading?" · loading…":""}</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
+
+            <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+              <KPI label="Total Spend"         value={fmt(metaSpend+gSpend)}  sub="Meta + Google · Southall"         accent={C.gold} delta={mkDelta(metaSpend+gSpend, pm.total, {label:prior.label})} spark={mSpark.total}/>
+              <KPI label="Meta Spend"          value={fmt(metaSpend)}          sub={`${metaLeads} lead form submits`} accent={C.gold} delta={mkDelta(metaSpend, pm.ms, {label:prior.label})} spark={mSpark.metaSpend}/>
+              <KPI label="Meta Avg CPL"        value={fmt(metaCpl,"£",2)}      sub="Per lead form submit"             accent={C.sage} delta={mkDelta(metaCpl, pm.mCpl, {label:prior.label, invert:true})} spark={mSpark.metaCpl}/>
+              <KPI label="Google Spend"        value={fmt(gSpend)}             sub="Filtered period"                  accent={C.blue} delta={mkDelta(gSpend, pm.gs, {label:prior.label})} spark={mSpark.gSpend}/>
+              <KPI label="Google Form Submits" value={gConvs}                  sub="GTM tag · 30d fixed"              accent={C.blue} delta={mkDelta(gConvs, pm.gc, {label:prior.label})} spark={mSpark.gConv}/>
+              <KPI label="Google Cost/Submit"  value={fmt(googleCostPerSubmit,"£",2)} sub="Spend ÷ form submits"        accent={C.blue} delta={mkDelta(googleCostPerSubmit, pm.gCps, {label:prior.label, invert:true})}/>
+              <KPI label="Blended Avg CPL"     value={fmt(blendedAvgCPL,"£",2)} sub="All channels weighted"           accent={C.rose} delta={mkDelta(blendedAvgCPL, pm.blended, {label:prior.label, invert:true})}/>
+            </div>
+
+            <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
+              <div style={{flex:"1 1 280px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px",overflowX:"auto"}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Daily Spend — Meta vs Google (£)</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={chartData} margin={{top:2,right:6,bottom:0,left:-8}}>
+                    <defs>
+                      <linearGradient id="gM" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.gold} stopOpacity={0.25}/><stop offset="95%" stopColor={C.gold} stopOpacity={0}/></linearGradient>
+                      <linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.blue} stopOpacity={0.2}/><stop offset="95%" stopColor={C.blue} stopOpacity={0}/></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                    <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                    <Tooltip content={<Tip/>}/>
+                    {annosFor(annoDayLabel).map(annoLine)}
+                    <Area type="monotone" dataKey="meta"   name="Meta"   stroke={C.gold} fill="url(#gM)" strokeWidth={2} dot={false}/>
+                    <Area type="monotone" dataKey="google" name="Google" stroke={C.blue} fill="url(#gG)" strokeWidth={2} dot={false}/>
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{flex:"1 1 220px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px",overflowX:"auto"}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Meta · Lead Form Submits & CPL</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <ComposedChart data={chartData} margin={{top:2,right:6,bottom:0,left:-16}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                    <YAxis yAxisId="l" tick={{fill:C.sage,fontSize:9}}  tickLine={false} axisLine={false}/>
+                    <YAxis yAxisId="c" orientation="right" tick={{fill:C.gold,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                    <Tooltip content={<Tip/>}/>
+                    {annosFor(annoDayLabel).map(annoLine)}
+                    <Bar  yAxisId="l" dataKey="leads" name="leads" fill={C.sage}   radius={[2,2,0,0]} opacity={0.85}/>
+                    <Line yAxisId="c" type="monotone" dataKey="cpl" name="cpl" stroke={C.gold} strokeWidth={2} dot={false}/>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Meta Ad Set Breakdown */}
+            {metaIsLive && liveMetaData?.adsets && liveMetaData.adsets.length > 0 && (
+              <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:12,padding:16,overflowX:"auto",marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Meta · Ad Set Breakdown · {rangeLabel} · live</p>
+                  <div style={{display:"flex",gap:8}}>
+                    <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,background:C.sage+"22",color:C.sage}}>Website Leads: {liveMetaData.totalWebsiteLeads ?? 0}</span>
+                    <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,background:C.gold+"22",color:C.gold}}>Meta Leads: {liveMetaData.totalMetaLeads ?? 0}</span>
+                  </div>
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:700}}>
+                  <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    {["Ad Set","Spend","Website Leads","Meta Leads","Counted Leads","Lead Source","CPL"].map(h=>(
+                      <th key={h} style={{padding:"6px 10px",textAlign:h==="Ad Set"?"left":"right",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {[...liveMetaData.adsets].sort((a,b)=>b.spend-a.spend).map((a,i)=>{
+                      const isMetaOnly = a.leadType === "meta_leads_only";
+                      return (
+                        <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"8px 10px",color:C.text,maxWidth:260}}>
+                            <p style={{marginBottom:2}}>{a.name}</p>
+                            {isMetaOnly && <span style={{fontSize:8,padding:"1px 6px",borderRadius:8,background:C.gold+"22",color:C.gold}}>Meta leads only</span>}
+                          </td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(a.spend)}</td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:isMetaOnly ? C.muted : C.sage}}>
+                            {a.websiteLeads}
+                            {isMetaOnly && <span style={{fontSize:8,color:C.rose,marginLeft:4}}>excluded</span>}
+                          </td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:isMetaOnly ? C.gold : C.muted}}>{a.metaLeads}</td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:600}}>{a.leads}</td>
+                          <td style={{textAlign:"right",padding:"8px 10px"}}>
+                            <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:isMetaOnly ? C.gold+"22" : C.sage+"22",color:isMetaOnly ? C.gold : C.sage}}>
+                              {isMetaOnly ? "Meta form" : "Website"}
+                            </span>
+                          </td>
+                          <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:a.cpl > 10 ? C.rose : C.sage}}>{a.leads > 0 ? fmt(a.cpl,"£",2) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot><tr style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:11}}>Total</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{fmt(metaSpend)}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{liveMetaData.totalWebsiteLeads ?? 0}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{liveMetaData.totalMetaLeads ?? 0}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{metaLeads}</td>
+                    <td/>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(metaCpl,"£",2)}/lead</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+            )}
+
+            {/* Landing Page Performance — Southall */}
+            {analyticsData && (
+              <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:12,padding:16,marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div>
+                    <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Landing Page Performance · {rangeLabel} · live</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.landingPage}</p>
+                  </div>
+                  <span style={{fontSize:9,padding:"2px 10px",borderRadius:10,background:C.blue+"22",color:C.blue}}>GA4</span>
+                </div>
+
+                {/* KPI row */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:10,marginBottom:16}}>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.blue}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Sessions</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.totalSessions.toLocaleString()}</p><DeltaChip delta={mkDelta(analyticsData.summary.totalSessions, prevAnalyticsData?.summary?.totalSessions, {label:prior.label})}/></div>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.avgDailySessions.toFixed(0)}/day avg</p>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.avgBounceRate>0.4?C.rose:analyticsData.summary.avgBounceRate>0.3?C.gold:C.sage}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Bounce Rate</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.avgBounceRate>0.4?C.rose:analyticsData.summary.avgBounceRate>0.3?C.gold:C.sage,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.avgBounceRate*100).toFixed(1)}%</p><DeltaChip delta={mkDelta(analyticsData.summary.avgBounceRate, prevAnalyticsData?.summary?.avgBounceRate, {label:prior.label, invert:true})}/></div>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.avgEngagementRate>=0.7?C.sage:analyticsData.summary.avgEngagementRate>=0.6?C.gold:C.rose}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Engagement Rate</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.avgEngagementRate>=0.7?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.avgEngagementRate*100).toFixed(1)}%</p><DeltaChip delta={mkDelta(analyticsData.summary.avgEngagementRate, prevAnalyticsData?.summary?.avgEngagementRate, {label:prior.label})}/></div>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.overallConversionRate>=0.1?C.sage:analyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Conversion Rate</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.overallConversionRate>=0.1?C.sage:analyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.overallConversionRate*100).toFixed(1)}%</p><DeltaChip delta={mkDelta(analyticsData.summary.overallConversionRate, prevAnalyticsData?.summary?.overallConversionRate, {label:prior.label})}/></div>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.totalConfirmations} applications</p>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.purple}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Unique Visitors</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{analyticsData.summary.totalUsers.toLocaleString()}</p><DeltaChip delta={mkDelta(analyticsData.summary.totalUsers, prevAnalyticsData?.summary?.totalUsers, {label:prior.label})}/></div>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.sessionsPerUser?.toFixed(1)} sessions/user</p>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${analyticsData.summary.applicationsPerUser>=0.08?C.sage:analyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Applications/Visitor</p>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}><p style={{fontSize:22,fontWeight:700,color:analyticsData.summary.applicationsPerUser>=0.08?C.sage:analyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(analyticsData.summary.applicationsPerUser*100).toFixed(1)}%</p><DeltaChip delta={mkDelta(analyticsData.summary.applicationsPerUser, prevAnalyticsData?.summary?.applicationsPerUser, {label:prior.label})}/></div>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>{analyticsData.summary.totalConfirmations} from {analyticsData.summary.totalUsers.toLocaleString()} visitors</p>
+                  </div>
+                </div>
+
+                {/* Daily trend chart */}
+                {analyticsData.daily && analyticsData.daily.length > 0 && (
+                  <div style={{height:180,marginBottom:16}}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={analyticsData.daily.map(d=>{const dt=new Date(d.date);return{d:`${dt.getDate()}/${dt.getMonth()+1}`,sessions:d.sessions,bounceRate:Math.round(d.bounceRate*100),convRate:Math.round(d.conversionRate*1000)/10,confirmations:d.confirmations};})} margin={{top:5,right:20,left:0,bottom:5}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                        <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                        <YAxis yAxisId="l" tick={{fill:C.blue,fontSize:9}} tickLine={false} axisLine={false}/>
+                        <YAxis yAxisId="r" orientation="right" tick={{fill:C.sage,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`${v}%`}/>
+                        <Tooltip content={({active,payload,label})=>{
+                        {annosFor(annoDayLabel).map(annoLine)}
+                          if(!active||!payload?.length) return null;
+                          return <div style={{background:"#13161b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12}}>
+                            <p style={{color:C.muted,marginBottom:6,fontFamily:"monospace"}}>{label}</p>
+                            {payload.map((p,i)=><p key={i} style={{color:p.color,margin:"2px 0"}}>{p.name}: <strong>{p.name.includes("Rate")?`${p.value}%`:p.value}</strong></p>)}
+                          </div>;
+                        }}/>
+                        <Bar yAxisId="l" dataKey="sessions" name="Sessions" fill={C.blue} radius={[2,2,0,0]} opacity={0.6}/>
+                        <Line yAxisId="r" type="monotone" dataKey="convRate" name="Conv Rate" stroke={C.sage} strokeWidth={2} dot={false}/>
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Recommendations (team only) */}
+                {!investor && analyticsData.recommendations && analyticsData.recommendations.length > 0 && (
+                  <div>
+                    <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Recommendations</p>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {analyticsData.recommendations.map((rec,i) => {
+                        const icon = rec.type==="warning" ? "⚠️" : rec.type==="success" ? "✅" : "💡";
+                        const borderColor = rec.type==="warning" ? C.rose : rec.type==="success" ? C.sage : C.gold;
+                        return (
+                          <div key={i} style={{background:C.bg,border:`1px solid ${borderColor}33`,borderLeft:`3px solid ${borderColor}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                              <span style={{color:C.text,fontWeight:600}}>{icon} {rec.metric}: {rec.value}</span>
+                              <span style={{fontSize:9,color:borderColor,background:borderColor+"18",padding:"1px 6px",borderRadius:8}}>{rec.priority}</span>
+                            </div>
+                            <p style={{color:C.muted,lineHeight:1.4}}>{rec.message}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Performance Insights — Southall (period comparison, source mix, device split, expert playbook) */}
+            <PerformanceInsights analytics={analyticsData} propertyLabel="Southall" hideAdvice={investor} />
+
+            {/* Weekly Recommendations — Southall (team only) */}
+            {!investor && analyticsData?.weeklyInsights?.actions?.length > 0 && (
+              <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:12,padding:16,marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div>
+                    <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Weekly Landing Page Recommendations · Southall</p>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Data-driven actions based on this week vs last week performance</p>
+                  </div>
+                  <span style={{fontSize:9,padding:"2px 10px",borderRadius:10,background:C.sage+"22",color:C.sage}}>
+                    {analyticsData.weeklyInsights.actions.filter(a=>a.priority==="high").length} high priority
+                  </span>
+                </div>
+
+                {/* Week-over-week trend badges */}
+                {analyticsData.weeklyInsights.trends && (
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                    {Object.entries(analyticsData.weeklyInsights.trends).filter(([,t])=>t.change!==null).map(([key, t]) => {
+                      const labels = {sessions:"Sessions",confirmations:"Applications",bounceRate:"Bounce",engagementRate:"Engagement",convRate:"Conv Rate"};
+                      const isGood = key==="bounceRate" ? t.change<0 : t.change>0;
+                      const arrow = t.change > 2 ? "↑" : t.change < -2 ? "↓" : "→";
+                      const color = t.change > 2 ? (isGood ? C.sage : C.rose) : t.change < -2 ? (isGood ? C.sage : C.rose) : C.muted;
+                      return (
+                        <div key={key} style={{background:color+"12",border:`1px solid ${color}33`,borderRadius:8,padding:"4px 10px",fontSize:10}}>
+                          <span style={{color:C.muted}}>{labels[key] || key}</span>{" "}
+                          <span style={{color,fontWeight:600}}>{arrow} {t.change > 0 ? "+" : ""}{t.change.toFixed(0)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Action items */}
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {analyticsData.weeklyInsights.actions.map((item, i) => {
+                    const priorityColors = { high: C.rose, medium: C.gold, low: C.muted, success: C.sage };
+                    const priorityIcons = { high: "🔴", medium: "🟡", low: "💡", success: "✅" };
+                    const bc = priorityColors[item.priority] || C.muted;
+                    return (
+                      <div key={i} style={{background:C.bg,border:`1px solid ${bc}33`,borderLeft:`3px solid ${bc}`,borderRadius:8,padding:"10px 14px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:12}}>{priorityIcons[item.priority]}</span>
+                            <span style={{fontSize:12,color:C.text,fontWeight:600}}>{item.title}</span>
+                          </div>
+                          <div style={{display:"flex",gap:6,flexShrink:0}}>
+                            <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:bc+"18",color:bc}}>{item.priority}</span>
+                            <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:C.blue+"18",color:C.blue}}>{item.category}</span>
+                          </div>
+                        </div>
+                        <p style={{fontSize:11,color:C.muted,lineHeight:1.5,marginBottom:4}}>{item.action}</p>
+                        <p style={{fontSize:10,color:bc,fontFamily:"DM Mono,monospace"}}>{item.metric}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,overflowX:"auto"}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Southall Campaigns · {rangeLabel}{googleIsLive?" · live":" · static"}</p>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:600}}>
+                <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
+                  {["Campaign","Type","Spend","Form Submits","Avg CPC","Cost/Submit"].map(h=>(
+                    <th key={h} style={{padding:"5px 10px",textAlign:"left",color:C.muted,fontWeight:500,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {[...liveCampaigns].sort((a,b)=>b.spend-a.spend).map((c,i)=>{
+                    const max=Math.max(...liveCampaigns.map(x=>x.spend));
+                    const cpc2=(c.convs||c.leads)>0?c.spend/(c.convs||c.leads):null;
+                    const tc={Search:C.blue,GMB:C.sage,Pmax:C.gold,Video:C.rose};
+                    return <tr key={i} style={{borderBottom:`1px solid ${C.border}`}} onMouseEnter={e=>e.currentTarget.style.background="#ffffff07"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <td style={{padding:"9px 10px"}}>
+                        <p style={{color:C.text,marginBottom:3}}>{c.name}</p>
+                        <div style={{height:3,background:C.border,borderRadius:2,maxWidth:160}}><div style={{height:3,background:C.blue,borderRadius:2,width:`${Math.round(c.spend/max*100)}%`,opacity:0.55}}/></div>
+                      </td>
+                      <td style={{padding:"9px 10px"}}><span style={{color:tc[c.type],fontSize:11,background:tc[c.type]+"22",padding:"2px 8px",borderRadius:20}}>{c.type}</span></td>
+                      <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(c.spend)}</td>
+                      <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{c.convs}</td>
+                      <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(c.avgCPC,"£",2)}</td>
+                      <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace"}}>{cpc2!=null?<span style={{color:cplColor(cpc2)}}>{fmt(cpc2,"£",2)}</span>:<span style={{color:C.muted}}>—</span>}</td>
+                    </tr>;
+                  })}
+                </tbody>
+                <tfoot><tr style={{borderTop:`1px solid ${C.border}`}}>
+                  <td colSpan={2} style={{padding:"9px 10px",color:C.muted,fontSize:11}}>Total</td>
+                  <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{fmt(liveCampaigns.reduce((s,c)=>s+c.spend,0))}</td>
+                  <td style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:700}}>{gConvs}</td>
+                  <td colSpan={2} style={{padding:"9px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>Avg: {fmt(gConvs>0?liveCampaigns.reduce((s,c)=>s+c.spend,0)/gConvs:0,"£",2)}/submit</td>
+                </tr></tfoot>
+              </table>
+            </div>
+
+
+            {/* ── COST PER BOOKING ── */}
+            <div style={{marginTop:24}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Southall · {rangeLabel} · GHL × Lavanda × Ad spend</p>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:18}}>
+                <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Cost Per Booking</h2>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,color:ghlConn?C.sage:C.muted,fontWeight:600}}>{ghlConn?"● GHL live":"○ GHL"}</span>
+                  <span style={{fontSize:10,color:pmsConn?C.sage:C.muted,fontWeight:600}}>{pmsConn?"● Lavanda live":"○ Lavanda"}</span>
+                  <span style={{fontSize:10,color:metaIsLive?C.sage:C.muted,fontWeight:600}}>{metaIsLive?"● Meta spend live":"○ Meta static"}</span>
+                  <span style={{fontSize:10,color:googleIsLive?C.sage:C.muted,fontWeight:600}}>{googleIsLive?"● Google spend live":"○ Google static"}</span>
+                </div>
+              </div>
+              <p style={{fontSize:11,color:C.muted,marginTop:-10,marginBottom:16}}>
+                Bookings counted by creation date inside the selected range; ad spend for the same range.
+                Blended CAC divides <em>all</em> spend by <em>all</em> bookings — including the {cacStats?.counts?.other ?? 0} with no paid touch — so it reads lower than the per-channel figures.
+              </p>
+
+              {!cacStats && (
+                <div style={{padding:"16px 18px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,color:C.muted,fontSize:13}}>
+                  {!ghlData?.allOpps ? "Connect Go High Level to attribute bookings to channels." : ""}
+                  {!rhAllBookings?.length ? " Waiting for Lavanda bookings." : ""}
+                </div>
+              )}
+
+              {cacStats && (
+                <>
+                  {/* Core CAC cards */}
+                  <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                    <KPI label="Total Bookings" value={cacStats.counts.total} sub={`${cacStats.counts.meta} Meta · ${cacStats.counts.google} Google · ${cacStats.counts.other} Other`} accent={C.text} delta={mkDelta(cacStats.counts.total, prevCacStats?.counts.total, {label:prior.label})} spark={history.last30(history.newBk)}/>
+                    <KPI label="Blended CAC" value={fmt(cacStats.blendedCAC,"£",0)} sub={`${fmt(cacStats.totalSpend)} spend ÷ ${cacStats.counts.total} bookings`} accent={C.rose} delta={mkDelta(cacStats.blendedCAC, prevCacStats?.blendedCAC, {label:prior.label, invert:true})}/>
+                    <KPI label="Meta CAC" value={cacStats.counts.meta>0?fmt(cacStats.metaCAC,"£",0):"—"} sub={`${cacStats.counts.meta} Meta-attributed bookings`} accent={C.gold} delta={cacStats.counts.meta>0&&prevCacStats?.counts.meta>0?mkDelta(cacStats.metaCAC, prevCacStats.metaCAC, {label:prior.label, invert:true}):null}/>
+                    <KPI label="Google CAC" value={cacStats.counts.google>0?fmt(cacStats.googleCAC,"£",0):"—"} sub={`${cacStats.counts.google} Google-attributed bookings`} accent={C.blue} delta={cacStats.counts.google>0&&prevCacStats?.counts.google>0?mkDelta(cacStats.googleCAC, prevCacStats.googleCAC, {label:prior.label, invert:true}):null}/>
+                    <KPI label="Median Lead→Booking" value={cacStats.medianLag!=null?`${cacStats.medianLag}d`:"—"} sub={`Actual attribution window · n=${cacStats.lagSampleSize}`} accent={C.purple} delta={mkDelta(cacStats.medianLag, prevCacStats?.medianLag, {label:prior.label, invert:true})}/>
+                  </div>
+
+                  {/* LoS band cards */}
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Cost Per Booking · by length of stay</p>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12,marginBottom:18}}>
+                    {LOS_BANDS.map(b => b.key).map(band => {
+                      const n = cacStats.losBandCounts[band];
+                      const cac = cacStats.bandCAC[band];
+                      const avgV = cacStats.bandAvgValue[band];
+                      const pct = cacStats.bandCacPctValue[band];
+                      const ch = cacStats.losBandChannel[band];
+                      const accent = band==="1m"?C.gold:band==="3m"?C.sage:band==="6m"?C.blue:C.purple;
+                      return (
+                        <div key={band} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 14px 12px",borderLeft:`3px solid ${accent}`}}>
+                          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{cacStats.bandLabel[band]}</div>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+                            <span style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{n>0?fmt(cac,"£",0):"—"}</span>
+                            <span style={{fontSize:11,color:C.muted}}>CAC</span>
+                          </div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{n} bookings · avg {fmt(avgV)}</div>
+                          <div style={{fontSize:11,color:pct>0&&pct<10?C.sage:pct>=10&&pct<25?C.gold:pct>=25?C.rose:C.muted}}>{n>0?`${pct.toFixed(1)}% of contract value`:"no bookings"}</div>
+                          <div style={{fontSize:10,color:C.muted,marginTop:6,paddingTop:6,borderTop:`1px dashed ${C.border}`}}>M:{ch.meta} · G:{ch.google} · O:{ch.other}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Bookings table — accordion */}
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+                    <button
+                      onClick={()=>setCpbExpanded(v=>!v)}
+                      style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",background:"transparent",border:"none",padding:"14px 16px",cursor:"pointer",color:C.text,fontFamily:"inherit"}}
+                    >
+                      <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>
+                        Bookings created in window — {cacStats.rows.length} total
+                      </span>
+                      <span style={{fontSize:13,color:C.muted,display:"flex",alignItems:"center",gap:8}}>
+                        {cpbExpanded ? "Hide" : "View"} <span style={{display:"inline-block",transform:cpbExpanded?"rotate(180deg)":"rotate(0)",transition:"transform 0.15s"}}>▾</span>
+                      </span>
+                    </button>
+                    {cpbExpanded && (
+                    <div style={{padding:"0 14px 10px",overflowX:"auto"}}>
+                    <table style={{width:"100%",minWidth:760,fontSize:12,borderCollapse:"collapse"}}>
+                      <thead><tr style={{color:C.muted,textAlign:"left",borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{padding:"8px 10px"}}>Booked</th>
+                        <th style={{padding:"8px 10px"}}>Guest</th>
+                        <th style={{padding:"8px 10px"}}>Stay</th>
+                        <th style={{padding:"8px 10px"}}>LoS</th>
+                        <th style={{padding:"8px 10px"}}>Band</th>
+                        <th style={{padding:"8px 10px"}}>Value</th>
+                        <th style={{padding:"8px 10px"}}>Channel</th>
+                        <th style={{padding:"8px 10px"}}>CAC</th>
+                        <th style={{padding:"8px 10px"}}>CAC %</th>
+                      </tr></thead>
+                      <tbody>
+                        {cacStats.rows.slice(0,40).map(r => {
+                          const cac = r.channel==="meta"?cacStats.metaCAC : r.channel==="google"?cacStats.googleCAC : cacStats.blendedCAC;
+                          const pct = r.value>0 ? (cac/r.value)*100 : 0;
+                          const chCol = r.channel==="meta"?C.gold : r.channel==="google"?C.blue : C.muted;
+                          return (
+                            <tr key={r.bookingId} style={{borderBottom:`1px solid ${C.border}`}}>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{r.refIso}</td>
+                              <td style={{padding:"8px 10px",color:C.text}}>{r.name||r.email||"—"}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted,fontSize:11}}>{r.start}→{r.end}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{r.losDays??"—"}d</td>
+                              <td style={{padding:"8px 10px",color:C.muted}}>{r.band||"—"}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(r.value)}</td>
+                              <td style={{padding:"8px 10px",color:chCol,fontWeight:600,textTransform:"capitalize"}}>{r.channel}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(cac,"£",0)}</td>
+                              <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",color:pct<10?C.sage:pct<25?C.gold:C.rose}}>{pct.toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })}
+                        {cacStats.rows.length===0 && (
+                          <tr><td colSpan={9} style={{padding:"18px 10px",textAlign:"center",color:C.muted}}>No bookings created in this window.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                    {cacStats.rows.length > 40 && (
+                      <div style={{fontSize:11,color:C.muted,marginTop:8,textAlign:"center"}}>Showing 40 of {cacStats.rows.length}</div>
+                    )}
+                    </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ════ CRM ════ */}
+        {property==="southall"&&tab==="crm"&&(
+          <div style={{padding:"22px 26px"}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Go High Level · {GHL_PIPELINE} · {rangeLabel}</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>CRM Pipeline</h2>
+
+            {!ghlConn&&!ghlLoading&&(
+              <div style={{background:C.card,border:`1px solid ${C.purple}44`,borderRadius:14,padding:32,textAlign:"center"}}>
+                <p style={{fontSize:30,marginBottom:10}}>🔌</p>
+                <p style={{color:C.text,fontWeight:600,fontSize:15,marginBottom:6}}>Southall &Soul Pipeline</p>
+                <p style={{color:C.muted,fontSize:13,marginBottom:20}}>
+                  Pulls live tours booked (stage: <strong style={{color:C.purple}}>&ldquo;Tour Booked&rdquo;</strong>) and bookings confirmed (stage: <strong style={{color:C.sage}}>&ldquo;{STAGE_BOOKED}&rdquo;</strong>) plus total pipeline value.
+                </p>
+                <button onClick={()=>runGHL(from,to)} style={{background:C.purple,color:"#fff",border:"none",borderRadius:8,padding:"11px 32px",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+                  Connect to Go High Level
+                </button>
+                {ghlError&&(
+                  <div style={{marginTop:16,background:C.rose+"18",border:`1px solid ${C.rose}44`,borderRadius:10,padding:"12px 16px",textAlign:"left"}}>
+                    <p style={{color:C.rose,fontSize:12,fontWeight:600,marginBottom:4}}>Connection failed</p>
+                    <p style={{color:C.rose,fontSize:11,fontFamily:"DM Mono,monospace",lineHeight:1.6,wordBreak:"break-word"}}>{ghlError}</p>
+                    <button onClick={()=>runGHL(from,to)} style={{marginTop:10,background:"transparent",border:`1px solid ${C.rose}`,color:C.rose,borderRadius:6,padding:"5px 14px",fontSize:11,cursor:"pointer",fontWeight:600}}>↻ Try again</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {ghlLoading&&(
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:40,textAlign:"center"}}>
+                <div style={{display:"inline-block",width:28,height:28,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.purple}`,borderRadius:"50%",animation:"spin 0.8s linear infinite",marginBottom:14}}/>
+                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+                <p style={{color:C.muted,fontSize:14}}>Connecting to Go High Level…</p>
+              </div>
+            )}
+
+            {ghlConn&&ghlData&&!ghlLoading&&(
+              <>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:C.purple,display:"inline-block"}}/>
+                    <span style={{fontSize:12,color:C.purple,fontWeight:600}}>{ghlData.pipelineName}</span>
+                    <span style={{fontSize:11,color:C.muted}}>{ghlData.totalOpps} opps in range</span>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>runGHL(from,to)} style={{background:"transparent",border:`1px solid ${C.purple}`,color:C.purple,borderRadius:6,padding:"4px 12px",fontSize:11,cursor:"pointer"}}>↻ Refresh</button>
+                    <button onClick={()=>{setGhlConn(false);setGhlData(null);}} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"4px 12px",fontSize:11,cursor:"pointer"}}>Disconnect</button>
+                  </div>
+                </div>
+
+                {ghlError&&<p style={{color:C.rose,fontSize:12,marginBottom:12}}>⚠ {ghlError}</p>}
+
+                <div style={{display:"flex",gap:14,marginBottom:20,flexWrap:"wrap"}}>
+                  <KPI label="Tours Booked"             value={ghlData.toursBooked}   sub={`Stage: "${ghlData.tourStageName??TAG_TOUR}"`}                                       accent={C.purple} badge={rangeLabel} delta={mkDelta(ghlData.toursBooked, prevGhlData?.toursBooked, {label:prior.label})}/>
+                  <KPI label="Bookings Confirmed"       value={adjConfirmed}      sub={`Won · Stage: "${ghlData.bookedStageName??STAGE_BOOKED}"`} accent={C.sage}   badge={rangeLabel} delta={mkDelta(adjConfirmed, prevGhlData?.confirmed, {label:prior.label})}/>
+                  <KPI label="Confirmed Pipeline Value" value={adjConfirmedValue>0?fmt(adjConfirmedValue):"£0"} sub="Total value of Won + Booking Confirmed" accent={C.gold} delta={mkDelta(adjConfirmedValue, prevGhlData?.confirmedValue, {label:prior.label})}/>
+                  <KPI label="Tour → Booking Rate"      value={adjConvRate!=null?`${adjConvRate}%`:"—"} sub="Confirmed ÷ Tours booked"       accent={adjConvRate==null?C.muted:adjConvRate>=30?C.sage:adjConvRate>=15?C.gold:C.rose} delta={mkDelta(adjConvRate, prevGhlData?.convRate, {label:prior.label})}/>
+                </div>
+
+                {/* Manual Adjustments (team only; disclosed in investor view when non-zero) */}
+                {investor && (manualBookings>0 || manualValue>0) && (
+                  <p style={{fontSize:10,color:C.gold,marginBottom:12}}>Includes {manualBookings} manually recorded booking{manualBookings===1?"":"s"}{manualValue>0?` and ${fmt(manualValue)} of manually recorded value`:""} not captured in the CRM.</p>
+                )}
+                {!investor && <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Manual Adjustments</p>
+                  <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                    <div style={{flex:1,minWidth:150}}>
+                      <label style={{display:"block",fontSize:12,color:C.muted,marginBottom:6}}>Manual bookings (+)</label>
+                      <input type="number" value={manualBookings} onChange={e=>setManualBookings(Math.max(0,+e.target.value))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                    </div>
+                    <div style={{flex:1,minWidth:150}}>
+                      <label style={{display:"block",fontSize:12,color:C.muted,marginBottom:6}}>Manual value £ (+)</label>
+                      <input type="number" value={manualValue} onChange={e=>setManualValue(Math.max(0,+e.target.value))} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                    </div>
+                  </div>
+                </div>}
+
+                <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:14}}>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Sales Funnel</p>
+                  <div style={{display:"flex",alignItems:"stretch",gap:8,flexWrap:"wrap"}}>
+                    {[
+                      {label:"Total Opps",    value:ghlData.totalOpps,   color:C.blue,   pct:100},
+                      {label:"Tours Booked",  value:ghlData.toursBooked, color:C.purple, pct:ghlData.totalOpps>0?Math.round(ghlData.toursBooked/ghlData.totalOpps*100):0},
+                      {label:"Confirmed Won", value:adjConfirmed,   color:C.sage,   pct:ghlData.totalOpps>0?Math.round(adjConfirmed/ghlData.totalOpps*100):0},
+                    ].map((s,i)=>(
+                      <div key={i} style={{flex:"1 1 100px",minWidth:0,display:"flex",alignItems:"center",gap:6}}>
+                        {i>0&&<span style={{color:C.muted,fontSize:20,flexShrink:0}}>›</span>}
+                        <div style={{flex:1,background:s.color+"18",border:`1px solid ${s.color}44`,borderRadius:10,padding:"14px 10px",textAlign:"center"}}>
+                          <p style={{fontSize:28,fontWeight:700,color:s.color,fontFamily:"DM Mono,monospace"}}>{s.value}</p>
+                          <p style={{fontSize:11,color:C.muted,marginTop:3}}>{s.label}</p>
+                          <p style={{fontSize:10,color:s.color,marginTop:2}}>{s.pct}%</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Pipeline Stages — {ghlData.pipelineName}</p>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {ghlData.stages.map((s,i)=>{
+                      const isMatch = s.name?.toLowerCase().includes("booking");
+                      return <div key={i} style={{background:C.bg,border:`1px solid ${isMatch?C.sage:C.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,color:isMatch?C.sage:C.muted}}>
+                        {isMatch?"✓ ":""}{s.name}
+                      </div>;
+                    })}
+                  </div>
+                  {!ghlData.bookedStageName&&(
+                    <p style={{fontSize:12,color:C.gold,marginTop:10}}>⚠ No stage matched &ldquo;{STAGE_BOOKED}&rdquo; — see stages above.</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ════ OCCUPANCY ════ */}
+        {property==="southall"&&tab==="bookings"&&(
+          <div style={{padding:"22px 26px"}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Southall · rooms · live from Lavanda (long-stay + Lavanda</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 4px"}}>Occupancy</h2>
+            <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Hard facts only — what is occupied tonight, what is empty and sellable, what is held, and what rates are being achieved. Forecasts and rate modelling live on the Forecast tab.</p>
+
+            {/* ── TODAY'S SNAPSHOT ── */}
+            <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18,marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Today · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Rooms occupied tonight — long-stay + short-stay (Nomad), all from Lavanda, against usable rooms</p>
+                </div>
+                {pmsConn&&<span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>}
+              </div>
+              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:16}}>
+                  <OccRing pct={occPct}/>
+                  <div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+                      <p style={{fontSize:28,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{inHouseGuests || occupied}<span style={{fontSize:14,color:C.muted,fontWeight:400}}> in house{inHouseGuests !== occupied ? ` · ${occupied} / ${usableRooms} rooms` : ` / ${usableRooms}`}</span></p>
+                      <DeltaChip delta={mkDelta(occupied, (history.at(history.occ, history.daysAgo(30))||0) + (history.at(history.ssOcc, history.daysAgo(30))||0), {label:"30 days ago"})}/>
+                    </div>
+                    <Spark data={history.last30(history.occ).map((v,i)=>v + history.last30(history.ssOcc)[i])} color={C.gold} width={120} height={24}/>
+                    <p style={{fontSize:12,color:C.muted}}>guests in the building now — Lavanda active stays (incl. anyone checking out today)</p>
+                  </div>
+                </div>
+                <div style={{flex:"1 1 200px",display:"flex",flexDirection:"column",gap:8}}>
+                  {(pmsConn&&pmsData?(() => {
+                    const t7=history.today, a7=history.daysAgo(6), b7=history.daysAgo(13), c7=history.daysAgo(7);
+                    const mS = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-01`;
+                    const pmS = (()=>{const d=new Date(); d.setMonth(d.getMonth()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;})();
+                    const pmE = (()=>{const d=new Date(); d.setMonth(d.getMonth()-1); const dom=Math.min(new Date().getDate(), new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(dom).padStart(2,"0")}`;})();
+                    return [
+                    {label:"Check-ins (7d)",value:pmsData.checkInsWeek??0,color:C.sage, delta:mkDelta(history.sum(history.arrivals,a7,t7), history.sum(history.arrivals,b7,c7), {label:"prev 7d"})},
+                    {label:"Check-outs (7d)",value:pmsData.checkOutsWeek??0,color:C.rose, delta:mkDelta(history.sum(history.departures,a7,t7), history.sum(history.departures,b7,c7), {label:"prev 7d", invert:true})},
+                    {label:"Revenue this month",value:fmt(monthRev),color:C.gold, delta:mkDelta(history.sum(history.rev,mS,t7), history.sum(history.rev,pmS,pmE), {label:"same point last month"})},
+                    {label:"Revenue this week",value:fmt(weekRev),color:C.text, delta:mkDelta(history.sum(history.rev,a7,t7), history.sum(history.rev,b7,c7), {label:"prev 7d"})},
+                  ];})():[
+                    {label:"Occupancy %",value:`${mOcc}%`,color:C.gold},
+                    {label:"Est. monthly revenue",value:fmt(monthRev),color:C.gold},
+                  ]).map(x=>(
+                    <div key={x.label} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:12,color:C.muted}}>{x.label}</span>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:8}}>
+                        {x.delta && <DeltaChip delta={x.delta} size={9}/>}
+                        <span style={{fontSize:13,fontWeight:700,color:x.color,fontFamily:"DM Mono,monospace"}}>{x.value}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {!pmsConn&&(<div style={{marginTop:12,display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:150}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.muted}}>Occupancy % (manual)</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>{mOcc}%</span></div>
+                  <input type="range" min={0} max={100} value={mOcc} onChange={e=>setMOcc(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
+                </div>
+                <div style={{flex:1,minWidth:150}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:C.muted}}>Avg monthly rent</span><span style={{fontSize:12,color:C.gold,fontFamily:"DM Mono,monospace"}}>£{mRate.toLocaleString()}</span></div>
+                  <input type="number" value={mRate} onChange={e=>setMRate(+e.target.value)} style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                </div>
+              </div>)}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:12,marginBottom:4}}>
+                <span style={{fontSize:11,color:C.muted}}>Target 95% ({Math.round(BEDS*.95)} beds)</span>
+                <span style={{fontSize:11,color:occPct>=95?C.sage:C.rose}}>{occPct>=95?"✓ Hit":`${Math.max(0,Math.ceil(usableRooms*.95)-occupied)} to go`}</span>
+              </div>
+              <div style={{height:6,background:C.border,borderRadius:3,position:"relative"}}>
+                <div style={{height:6,background:occPct>=95?C.sage:C.gold,borderRadius:3,width:`${Math.min(occPct,100)}%`,transition:"width 0.4s"}}/>
+                <div style={{position:"absolute",top:-2,left:"95%",height:10,width:2,background:C.muted,borderRadius:1}}/>
+              </div>
+            </div>
+
+
+            {/* ── NEW BOOKINGS & RENEWALS (moved up: this is the list of every new booking with its rate) ── */}
+            {/* ── RECENT BOOKING ACTIVITY ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>New Bookings & Renewals</p>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Every booking created in the period, with its agreed PCM and weekly rate (gross) — full list at the bottom of this card</p>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  {[
+                    {l:"Last 7d",k:"7d",fn:()=>{const d=new Date();d.setDate(d.getDate()-6);setActivityFrom(d.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("7d");}},
+                    {l:"Last 14d",k:"14d",fn:()=>{const d=new Date();d.setDate(d.getDate()-13);setActivityFrom(d.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("14d");}},
+                    {l:"This week",k:"week",fn:()=>{const d=new Date();const day=d.getDay();const diff=day===0?6:day-1;const mon=new Date(d);mon.setDate(mon.getDate()-diff);setActivityFrom(mon.toISOString().slice(0,10));setActivityTo(new Date().toISOString().slice(0,10));setActivityPreset("week");}},
+                  ].map(o=>(
+                    <button key={o.k} onClick={o.fn} style={{padding:"4px 13px",borderRadius:20,border:`1px solid ${activityPreset===o.k?C.gold:C.border}`,background:activityPreset===o.k?C.gold+"22":"transparent",color:activityPreset===o.k?C.gold:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>{o.l}</button>
+                  ))}
+                  <CalendarPicker value={activityFrom} onChange={v=>{setActivityFrom(v);setActivityPreset(null);}} />
+                  <span style={{fontSize:11,color:C.muted}}>→</span>
+                  <CalendarPicker value={activityTo} onChange={v=>{setActivityTo(v);setActivityPreset(null);}} />
+                </div>
+              </div>
+
+              {/* KPI cards */}
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
+                <KPI label="New Bookings" value={recentActivity.stats.newCount} sub="First-time tenants" accent={C.blue} delta={mkDelta(recentActivity.stats.newCount, prevActivity?.stats?.newCount, {label:prevActivityWindow.label})} spark={history.last30(history.newBk)}/>
+                <KPI label="Returning" value={recentActivity.stats.renewalCount} sub="Returning residents" accent={C.sage} delta={mkDelta(recentActivity.stats.renewalCount, prevActivity?.stats?.renewalCount, {label:prevActivityWindow.label})}/>
+                <KPI label="Moved to Pending" value={recentActivity.stats.pendingCount} sub="Status: PENDING" accent={C.gold} delta={mkDelta(recentActivity.stats.pendingCount, prevActivity?.stats?.pendingCount, {label:prevActivityWindow.label})}/>
+                <KPI label="Total Activity" value={recentActivity.stats.totalActivity} sub="New + Returning" accent={C.text} delta={mkDelta(recentActivity.stats.totalActivity, prevActivity?.stats?.totalActivity, {label:prevActivityWindow.label})}/>
+              </div>
+
+              {/* LoS & Room Type breakdown */}
+              {recentActivity.all.length > 0 && (
+                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
+                  {/* LoS Breakdown */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <div>
+                        <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown</p>
+                        <p style={{fontSize:9,color:C.muted,marginTop:2}}>LS = long-stay · SS = short-stay (Nomad)</p>
+                      </div>
+                      <button onClick={()=>{
+                        const losRows = [["LoS Band","Long-stay","Short-stay","Total","Days"]];
+                        LOS_BANDS.forEach(b=>{
+                          const rh = recentActivity.losBySource?.rh?.[b.short]||0;
+                          const lav = recentActivity.losBySource?.lav?.[b.short]||0;
+                          losRows.push([`${b.label} (${b.note})`, rh, lav, rh+lav, recentActivity.losDaysBuckets?.[b.short]||0]);
+                        });
+                        losRows.push(["Total",
+                          recentActivity.srcTotals?.rh?.count||0,
+                          recentActivity.srcTotals?.lav?.count||0,
+                          (recentActivity.srcTotals?.rh?.count||0)+(recentActivity.srcTotals?.lav?.count||0),
+                          recentActivity.totalDaysBooked||0]);
+                        copyTable(losRows,"los");
+                      }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="los"?C.sage:C.border}`,background:copiedTable==="los"?C.sage+"22":"transparent",color:copiedTable==="los"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                        {copiedTable==="los"?"✓ Copied":"Copy"}
+                      </button>
+                    </div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`1px solid ${C.border}44`}}>
+                          <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
+                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.sage,fontWeight:600}} title="Long-stay bookings">LS</th>
+                          <th style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:C.blue,fontWeight:600}} title="Short-stay (Nomad) bookings">SS</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Total</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {LOS_BANDS.map(band=>{
+                          const k = band.short;
+                          const rh = recentActivity.losBySource?.rh?.[k] || 0;
+                          const lav = recentActivity.losBySource?.lav?.[k] || 0;
+                          const tot = rh + lav;
+                          return (
+                          <tr key={k} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>
+                              {band.label}
+                              <span style={{fontSize:9,color:C.muted+"99",marginLeft:6}}>{band.note}</span>
+                            </td>
+                            <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,color:rh>0?C.sage:C.muted+"66"}}>{rh}</td>
+                            <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,color:lav>0?C.blue:C.muted+"66"}}>{lav}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:tot>0?C.text:C.muted}}>{tot}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:C.muted}}>{(recentActivity.losDaysBuckets?.[k]||0).toLocaleString()}</td>
+                          </tr>);
+                        })}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total New Bookings</td>
+                          <td style={{padding:"6px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.sage}}>{recentActivity.srcTotals?.rh?.count||0}</td>
+                          <td style={{padding:"6px 6px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.blue}}>{recentActivity.srcTotals?.lav?.count||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.srcTotals?.rh?.count||0)+(recentActivity.srcTotals?.lav?.count||0)}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Room Type Breakdown */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>Room Type Breakdown</p>
+                      <button onClick={()=>{
+                        const rtRows = [["Room Type","Bookings","Days"]];
+                        ["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].forEach(rt=>{
+                          rtRows.push([rt, recentActivity.roomBuckets?.[rt]||0, recentActivity.roomDaysBuckets?.[rt]||0]);
+                        });
+                        rtRows.push(["Total", recentActivity.all?.length||0, recentActivity.totalDaysBooked||0]);
+                        copyTable(rtRows,"roomtype");
+                      }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="roomtype"?C.sage:C.border}`,background:copiedTable==="roomtype"?C.sage+"22":"transparent",color:copiedTable==="roomtype"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                        {copiedTable==="roomtype"?"✓ Copied":"Copy"}
+                      </button>
+                    </div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`1px solid ${C.border}44`}}>
+                          <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,color:C.muted,fontWeight:600}}></th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Bookings</th>
+                          <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted,fontWeight:600}}>Days</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {["Nook","Ensuite/Nomad","Snug / +","Cosy","Roomy","Spacious","Deluxe/DDA"].map(rt=>(
+                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>{rt}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:(recentActivity.roomBuckets?.[rt]||0)>0?C.text:C.muted}}>{recentActivity.roomBuckets?.[rt]||0}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:(recentActivity.roomDaysBuckets?.[rt]||0)>0?C.muted:C.muted+"66"}}>{(recentActivity.roomDaysBuckets?.[rt]||0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {(recentActivity.roomBuckets?.Other||0) > 0 && (
+                          <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>Other</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>{recentActivity.roomBuckets.Other}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:600,fontSize:11,color:C.muted}}>{(recentActivity.roomDaysBuckets?.Other||0).toLocaleString()}</td>
+                          </tr>
+                        )}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{(recentActivity.totalDaysBooked||0).toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Move-in by Month & AWR Summary */}
+              {recentActivity.all.length > 0 && (
+                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
+                  {/* Move-in by Month */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Move-in by Month</p>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <tbody>
+                        {(recentActivity.moveInOrdered||[]).map(row=>(
+                          <tr key={row.month} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"5px 8px",color:C.muted}}>{row.month}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:row.count>0?C.text:C.muted}}>{row.count}</td>
+                          </tr>
+                        ))}
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>{recentActivity.all?.length||0}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* AWR Summary */}
+                  <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>Closed Bookings — AWR Summary</p>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <tbody>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Avg Weekly Rent</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.text}}>£{recentActivity.awrSummary?.avg||0}</span><br/><span style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.avgNet||0} net</span></td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Min AWR</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.min||0}</span><br/><span style={{fontSize:9,color:C.muted+"99",fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.minNet||0} net</span></td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Max AWR</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>£{recentActivity.awrSummary?.max||0}</span><br/><span style={{fontSize:9,color:C.muted+"99",fontFamily:"DM Mono,monospace"}}>£{recentActivity.awrSummary?.maxNet||0} net</span></td>
+                        </tr>
+                        <tr style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"5px 8px",color:C.muted}}>Bookings with rate data</td>
+                          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:C.muted}}>{recentActivity.awrSummary?.count||0} / {recentActivity.all?.length||0}</td>
+                        </tr>
+                        <tr style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"6px 8px",color:C.text,fontWeight:700}}>Total Contract Value</td>
+                          <td style={{padding:"6px 8px",textAlign:"right"}}><span style={{fontFamily:"DM Mono,monospace",fontWeight:700,color:C.gold}}>£{(recentActivity.awrSummary?.totalContractValue||0).toLocaleString()}</span><br/><span style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{(recentActivity.awrSummary?.totalContractValueNet||0).toLocaleString()} net</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Lead Source Breakdown */}
+              {recentActivity.all.length > 0 && Object.keys(leadSources).length > 0 && (
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+                  {Object.entries(lsSummary).filter(([c])=>c!=="not_found"&&c!=="error").sort((a,b)=>b[1]-a[1]).map(([code,count])=>(
+                    <div key={code} style={{background:C.bg,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:9,background:(SOURCE_COLORS[code]||"#666")+"22",color:SOURCE_COLORS[code]||"#666",padding:"2px 7px",borderRadius:8,fontWeight:600}}>{SOURCE_LABELS[code]||code}</span>
+                      <span style={{fontFamily:"DM Mono,monospace",fontSize:13,fontWeight:700,color:C.text}}>{count}</span>
+                    </div>
+                  ))}
+                  {(lsSummary.not_found||0)>0&&(
+                    <div style={{background:C.bg,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:9,color:C.muted,fontWeight:600}}>Not found</span>
+                      <span style={{fontFamily:"DM Mono,monospace",fontSize:13,fontWeight:700,color:C.muted}}>{lsSummary.not_found}</span>
+                    </div>
+                  )}
+                  {lsLoading&&<span style={{fontSize:10,color:C.muted,alignSelf:"center"}}>Loading sources…</span>}
+                </div>
+              )}
+
+              {/* Breakdown table */}
+              {recentActivity.all.length > 0 && (
+                <div style={{overflowX:"auto"}}>
+                  {!investor && <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+                    <button onClick={()=>{
+                      const rows = [["Name","Source","Booking Ref","Created","Start","End","LoS (days)","Room","PCM (£)","AWR (£)","Status","Type"]];
+                      recentActivity.all.forEach(r=>{
+                        const srcCode = leadSources[r.name] || "not_found";
+                        rows.push([r.name||"—", SOURCE_LABELS[srcCode]||"—", r.bookingReference||"—", r.created, r.startDate, r.endDate, r.losDays, r.room, r.pcmGross||"—", r.weeklyRateGross||"—", r.status, r.activityType]);
+                      });
+                      copyTable(rows,"bookings");
+                    }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="bookings"?C.sage:C.border}`,background:copiedTable==="bookings"?C.sage+"22":"transparent",color:copiedTable==="bookings"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                      {copiedTable==="bookings"?"✓ Copied":"Copy All"}
+                    </button>
+                  </div>}
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        {["Name","Source","Booking Ref","Created","Start → End","LoS","Room","PCM","AWR","Status","Type"].map(h=>(
+                          <th key={h} style={{padding:"8px 10px",textAlign:h==="PCM"||h==="AWR"?"right":"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentActivity.all.map((r,i)=>{
+                        const statusColor = r.status==="CHECKED_IN"?C.sage:r.status==="CONFIRMED"?C.blue:C.gold;
+                        const typeColor = r.activityType==="Returning"?C.sage:C.blue;
+                        const srcCode = leadSources[r.name] || (lsLoading ? "loading" : "not_found");
+                        const srcColor = SOURCE_COLORS[srcCode] || "#666";
+                        const srcLabel = srcCode === "loading" ? "…" : (SOURCE_LABELS[srcCode] || "—");
+                        return (
+                          <tr key={r.roomStayId||i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                            <td style={{padding:"8px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{investor ? (r.activityType==="Returning" ? "Returning resident" : "New tenant") : (r.name||"—")}</td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:9,background:srcColor+"22",color:srcColor,padding:"2px 7px",borderRadius:8,fontWeight:600,whiteSpace:"nowrap"}}>{srcLabel}</span></td>
+                            <td style={{padding:"8px 10px",fontFamily:"DM Mono,monospace",fontSize:11}}>
+                              {r.bookingId && !investor ?(
+                                <a href={`https://app.resharmonics.com/bookings/${r.bookingId}`} target="_blank" rel="noopener noreferrer" style={{color:C.gold,textDecoration:"none",borderBottom:`1px dashed ${C.gold}55`}}>{r.bookingReference}</a>
+                              ):(
+                                <span style={{color:C.muted}}>{investor ? "—" : (r.bookingReference||"—")}</span>
+                              )}
+                            </td>
+                            <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{r.created}</td>
+                            <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap",fontSize:11}}>{r.startDate} → {r.endDate}</td>
+                            <td style={{padding:"8px 10px",color:C.muted,fontFamily:"DM Mono,monospace"}}>{r.losDays}d</td>
+                            <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap"}}>{r.room}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",color:r.pcmGross>0?C.gold:C.muted,fontFamily:"DM Mono,monospace",fontSize:11,fontWeight:700}}>{r.pcmGross>0?`£${r.pcmGross.toLocaleString()}`:"—"}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right",color:r.weeklyRateGross>0?C.muted:C.muted+"66",fontFamily:"DM Mono,monospace",fontSize:11}}>{r.weeklyRateGross>0?`£${r.weeklyRateGross}`:"—"}</td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:statusColor+"22",color:statusColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.status}</span></td>
+                            <td style={{padding:"8px 10px"}}><span style={{fontSize:10,background:typeColor+"22",color:typeColor,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{r.activityType}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {recentActivity.all.length === 0 && (
+                <p style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>No qualifying bookings found in this date range.</p>
+              )}
+            </div>
+
+            {/* ── ROOM AVAILABILITY (moved from Renewals) ── */}
+            {/* ── Room Availability — only rooms with 60+ days empty (no upcoming booking) ── */}
+            {(() => {
+              const today = new Date();
+              const todayStr = today.toISOString().slice(0, 10);
+              const MIN_GAP = 60; // Only show rooms with at least 60 days empty
+              // 3-month lookahead for departures
+              const cutoff = new Date(today);
+              cutoff.setMonth(cutoff.getMonth() + 3);
+              const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+              // Collect candidate rooms from departures
+              const candidates = [];
+              monthStatsGlobal.forEach(m => {
+                m.leaving.forEach(e => {
+                  if (e.endDate < todayStr) return;
+                  if (e.endDate > cutoffStr) return;
+                  if (e.isRenewed) return;
+                  if (!e.roomType || e.roomType === "Other") return;
+                  const endD = new Date(e.endDate);
+                  endD.setDate(endD.getDate() + 1);
+                  const availableFrom = endD.toISOString().slice(0, 10);
+                  candidates.push({
+                    room: e.room, roomType: e.roomType, availableFrom,
+                    endDate: e.endDate, name: e.name, pcm: e.pcm,
+                    roomStayId: e.roomStayId,
+                    isManualLeaving: leavingSet.has(e.roomStayId),
+                    reason: leavingReasons[e.roomStayId] || null,
+                  });
+                });
+              });
+
+              // Cross-reference every candidate against all bookings to find next incoming
+              const allBk = rhAllBookings || [];
+              const availableRooms = [];
+              candidates.forEach(r => {
+                let nextStart = null;
+                allBk.forEach(b => {
+                  if (!b.unit?.name || b.unit.name !== r.room) return;
+                  const bStart = (b.startDate || "").slice(0, 10);
+                  const bStatus = (b.roomStayStatus || "").toUpperCase();
+                  if (bStatus !== "CONFIRMED" && bStatus !== "PENDING" && bStatus !== "CHECKED_IN") return;
+                  if (bStart < r.availableFrom) return;
+                  if (b.roomStayId === r.roomStayId) return;
+                  if (!nextStart || bStart < nextStart) nextStart = bStart;
+                });
+                if (nextStart) {
+                  const gapDays = Math.round((new Date(nextStart) - new Date(r.availableFrom)) / 86400000);
+                  if (gapDays < MIN_GAP) return; // Not enough empty time — skip entirely
+                  r.gapDays = gapDays;
+                  r.nextBookingStart = nextStart;
+                } else {
+                  r.gapDays = null; // No booking at all — fully open
+                }
+                availableRooms.push(r);
+              });
+
+              if (availableRooms.length === 0) return (
+                <div style={{marginTop:24}}>
+                  <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
+                  <p style={{fontSize:12,color:C.muted,marginBottom:10}}>
+                    Rooms with 60+ days empty after departure — no short-gap rooms shown.
+                    {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
+                  </p>
+                  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,textAlign:"center"}}>
+                    <p style={{color:C.sage,fontWeight:600,fontSize:14}}>All rooms have bookings within 60 days</p>
+                    <p style={{color:C.muted,fontSize:11,marginTop:4}}>No vacancies to fill right now.</p>
+                  </div>
+                </div>
+              );
+
+              // Group by room type
+              const byType = {};
+              availableRooms.forEach(r => {
+                if (!byType[r.roomType]) byType[r.roomType] = [];
+                byType[r.roomType].push(r);
+              });
+              Object.values(byType).forEach(arr => arr.sort((a, b) => a.availableFrom.localeCompare(b.availableFrom)));
+              const sortedTypes = Object.entries(byType).sort((a, b) => b[1].length - a[1].length);
+
+              // ── Fully-open rooms: every bedroom with NO current or upcoming booking ──
+              // Independent of the departures list above — this walks the whole unit list.
+              // Ensuite (Nomad) rooms are let via Lavanda/Booking.com, so Res Harmonics
+              // always shows them empty; they are reported separately from live Lavanda
+              // data and excluded from the long-stay availability %.
+              const openSummary = (() => {
+                const units = rhAllUnits || [];
+                if (units.length === 0) return null;
+                const bedrooms = units.filter(u => /^Room:/i.test((u.unitName || "").trim()));
+                if (bedrooms.length === 0) return null;
+                const busy = new Set();
+                (rhAllBookings || []).forEach(b => {
+                  const s = (b.roomStayStatus || "").toUpperCase();
+                  if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(s)) return;
+                  const e = (b.endDate || "").slice(0, 10);
+                  if (!e || e < todayStr) return; // ended already — not a live booking
+                  const id = b.unit?.id ?? b.unitId;
+                  if (id) busy.add(id);
+                });
+                const SHORT_STAY_TYPE = "Ensuite";
+                // Nomad/Ensuite rooms are let BOTH ways: long-stay tenants sit in
+                // Res Harmonics and short-stay guests in Lavanda. A room is only
+                // genuinely open when NEITHER system has it booked, so the two
+                // sets are unioned by room number here.
+                const ssBookedRooms = new Set(
+                  (lavandaConn && lavandaData?.ssUnitStatus?.bookedRoomNumbers) || []
+                );
+                const totals = {}, open = {}, openRooms = {};
+                let ssBothCount = 0;
+                bedrooms.forEach(u => {
+                  const t = baseRoomType(u.unitTypeName);
+                  if (!t) return;
+                  totals[t] = (totals[t] || 0) + 1;
+                  const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
+                  const rhBusy = busy.has(u.id);
+                  let isBusy = rhBusy;
+                  if (t === SHORT_STAY_TYPE && ssBookedRooms.size > 0) {
+                    const lavBusy = ssBookedRooms.has(roomNo);
+                    if (rhBusy && lavBusy) ssBothCount++;
+                    isBusy = rhBusy || lavBusy;
+                  }
+                  if (!isBusy) {
+                    open[t] = (open[t] || 0) + 1;
+                    // Carry the room number and whether RH has it marked
+                    // unbookable, so genuinely sellable rooms can be told
+                    // apart from maintenance stock at a glance.
+                    const reg = offlineInfoFor(u.unitName);
+                    (openRooms[t] = openRooms[t] || []).push({
+                      room: roomNo,
+                      offline: u.bookable === false || !!reg,
+                      reg,                          // ops register entry, if any
+                      rhFlagged: u.bookable === false,
+                    });
+                  }
+                });
+                Object.values(openRooms).forEach(list =>
+                  list.sort((a, b) => (parseInt(a.room, 10) || 0) - (parseInt(b.room, 10) || 0)));
+
+                // ── Genuine cross-system double bookings ──
+                // A room having stays in both systems is not itself a clash —
+                // they're usually sequential. Only overlapping DATES matter.
+                const crossClashes = [];
+                if (lavandaConn && lavandaData?.ssStays) {
+                  const lavByRoom = {};
+                  (lavandaData.ssStays || []).forEach(s => {
+                    if (!s.room) return;
+                    (lavByRoom[s.room] = lavByRoom[s.room] || []).push(s);
+                  });
+                  bedrooms.filter(u => baseRoomType(u.unitTypeName) === SHORT_STAY_TYPE).forEach(u => {
+                    const roomNo = (u.unitName || "").replace(/^Room:\s*/i, "").trim();
+                    const lavStays = lavByRoom[roomNo];
+                    if (!lavStays || lavStays.length === 0) return;
+                    (rhAllBookings || []).forEach(b => {
+                      const id = b.unit?.id ?? b.unitId;
+                      if (id !== u.id) return;
+                      const st = (b.roomStayStatus || "").toUpperCase();
+                      if (!["CHECKED_IN", "CONFIRMED", "PENDING"].includes(st)) return;
+                      const f = (b.startDate || "").slice(0, 10), t2 = (b.endDate || "").slice(0, 10);
+                      if (!f || !t2 || t2 < todayStr) return;
+                      lavStays.forEach(s => {
+                        const os = f > s.start ? f : s.start;
+                        const oe = t2 < s.end ? t2 : s.end;
+                        const nights = Math.round((new Date(oe) - new Date(os)) / 864e5);
+                        if (nights > 0) crossClashes.push({
+                          room: roomNo, nights, from: os, to: oe,
+                          longStay: `${b.bookingContact?.firstName || ""} ${b.bookingContact?.lastName || ""}`.trim(),
+                          longStayRef: b.bookingReference, longStayStatus: st,
+                          shortStay: s.guest, shortStayCode: s.code,
+                        });
+                      });
+                    });
+                  });
+                }
+                const lavClashes = (lavandaConn && lavandaData?.conflicts) ? lavandaData.conflicts : [];
+                const rows = Object.keys(totals)
+                  .filter(t => t !== SHORT_STAY_TYPE)
+                  .map(t => ({ type: t, total: totals[t], open: open[t] || 0, source: "rh" }))
+                  .sort((a, b) => b.open - a.open || b.total - a.total);
+                const lsTotal = rows.reduce((s, r) => s + r.total, 0);
+                const lsOpen = rows.reduce((s, r) => s + r.open, 0);
+
+                // Short-stay (Nomad): RH shows every one of these empty because their
+                // bookings live in Lavanda. Use Lavanda's per-unit forward-booking data
+                // so they can be counted alongside the long-stay stock.
+                const su = (lavandaConn && lavandaData?.ssUnitStatus) ? lavandaData.ssUnitStatus : null;
+                const ssTotal = totals[SHORT_STAY_TYPE] || 0;
+                const ssOpen = open[SHORT_STAY_TYPE] || 0;
+                const ss = ssTotal ? {
+                  type: SHORT_STAY_TYPE,
+                  total: ssTotal,
+                  open: su ? ssOpen : null,          // union of RH + Lavanda
+                  shortStayBooked: su ? su.withForwardBooking : null,
+                  bothSystems: ssBothCount,          // long-stay tenant AND a short-stay booking
+                  blocked: su ? su.blockedTonight : null,
+                  source: "lavanda",
+                } : null;
+
+                const hasSS = !!(ss && ss.open != null);
+                const allRows = (hasSS ? [...rows, { type: ss.type, total: ss.total, open: ss.open, source: "lavanda" }] : rows)
+                  .map(r => ({ ...r, rooms: openRooms[r.type] || [] }))
+                  .sort((a, b) => b.open - a.open || b.total - a.total);
+                const allOpenRooms = Object.values(openRooms).flat();
+                const offlineOpen = allOpenRooms.filter(r => r.offline).length;
+                const sellableOpen = allOpenRooms.length - offlineOpen;
+                // Every register room that is currently held, whether empty or occupied
+                const registerHeld = Object.keys(offlineRoomMap).length;
+                const grandTotal = lsTotal + (hasSS ? ss.total : 0);
+                const grandOpen = lsOpen + (hasSS ? ss.open : 0);
+                return {
+                  rows: allRows, lsTotal, lsOpen,
+                  lsPct: lsTotal > 0 ? (lsOpen / lsTotal) * 100 : 0,
+                  grandTotal, grandOpen,
+                  pct: grandTotal > 0 ? (grandOpen / grandTotal) * 100 : 0,
+                  ss, hasSS, crossClashes, lavClashes, openRooms, offlineOpen,
+                  sellableOpen, registerHeld,
+                };
+              })();
+
+              return (
+                <div style={{marginTop:24}}>
+                  <div style={{marginBottom:14}}>
+                    <h3 style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>Room Availability</h3>
+                    <p style={{fontSize:12,color:C.muted}}>
+                      Rooms with 60+ days empty after departure — these need filling.
+                      {" "}<span style={{color:C.sage,fontSize:10}}>Live data — updates when bookings or renewals change.</span>
+                    </p>
+                  </div>
+
+                  {/* ── FULLY OPEN BY ROOM TYPE ── */}
+                  {openSummary && (
+                    <div style={{background:C.card,border:`1px solid ${C.gold}44`,borderRadius:12,padding:18,marginBottom:16}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:14}}>
+                        <div>
+                          <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Fully Open by Room Type</p>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Bedrooms with no current guest and nothing booked ahead — completely empty stock</p>
+                          <div style={{display:"flex",gap:14,marginTop:6,fontSize:10,color:C.muted,flexWrap:"wrap",alignItems:"center"}}>
+                            <span style={{display:"flex",alignItems:"center",gap:5}}>
+                              <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.sage+"18",color:C.sage,border:`1px solid ${C.sage}33`}}>000</span>
+                              sellable now
+                            </span>
+                            <span style={{display:"flex",alignItems:"center",gap:5}}>
+                              <span style={{fontSize:9,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,background:C.rose+"22",color:C.rose,border:`1px solid ${C.rose}55`}}>000 ⚠</span>
+                              held offline — hover for reason
+                            </span>
+                            <span style={{color:C.muted}}>{openSummary.registerHeld} rooms on the offline register</span>
+                          </div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <p style={{fontSize:28,fontWeight:800,color:C.sage,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                            {openSummary.sellableOpen}
+                          </p>
+                          <p style={{fontSize:11,color:C.text,marginTop:2,fontWeight:600}}>sellable right now</p>
+                          <p style={{fontSize:10,color:C.muted,marginTop:3}}>
+                            {openSummary.grandOpen} empty ({openSummary.pct.toFixed(1)}% of {openSummary.grandTotal})
+                            {openSummary.offlineOpen > 0 && <> · <span style={{color:C.rose}}>{openSummary.offlineOpen} held offline</span></>}
+                          </p>
+                          {openSummary.hasSS && (
+                            <p style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              {openSummary.lsOpen} long-stay + {openSummary.ss.open} short-stay empty
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}}>
+                        {openSummary.rows.map(r => {
+                          const p = r.total > 0 ? (r.open / r.total) * 100 : 0;
+                          const col = r.open === 0 ? C.sage : p >= 20 ? C.rose : C.gold;
+                          return (
+                            <div key={r.type} style={{background:C.bg,border:`1px solid ${r.source==="lavanda"?C.blue+"55":r.open>0?col+"44":C.border}`,borderRadius:10,padding:"10px 12px"}}>
+                              <p style={{fontSize:11,color:C.text,fontWeight:600,marginBottom:4}}>
+                                {r.type}
+                                {r.source==="lavanda" && <span style={{fontSize:9,color:C.blue,fontWeight:500,marginLeft:5}}>· Nomad</span>}
+                              </p>
+                              <p style={{fontSize:20,fontWeight:700,color:col,fontFamily:"DM Mono,monospace",lineHeight:1}}>
+                                {r.open}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/{r.total}</span>
+                              </p>
+                              <div style={{height:4,background:C.border,borderRadius:2,marginTop:6,overflow:"hidden"}}>
+                                <div style={{width:`${p}%`,height:"100%",background:col,transition:"width 0.4s"}}/>
+                              </div>
+                              <p style={{fontSize:10,color:C.muted,marginTop:4}}>{p.toFixed(0)}% open</p>
+                              {r.rooms && r.rooms.length > 0 && (
+                                <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                                  {r.rooms.map(rm => {
+                                    const cat = rm.reg?.category || null;
+                                    const col = cat ? (OFFLINE_CAT_COLORS[cat] || C.rose) : (rm.offline ? C.rose : C.sage);
+                                    const tip = rm.reg
+                                      ? `Room ${rm.room} — ${rm.reg.category}: ${rm.reg.reason}` +
+                                        (rm.reg.until ? ` · held until ${rm.reg.until}` : "") +
+                                        (rm.reg.note ? `\n${rm.reg.note}` : "") +
+                                        (rm.rhFlagged ? "\n(also flagged unbookable in Lavanda)" : "\n(NOT flagged in Lavanda — still sellable in the PMS)")
+                                      : rm.offline
+                                        ? `Room ${rm.room} — flagged unbookable in Lavanda`
+                                        : `Room ${rm.room} — sellable, nothing booked`;
+                                    return (
+                                      <span key={rm.room} title={tip}
+                                        style={{
+                                          fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,
+                                          padding:"2px 6px",borderRadius:5,cursor:"help",
+                                          background: col+"22", color: col, border:`1px solid ${col}55`,
+                                        }}>
+                                        {rm.room}{rm.offline && " ⚠"}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* ── OFFLINE REGISTER ── */}
+                      {(() => {
+                        const held = Object.values(offlineRoomMap);
+                        if (held.length === 0) return null;
+                        const openSet = new Set(Object.values(openSummary.openRooms||{}).flat().map(r => String(parseInt(r.room,10))));
+                        const byCat = {};
+                        held.forEach(h => { (byCat[h.category] = byCat[h.category] || []).push(h); });
+                        const notFlagged = held.filter(h => {
+                          const u = (rhAllUnits||[]).find(x => roomKey(x.unitName) === String(parseInt(h.room,10)));
+                          return u && u.bookable !== false;
+                        }).length;
+                        return (
+                          <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:8}}>
+                              <p style={{fontSize:11,color:C.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>Offline Register · {held.length} rooms held</p>
+                              {notFlagged > 0 && (
+                                <p style={{fontSize:10,color:C.rose}}>
+                                  ⚠ {notFlagged} of these are still open on the Lavanda calendar — sellable by mistake
+                                </p>
+                              )}
+                            </div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                              {Object.entries(byCat).sort((a,b)=>b[1].length-a[1].length).map(([cat,list]) => {
+                                const col = OFFLINE_CAT_COLORS[cat] || C.muted;
+                                return (
+                                  <div key={cat} style={{background:C.bg,border:`1px solid ${col}44`,borderRadius:9,padding:"8px 11px",minWidth:150}}>
+                                    <p style={{fontSize:10,color:col,fontWeight:700,marginBottom:4}}>{cat} · {list.length}</p>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                      {list.map(h => {
+                                        const k = String(parseInt(h.room,10));
+                                        const isEmpty = openSet.has(k);
+                                        return (
+                                          <span key={h.room}
+                                            title={`Room ${h.room} — ${h.reason}${h.until?` · until ${h.until}`:""}${h.note?`\n${h.note}`:""}\n${isEmpty?"Currently EMPTY":"Currently occupied"}`}
+                                            style={{fontSize:10,fontFamily:"DM Mono,monospace",fontWeight:600,padding:"1px 5px",borderRadius:4,cursor:"help",
+                                              background:isEmpty?col+"22":"transparent",color:isEmpty?col:C.muted,
+                                              border:`1px solid ${isEmpty?col+"55":C.border}`}}>
+                                            {h.room}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <p style={{fontSize:9,color:C.muted,marginTop:8}}>
+                              Solid = room is empty right now · outline = currently occupied despite the hold. Holds expire automatically on their end date.
+                            </p>
+                          </div>
+                        );
+                      })()}
+
+                      {openSummary.ss && (
+                        <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                          <div>
+                            <p style={{fontSize:11,color:C.blue,fontWeight:700}}>Ensuite (Nomad) · {openSummary.ss.total} rooms · short-stay via Booking.com</p>
+                            <p style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              {openSummary.hasSS
+                                ? <>These rooms are let both ways — long-stay tenants and short-stay guests. A room counts as open only when <em>neither</em> system has it booked.
+                                    {openSummary.ss.bothSystems > 0 && <> {openSummary.ss.bothSystems} room{openSummary.ss.bothSystems!==1?"s have":" has"} stays in both systems (mostly sequential, not clashes).</>}</>
+                                : "Lavanda not connected — short-stay rooms excluded from the total above"}
+                            </p>
+                          </div>
+                          <p style={{fontSize:12,color:C.muted,fontFamily:"DM Mono,monospace",whiteSpace:"nowrap"}}>
+                            {openSummary.hasSS
+                              ? <><span style={{color:C.blue,fontWeight:700}}>{openSummary.ss.shortStayBooked}</span> short-stay booked · <span style={{color:C.rose,fontWeight:700}}>{openSummary.ss.open}</span> fully open</>
+                              : "—"}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* ── GENUINE DOUBLE BOOKINGS (real date overlaps) ── */}
+                      {doubleBookings.length === 0 ? (
+                        <p style={{fontSize:10,color:C.sage,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                          ✓ No overlapping bookings detected in Lavanda.
+                        </p>
+                      ) : (
+                        <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.rose}44`}}>
+                          <p style={{fontSize:11,color:C.rose,fontWeight:700,marginBottom:8}}>
+                            ⚠ {doubleBookings.length} double booking{doubleBookings.length!==1?"s":""} — same room, overlapping dates
+                          </p>
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {doubleBookings.map((c,i) => (
+                              <div key={i} style={{background:(c.kind==="cross"?C.rose:C.gold)+"11",border:`1px solid ${(c.kind==="cross"?C.rose:C.gold)}44`,borderRadius:8,padding:"8px 10px"}}>
+                                <p style={{fontSize:11,color:C.text,fontWeight:600}}>
+                                  Room {c.room} · {c.nights} night{c.nights!==1?"s":""} · {new Date(c.from+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – {new Date(c.to+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                                  <span style={{fontSize:9,color:c.kind==="cross"?C.rose:C.gold,marginLeft:6}}>{c.kind==="cross"?"LONG-STAY vs SHORT-STAY":"BOTH SHORT-STAY"}</span>
+                                </p>
+                                <p style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:"DM Mono,monospace"}}>
+                                  {c.aLabel} ({c.aMeta}) ↔ {c.bLabel} ({c.bMeta})
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                      <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Rooms to Fill</p>
+                      <p style={{fontSize:22,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace"}}>{availableRooms.length}</p>
+                    </div>
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                      <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Room Types</p>
+                      <p style={{fontSize:22,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{sortedTypes.length}</p>
+                    </div>
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px"}}>
+                      <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Earliest Available</p>
+                      <p style={{fontSize:14,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>{new Date(availableRooms.sort((a,b) => a.availableFrom.localeCompare(b.availableFrom))[0].availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</p>
+                    </div>
+                  </div>
+
+                  {sortedTypes.map(([type, rooms]) => (
+                    <div key={type} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <span style={{fontSize:14,fontWeight:700,color:C.text}}>{type}</span>
+                          <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>{rooms.length} room{rooms.length!==1?"s":""}</span>
+                        </div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:8}}>
+                        {rooms.map((r, i) => (
+                          <div key={r.roomStayId || i} style={{background:C.bg,border:`1px solid ${C.rose}33`,borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                              <span style={{fontSize:13,fontWeight:700,color:C.text}}>{r.room}</span>
+                              <span style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace"}}>£{r.pcm.toLocaleString()}/mo</span>
+                            </div>
+                            <div style={{fontSize:11,color:C.sage,fontWeight:600,marginBottom:4}}>
+                              Available {new Date(r.availableFrom).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
+                            </div>
+                            <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+                              <span style={{fontSize:9,color:C.muted}}>Departing: {r.name}</span>
+                              {r.reason && <span style={{fontSize:8,background:C.rose+"18",color:C.rose,padding:"1px 5px",borderRadius:4}}>{r.reason}</span>}
+                            </div>
+                            <div style={{padding:"4px 8px",borderRadius:6,background:C.rose+"10"}}>
+                              {r.gapDays !== null ? (
+                                <span style={{fontSize:9,fontWeight:700,color:C.gold}}>
+                                  Empty for {r.gapDays} days · next booking {new Date(r.nextBookingStart + "T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}
+                                </span>
+                              ) : (
+                                <span style={{fontSize:9,fontWeight:700,color:C.rose}}>No upcoming booking — fully open</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* ── SECTION A: Room Type Occupancy — Month by Month ── */}
+            {pmsConn && pmsData?.roomTypeData && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginTop:18,marginBottom:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Room Type Occupancy — Month by Month</h3>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{textAlign:"left",padding:"8px 12px",color:C.muted,fontWeight:600}}>Room Type</th>
+                        {pmsData.forecast.map((fm, i) => (
+                          <th key={fm.key} style={{textAlign:"center",padding:"8px 6px",color:C.muted,fontWeight:600,fontSize:11}}>{fm.label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ROOM_TYPES.map((rt, idx) => {
+                        const data = pmsData.roomTypeData[rt];
+                        if (!data || data.totalUnits === 0) return null;
+                        return (
+                          <tr key={rt} style={{borderBottom:`1px solid ${C.border}`}}>
+                            <td style={{padding:"10px 12px",color:C.text,fontWeight:600,fontSize:12}}>
+                              {rt} <span style={{color:C.muted,fontWeight:400}}>({data.totalUnits})</span>
+                            </td>
+                            {data.months.map((m, mi) => {
+                              const pct = m.occupancyPct ?? (m.totalDays > 0 ? Math.round((m.bookedDays / m.totalDays) * 100) : 0);
+                              const occupiedColor = pct >= 90 ? C.sage : pct >= 70 ? C.gold : C.rose;
+                              return (
+                                <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:occupiedColor,fontWeight:600}}>
+                                  {pct}% <span style={{color:C.muted,fontWeight:400,fontSize:9}}>({(m.bookedDays||0)}/{(m.totalDays||0)}d)</span>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                      <tr style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
+                        <td style={{padding:"10px 12px",color:C.muted,fontWeight:600,fontSize:12}}>Available Rooms</td>
+                        {(() => {
+                          const available = Array(pmsData.forecast.length).fill(0);
+                          ROOM_TYPES.forEach(rt => {
+                            const data = pmsData.roomTypeData[rt];
+                            if (data) {
+                              data.months.forEach((m, mi) => {
+                                available[mi] += m.available;
+                              });
+                            }
+                          });
+                          return available.map((avail, mi) => (
+                            <td key={mi} style={{textAlign:"center",padding:"10px 6px",fontFamily:"DM Mono,monospace",fontSize:11,color:C.sage,fontWeight:600}}>
+                              {avail}
+                            </td>
+                          ));
+                        })()}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION B: Live Average Weekly Rate (AWR) ── */}
+            {pmsConn && pmsData?.roomTypeData && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Live Average Weekly Rate (AWR)</h3>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:12,marginBottom:16}}>
+                  {ROOM_TYPES.map((rt) => {
+                    const data = pmsData.roomTypeData[rt];
+                    if (!data || data.totalUnits === 0) return null;
+                    const awrGross = data.awrGross || 0;
+                    const awrNet = data.awr;
+                    const color = awrGross >= TARGET_RATE ? C.sage : awrGross >= 250 ? C.gold : C.rose;
+                    return (
+                      <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                        <p style={{fontSize:11,color:C.muted,marginBottom:4}}>{rt}</p>
+                        <p style={{fontSize:20,fontWeight:700,color:color,fontFamily:"DM Mono,monospace",marginBottom:0}}>{fmt(awrGross)}</p>
+                        <p style={{fontSize:9,color:C.muted,marginTop:1,marginBottom:2,fontFamily:"DM Mono,monospace"}}>£{awrNet} net</p>
+                        <p style={{fontSize:10,color:awrGross >= TARGET_RATE ? C.sage : C.rose}}>
+                          {awrGross >= TARGET_RATE ? "✓ Target met" : `£${TARGET_RATE - awrGross} below target`}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <p style={{fontSize:11,color:C.muted,marginBottom:4}}>Blended AWR (28+ day bookings)</p>
+                      <p style={{fontSize:24,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace",marginBottom:0}}>
+                        {fmt(pmsData.globalAwrGross || 0)}
+                      </p>
+                      <p style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:2}}>£{pmsData.globalAwr || 0} net (ex-VAT)</p>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <p style={{fontSize:12,color:C.muted,marginBottom:4}}>Target: {fmt(TARGET_RATE)}</p>
+                      <p style={{fontSize:18,fontWeight:700,color:(pmsData.globalAwrGross||0) >= TARGET_RATE ? C.sage : C.rose,fontFamily:"DM Mono,monospace"}}>
+                        {(() => {
+                          const diff = (pmsData.globalAwrGross||0) - TARGET_RATE;
+                          return diff >= 0 ? `+${fmt(diff)}` : fmt(diff);
+                        })()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── LENGTH-OF-STAY BREAKDOWN BY STATUS ── */}
+            {pmsConn && pmsData?.losByStatus && (pmsData.losByStatus.inHouse.total > 0 || pmsData.losByStatus.upcoming.total > 0) && (() => {
+              const { inHouse, upcoming, bands } = pmsData.losByStatus;
+              const barColors = [C.rose, C.gold, C.blue, C.sage, C.purple];
+              const renderGroup = (group, title, subtitle) => {
+                if (group.total === 0) return null;
+                return (
+                  <div style={{flex:"1 1 320px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{title}</p>
+                    <p style={{fontSize:11,color:C.muted,marginBottom:14}}>{group.total} stays · {subtitle}</p>
+                    {/* Stacked bar */}
+                    <div style={{display:"flex",height:18,borderRadius:6,overflow:"hidden",marginBottom:14}}>
+                      {bands.map((b, i) => {
+                        const pct = group.total > 0 ? (group.counts[b.key] / group.total) * 100 : 0;
+                        if (pct === 0) return null;
+                        return <div key={b.key} style={{width:`${pct}%`,background:barColors[i],minWidth:pct>0?2:0}} title={`${b.label}: ${Math.round(pct)}%`}/>;
+                      })}
+                    </div>
+                    {/* Rows */}
+                    {bands.map((b, i) => {
+                      const count = group.counts[b.key];
+                      const pct = group.total > 0 ? (count / group.total) * 100 : 0;
+                      return (
+                        <div key={b.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",borderBottom:i<bands.length-1?`1px solid ${C.border}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:10,height:10,borderRadius:3,background:barColors[i],flexShrink:0}}/>
+                            <span style={{fontSize:12,color:C.muted}}>{b.label}</span>
+                          </div>
+                          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                            <span style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{Math.round(pct)}%</span>
+                            <span style={{fontSize:11,color:C.muted,fontFamily:"DM Mono,monospace",minWidth:28,textAlign:"right"}}>{count}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              };
+              // ── Short-stay (Lavanda) LoS, folded in live ──
+              const ssLos = (lavandaConn && lavandaData && lavandaData.los) ? lavandaData.los : null;
+              const ssCombined = ssLos ? (() => {
+                const c = { counts: {}, total: ssLos.inHouse.total + ssLos.upcoming.total };
+                bands.forEach(b => { c.counts[b.key] = (ssLos.inHouse.counts[b.key] || 0) + (ssLos.upcoming.counts[b.key] || 0); });
+                return c;
+              })() : null;
+
+              // Combined totals — long-stay + short-stay
+              const combined = { counts: {}, total: inHouse.total + upcoming.total + (ssCombined ? ssCombined.total : 0) };
+              bands.forEach(b => {
+                combined.counts[b.key] = (inHouse.counts[b.key] || 0) + (upcoming.counts[b.key] || 0) + (ssCombined ? (ssCombined.counts[b.key] || 0) : 0);
+              });
+              return (
+                <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:14,padding:18,marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                    <div>
+                      <p style={{fontSize:11,color:C.blue,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Length-of-Stay Breakdown</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>All current &amp; upcoming bookings by stay duration · bedrooms only (excludes parking &amp; bikes){ssLos?" · long-stay + short-stay (Nomad), all from Lavanda":""}</p>
+                    </div>
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LAVANDA LIVE</span>
+                      {ssLos && <span style={{fontSize:10,color:C.blue,fontWeight:600}}>● LAVANDA LIVE</span>}
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",gap:14}}>
+                    {renderGroup(inHouse, "Checked In · Long-Stay", "stay records in the building — a room move counts twice")}
+                    {renderGroup(upcoming, "Confirmed & Pending · Long-Stay", "future bookings")}
+                    {ssCombined && ssCombined.total > 0 && renderGroup(ssCombined, "Short-Stay · Booking.com", `${ssLos.inHouse.total} in-house + ${ssLos.upcoming.total} upcoming`)}
+                    {renderGroup(combined, "All Bookings", `${inHouse.total + upcoming.total} long-stay${ssCombined ? ` + ${ssCombined.total} short-stay` : ""}`)}
+                  </div>
+                  {/* AWR by status row */}
+                  {pmsData.awrByStatus && (() => {
+                    const a = pmsData.awrByStatus;
+                    const cards = [
+                      { title: "Checked In", awr: a.inHouse.awr, awrGross: a.inHouse.awrGross, count: a.inHouse.count },
+                      { title: "Confirmed & Pending", awr: a.upcoming.awr, awrGross: a.upcoming.awrGross, count: a.upcoming.count },
+                      { title: "All Bookings", awr: a.all.awr, awrGross: a.all.awrGross, count: a.all.count },
+                    ];
+                    return (
+                      <div style={{marginTop:14}}>
+                        <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:10}}>Average Weekly Rate (AWR) · Long-Stay · 28+ Day Bookings</p>
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                          {lavandaConn && lavandaData?.ssAdr && lavandaData.ssAdr.all.count > 0 && (
+                            <div style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.blue}44`,order:99}}>
+                              <p style={{fontSize:12,fontWeight:700,color:C.blue,marginBottom:2}}>Short-Stay ADR</p>
+                              <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{lavandaData.ssAdr.all.count} active bookings · per night</p>
+                              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:2}}>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Net (ex-VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",margin:0}}>£{(lavandaData.ssAdr.all.adr/1.2).toFixed(0)}</p>
+                                </div>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",margin:0}}>£{lavandaData.ssAdr.all.adr.toFixed(0)}</p>
+                                </div>
+                              </div>
+                              <p style={{fontSize:10,color:C.muted,marginTop:4}}>≈ £{Math.round(lavandaData.ssAdr.all.adr*7).toLocaleString()}/wk equivalent gross</p>
+                            </div>
+                          )}
+                          {cards.map((c, i) => (
+                            <div key={i} style={{flex:"1 1 200px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                              <p style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:2}}>{c.title}</p>
+                              <p style={{fontSize:11,color:C.muted,marginBottom:10}}>{c.count} qualifying bookings</p>
+                              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:2}}>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Net (ex-VAT)</p>
+                                  <p style={{fontSize:24,fontWeight:700,color:c.awr>=TARGET_RATE?C.sage:c.awr>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
+                                    {c.awr>0?`£${c.awr.toLocaleString()}`:"—"}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p style={{fontSize:10,color:C.muted,marginBottom:2}}>Gross (inc VAT)</p>
+                                  <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                                    <p style={{fontSize:24,fontWeight:700,color:c.awrGross>=TARGET_RATE?C.sage:c.awrGross>=250?C.gold:C.rose,fontFamily:"DM Mono,monospace",margin:0}}>
+                                      {c.awrGross>0?`£${c.awrGross.toLocaleString()}`:"—"}
+                                    </p>
+                                    {c.title==="All Bookings" && <DeltaChip delta={pp.point30(history.awr)}/>}
+                                  </div>
+                                  {c.title==="All Bookings" && <Spark data={history.last30(history.awr)} color={C.gold} width={100} height={20}/>}
+                                </div>
+                              </div>
+                              <p style={{fontSize:10,color:c.awr>=TARGET_RATE?C.sage:C.rose,marginTop:4}}>
+                                {c.awr>0?(c.awr>=TARGET_RATE?`✓ Net above £${TARGET_RATE} target`:`Net £${TARGET_RATE-c.awr} below £${TARGET_RATE} target`):"No data"}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+
+
+
+
+          </div>
+        )}
+
+        {/* ════ FORECAST · INTERNAL ════ */}
+        {property==="southall"&&tab==="forecast"&&!investor&&(
+          <div style={{padding:"22px 26px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8}}>
+              <div>
+                <p style={{fontSize:11,color:C.purple,textTransform:"uppercase",letterSpacing:"0.1em"}}>Internal · models, not facts</p>
+                <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 4px"}}>Forecast & Rate Strategy</h2>
+                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Scenario tools driven by adjustable assumptions (renewal rate, new bookings per month, sales cycle, LoS mix, rate changes). Nothing here is a reported figure — for actuals use Summary and Occupancy.</p>
+              </div>
+              <span style={{fontSize:10,fontWeight:700,color:C.purple,background:C.purple+"1a",border:`1px solid ${C.purple}44`,padding:"3px 10px",borderRadius:20}}>INTERNAL</span>
+            </div>
+
+            {/* ── MONTH-BY-MONTH OCCUPANCY FORECAST ── */}
+            {pmsConn && pmsData?.forecast && (
+              <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:14,padding:18,marginTop:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <p style={{fontSize:11,color:C.sage,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Future Occupancy · Month by Month</p>
+                  <span style={{fontSize:10,color:C.sage}}>● LIVE from Lavanda</span>
+                </div>
+                <p style={{fontSize:12,color:C.muted,marginBottom:16}}>Bookings 28+ days · occupancy by days and rooms / {BEDS}</p>
+
+                {/* Bar chart with dual occupancy — days + rooms */}
+                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:220,marginBottom:16,padding:"0 4px"}}>
+                  {pmsData.forecast.map((fm, i) => {
+                    const daysPct = Math.min(fm.occupancyPct, 100);
+                    const roomsPct = Math.min(Math.round((fm.activeStays / BEDS) * 100), 100);
+                    const barColor = daysPct >= 90 ? C.sage : daysPct >= 70 ? C.gold : C.rose;
+                    return (
+                      <div key={fm.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                        <span style={{fontSize:11,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{(fm.bookedDays||0).toLocaleString()}</span>
+                        <span style={{fontSize:9,color:C.muted}}>/ {(fm.totalBookableDays||0).toLocaleString()} days</span>
+                        <span style={{fontSize:10,fontWeight:600,color:C.blue,fontFamily:"DM Mono,monospace"}}>{fm.activeStays} <span style={{fontWeight:400,color:C.muted}}>/ {BEDS} rooms</span></span>
+                        <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:120,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
+                          <div style={{width:"100%",height:`${daysPct}%`,background:barColor,borderRadius:6,transition:"height 0.4s"}}/>
+                        </div>
+                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{fm.occupancyPct}% <span style={{fontSize:9,fontWeight:400,color:C.muted}}>days</span></span>
+                        <span style={{fontSize:10,fontWeight:600,color:C.blue,fontFamily:"DM Mono,monospace"}}>{roomsPct}% <span style={{fontSize:9,fontWeight:400,color:C.muted}}>rooms</span></span>
+                        <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Detail table */}
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked Days</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Days Occ.</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS - offlineRooms}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms Occ.</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Arrivals</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Departures</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pmsData.forecast.map((fm, i) => {
+                        const roomsPct = Math.round((fm.activeStays / BEDS) * 100);
+                        return (
+                        <tr key={fm.key} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.gold+"0a":"transparent"}}>
+                          <td style={{padding:"8px 10px",color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{fm.label}{fm.key===new Date().toISOString().slice(0,7)?" (current)":""}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{(fm.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontWeight:400}}>/ {(fm.totalBookableDays||0).toLocaleString()}</span></td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:fm.occupancyPct>=90?C.sage:fm.occupancyPct>=70?C.gold:C.rose}}>{fm.occupancyPct}%</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}><span style={{fontWeight:700}}>{fm.activeStays}</span> <span style={{color:C.muted,fontWeight:400}}>/ {BEDS}</span></td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:roomsPct>=90?C.sage:roomsPct>=70?C.gold:C.blue}}>{roomsPct}%</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>+{fm.checkIns}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>-{fm.checkOuts}</td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ── RENEWAL RATE PREDICTION ── */}
+            {pmsConn && pmsData?.forecast && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginTop:16}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Occupancy Prediction Model</p>
+                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Cohort-based model: each new booking / renewal stays for its real length-of-stay, then leaves</p>
+
+                {/* ── LoS mix panel — fixed business mix ── */}
+                {(() => {
+                  const bands = [
+                    { key:"short",  label:"30-day bookings",  share:0.25, avgDays:30,  color:C.rose },
+                    { key:"medium", label:"90-day bookings",  share:0.25, avgDays:90,  color:C.gold },
+                    { key:"long",   label:"180-day bookings", share:0.15, avgDays:180, color:C.blue },
+                    { key:"annual", label:"365-day bookings", share:0.35, avgDays:365, color:C.sage },
+                  ];
+                  return (
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:14}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>Length-of-Stay Mix</span>
+                        <span style={{fontSize:10,color:C.muted}}>Business mix · applied to every new booking + renewal</span>
+                      </div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                        {bands.map(b => (
+                          <div key={b.key} style={{flex:"1 1 140px",background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px"}}>
+                            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{b.label}</div>
+                            <div style={{display:"flex",alignItems:"baseline",gap:6,marginTop:2}}>
+                              <span style={{fontSize:18,fontWeight:700,color:b.color,fontFamily:"DM Mono,monospace"}}>{Math.round(b.share*100)}%</span>
+                              <span style={{fontSize:10,color:C.muted}}>· {b.avgDays}d stay</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div style={{display:"flex",gap:16,marginBottom:18,flexWrap:"wrap"}}>
+                  <div style={{flex:"1 1 200px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>Predicted renewal rate</span>
+                      <span style={{fontSize:13,fontWeight:700,color:forecastRenewalRate>=70?C.sage:forecastRenewalRate>=50?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{forecastRenewalRate}%</span>
+                    </div>
+                    <input type="range" min={0} max={100} value={forecastRenewalRate} onChange={e=>setForecastRenewalRate(+e.target.value)} style={{width:"100%",accentColor:C.sage}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>% of guests whose contracts end who will renew</p>
+                  </div>
+                  <div style={{flex:"1 1 200px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>New bookings per month</span>
+                      <span style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{forecastNewPerMonth}</span>
+                    </div>
+                    <input type="range" min={0} max={80} value={forecastNewPerMonth} onChange={e=>setForecastNewPerMonth(+e.target.value)} style={{width:"100%",accentColor:C.gold}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>New contracts signed per month beyond confirmed</p>
+                  </div>
+                  <div style={{flex:"1 1 200px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>Sales cycle</span>
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <input type="number" min={0} max={90} value={salesCycleDays} onChange={e=>{const v=Math.max(0,Math.min(90,+e.target.value||0));setSalesCycleDays(v);}} style={{width:48,fontSize:13,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace",background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 6px",textAlign:"right",outline:"none"}}/>
+                        <span style={{fontSize:12,color:C.muted}}>days</span>
+                      </div>
+                    </div>
+                    <input type="range" min={0} max={90} value={salesCycleDays} onChange={e=>setSalesCycleDays(+e.target.value)} style={{width:"100%",accentColor:C.blue}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Days from booking to move-in (avg 47d current · target 30d)</p>
+                  </div>
+                  <div style={{flex:"1 1 200px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>Rooms offline (maintenance)</span>
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <input type="number" min={0} max={50} value={offlineRooms} onChange={e=>{const v=Math.max(0,Math.min(50,+e.target.value||0));setOfflineRooms(v);}} style={{width:48,fontSize:13,fontWeight:700,color:C.rose,fontFamily:"DM Mono,monospace",background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 6px",textAlign:"right",outline:"none"}}/>
+                        <span style={{fontSize:12,color:C.muted}}>rooms</span>
+                      </div>
+                    </div>
+                    <input type="range" min={0} max={50} value={offlineRooms} onChange={e=>setOfflineRooms(+e.target.value)} style={{width:"100%",accentColor:C.rose}}/>
+                    <p style={{fontSize:10,color:C.muted,marginTop:2}}>Usable: {Math.max(1,totalBedrooms - offlineRooms)} rooms · 95% target: {Math.ceil(Math.max(1,totalBedrooms - offlineRooms) * 0.95)} rooms</p>
+                  </div>
+                </div>
+
+                {/* Predicted occupancy table + bars — computed once, used by both */}
+                {(() => {
+                  // ── PREDICTION MODEL (COHORT-BASED) ──
+                  // Every new booking / renewal enters as a cohort with a length-of-stay
+                  // drawn from the real LoS distribution observed in the last 12 months
+                  // of Res Harmonics data (short / medium / long / annual). Each cohort
+                  // contributes days month-by-month until its average LoS is used up —
+                  // so short-stay guests naturally churn out while annual cohorts persist.
+                  //
+                  // Fixed LoS mix per business rules — Res Harmonics live data is
+                  // unreliable for length-of-stay (mixes renewals, room moves, etc.),
+                  // so we use the agreed mix as the source of truth:
+                  //   30-day  bookings → 15%
+                  //   90-day  bookings → 30%
+                  //   180-day bookings → 20%
+                  //   365-day bookings → 35%
+                  const LOS_MIX = {
+                    short:  { share: 0.15, avgDays: 30  },
+                    medium: { share: 0.30, avgDays: 90  },
+                    long:   { share: 0.20, avgDays: 180 },
+                    annual: { share: 0.35, avgDays: 365 },
+                  };
+                  const losMix = losOverride || LOS_MIX;
+
+                  // Sales cycle: new bookings take X days before moving in
+                  const moveInDelay = Math.floor(salesCycleDays / 30);
+                  const partialOffset = salesCycleDays % 30;
+
+                  const predRows = [];
+                  // Active cohorts from previous months: { size, remainingDays }
+                  const activeCohorts = [];
+
+                  // Determine which month index is "current" (the one matching today)
+                  const todayKey = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+                  const currentMonthFcIdx = pmsData.forecast.findIndex(f => f.key === todayKey);
+                  const firstFutureIdx = currentMonthFcIdx >= 0 ? currentMonthFcIdx + 1 : pmsData.forecast.length;
+
+                  for (let i = 0; i < pmsData.forecast.length; i++) {
+                    const fm = pmsData.forecast[i];
+                    const actualDays = fm.bookedDays || 0;
+                    const totalDays = fm.totalBookableDays || (BEDS * 30);
+                    const dim = fm.daysInMonth || 30;
+                    const confirmedRooms = fm.activeStays || 0;
+                    const isPastOrCurrent = i <= (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0);
+
+                    if (isPastOrCurrent) {
+                      const USABLE_PR = BEDS - offlineRooms;
+                      const pct = USABLE_PR > 0 ? Math.round((confirmedRooms / USABLE_PR) * 100) : 0;
+                      predRows.push({ ...fm, renewalCount: 0, newBooked: 0, newMoveIns: 0, carryoverRooms: 0, carryoverDays: 0, leavingFromCohorts: 0, predictedDays: actualDays, predictedPct: pct, actualPct: pct, confirmedRooms, predictedRooms: confirmedRooms, isPast: i < (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0), isCurrent: i === (currentMonthFcIdx >= 0 ? currentMonthFcIdx : 0) });
+                      continue;
+                    }
+
+                    // Step 1: roll forward existing cohorts a full month each.
+                    // A cohort with remainingDays >= dim survives into next month; otherwise it expires.
+                    let carryoverDays = 0;
+                    let carryoverRooms = 0;
+                    let leavingFromCohorts = 0;
+                    const surviving = [];
+                    for (const c of activeCohorts) {
+                      const take = Math.min(c.remainingDays, dim);
+                      carryoverDays += c.size * take;
+                      if (c.remainingDays > dim) {
+                        surviving.push({ size: c.size, remainingDays: c.remainingDays - dim });
+                        carryoverRooms += c.size;
+                      } else {
+                        leavingFromCohorts += c.size;
+                      }
+                    }
+
+                    // Step 2: this month's renewals (immediate) and new move-ins
+                    const leaving = fm.checkOuts || 0;
+                    const renewalCount = Math.round(leaving * forecastRenewalRate / 100);
+                    const bookedMonthAgo = i - moveInDelay;
+                    const newMoveIns = bookedMonthAgo >= 1 ? forecastNewPerMonth : 0;
+
+                    // Step 3: split new entrants into LoS cohorts and add their first-month days
+                    const newCohorts = [];
+                    const addCohort = (count, firstMonthDays) => {
+                      if (count <= 0 || firstMonthDays <= 0) return 0;
+                      let daysAdded = 0;
+                      for (const key of ["short","medium","long","annual"]) {
+                        const band = losMix[key];
+                        if (!band || band.share <= 0) continue;
+                        const size = count * band.share;
+                        const firstDays = Math.min(band.avgDays, firstMonthDays);
+                        daysAdded += size * firstDays;
+                        const remaining = band.avgDays - firstDays;
+                        if (remaining > 0) {
+                          newCohorts.push({ size, remainingDays: remaining });
+                        }
+                      }
+                      return daysAdded;
+                    };
+                    // Renewals: on average they "switch" mid-month → ~half month of extra days
+                    const renewalDays = addCohort(renewalCount, Math.round(dim / 2));
+                    // New move-ins: arrive partialOffset days into the month
+                    const newMoveInDays = addCohort(newMoveIns, Math.max(0, dim - partialOffset));
+
+                    const USABLE = BEDS - offlineRooms;
+                    const predictedDays = Math.min(totalDays, actualDays + carryoverDays + renewalDays + newMoveInDays);
+                    const predictedRooms = Math.min(USABLE, Math.round(confirmedRooms + carryoverRooms + renewalCount + newMoveIns));
+                    const predictedPct = USABLE > 0 ? Math.round((predictedRooms / USABLE) * 100) : 0;
+                    const actualPct = USABLE > 0 ? Math.round((confirmedRooms / USABLE) * 100) : 0;
+
+                    predRows.push({ ...fm, renewalCount, newBooked: forecastNewPerMonth, newMoveIns, carryoverRooms, carryoverDays, leavingFromCohorts, predictedDays, predictedPct, actualPct, confirmedRooms, predictedRooms });
+
+                    // Commit surviving + new cohorts for next month
+                    activeCohorts.length = 0;
+                    activeCohorts.push(...surviving, ...newCohorts);
+                  }
+
+                  // ── Fold Lavanda short-stay rooms into forecast (Nomad rooms are part of BEDS but booked via Lavanda) ──
+                  if (lavandaConn && lavandaData && lavandaData.daily) {
+                    const _lavM = {};
+                    lavandaData.daily.forEach(d => {
+                      const mk = d.date.slice(0, 7);
+                      if (!_lavM[mk]) _lavM[mk] = { sum: 0, n: 0 };
+                      _lavM[mk].sum += d.booked;
+                      _lavM[mk].n++;
+                    });
+                    const _cap = BEDS - offlineRooms;
+                    predRows.forEach(r => {
+                      const lm = _lavM[r.key];
+                      const avgSS = lm ? Math.round(lm.sum / lm.n) : 0;
+                      r.ssRooms = avgSS;
+                      r.predictedRooms = Math.min(_cap, r.predictedRooms + avgSS);
+                      r.predictedPct = _cap > 0 ? Math.round(r.predictedRooms / _cap * 100) : 0;
+                      if (r.isPast || r.isCurrent) r.actualPct = r.predictedPct;
+                    });
+                  }
+
+                  // ── 95% Occupancy Target Date — derived from predRows (single source of truth) ──
+                  const USABLE_T = Math.max(1, totalBedrooms - offlineRooms); // real bedrooms less held rooms
+                  const TARGET_95 = Math.ceil(USABLE_T * 0.95);
+                  // Find which month in predRows first hits TARGET_95
+                  let targetHitMonth = null;
+                  for (let i = 0; i < predRows.length; i++) {
+                    if (predRows[i].predictedRooms >= TARGET_95 && !targetHitMonth) {
+                      targetHitMonth = { month: predRows[i].label, index: i };
+                    }
+                  }
+                  const startRooms = predRows.length > 0 ? predRows[0].predictedRooms : 0;
+                  const avgLosWeighted = Object.values(losMix).reduce((s, b) => s + b.share * b.avgDays, 0);
+                  const avgTurnoverPerMonth = Math.round(TARGET_95 / (avgLosWeighted / 30));
+                  const churnPerMonth = Math.round(avgTurnoverPerMonth * (1 - forecastRenewalRate / 100));
+
+                  return (<>
+                {/* ── 95% OCCUPANCY TARGET BANNER ── */}
+                <div style={{background:C.card,border:`1px solid ${targetHitMonth?C.sage:C.gold}44`,borderRadius:14,padding:18,marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div>
+                      <p style={{fontSize:11,color:targetHitMonth?C.sage:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>95% Occupancy Target · {TARGET_95} / {USABLE_T} usable rooms{lavandaConn?" (combined)":""}</p>
+                      <p style={{fontSize:12,color:C.muted,marginTop:2}}>{offlineRooms} rooms offline · {USABLE_T} occupiable · 95% = {TARGET_95} rooms{lavandaConn?` · incl. ${lavandaData?.kpis?.units||0} Nomad short-stay`:""}</p>
+                    </div>
+                    <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE{lavandaConn?" · LS + SS":""}</span>
+                  </div>
+                  <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16}}>
+                    <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Target hit date</p>
+                      <p style={{fontSize:24,fontWeight:700,color:targetHitMonth?C.sage:C.rose,fontFamily:"DM Mono,monospace"}}>{targetHitMonth?targetHitMonth.month:"Beyond forecast"}</p>
+                      <p style={{fontSize:10,color:C.muted,marginTop:4}}>{targetHitMonth?`Month ${targetHitMonth.index} of forecast`:"Adjust inputs to reach target"}</p>
+                    </div>
+                    <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Current → Target</p>
+                      <p style={{fontSize:24,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>{startRooms} → {TARGET_95}</p>
+                      <p style={{fontSize:10,color:C.muted,marginTop:4}}>{Math.max(0, TARGET_95-startRooms)} rooms still needed</p>
+                    </div>
+                    <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Bookings to sustain 95%</p>
+                      <p style={{fontSize:24,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace"}}>{churnPerMonth}/month</p>
+                      <p style={{fontSize:10,color:C.muted,marginTop:4}}>New sales needed after renewals ({forecastRenewalRate}%)</p>
+                    </div>
+                    <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Avg weighted LoS</p>
+                      <p style={{fontSize:24,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{Math.round(avgLosWeighted)}d</p>
+                      <p style={{fontSize:10,color:C.muted,marginTop:4}}>Blended from target mix</p>
+                    </div>
+                  </div>
+                  {/* Mini trajectory chart from predRows */}
+                  <div style={{display:"flex",alignItems:"flex-end",gap:2,height:80,marginBottom:8}}>
+                    {predRows.map((pr, i) => {
+                      const pct = USABLE_T > 0 ? (pr.predictedRooms / USABLE_T) * 100 : 0;
+                      const hit = pr.predictedRooms >= TARGET_95;
+                      return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                        <div style={{width:"100%",background:hit?C.sage:pct>=70?C.gold:C.rose,borderRadius:2,height:`${Math.max(4, pct*0.75)}px`,transition:"height 0.3s"}}/>
+                        <span style={{fontSize:8,color:C.muted,writingMode:"vertical-rl",transform:"rotate(180deg)",maxHeight:40,overflow:"hidden"}}>{(pr.label||"").split(" ")[0]}</span>
+                      </div>;
+                    })}
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
+                    <span>Now: {startRooms} rooms ({Math.round(startRooms/USABLE_T*100)}%){predRows[0]?.ssRooms?` · incl. ${predRows[0].ssRooms} short-stay`:""}</span>
+                    <span style={{color:C.sage}}>■ ≥95% target ({TARGET_95} rooms)</span>
+                  </div>
+                </div>
+
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                        <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed Days</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Leaving</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Renewals</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>+ Booked</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Move-ins</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Carryover</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Days</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Rooms / {BEDS - offlineRooms}</th>
+                        <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted Occ.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {predRows.map((r, i) => (
+                        <tr key={r.key||i} style={{borderBottom:`1px solid ${C.border}`,background:r.isCurrent?C.gold+"0a":r.isPast?C.bg+"88":"transparent"}}>
+                          <td style={{padding:"8px 10px",color:r.isCurrent||r.isPast?C.text:C.muted,fontWeight:r.isCurrent?700:400}}>{r.label}{r.isCurrent?" (current)":r.isPast?" (actual)":""}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{(r.bookedDays||0).toLocaleString()} <span style={{color:C.muted,fontSize:10}}>/ {(r.totalBookableDays||0).toLocaleString()}</span></td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.rose}}>{r.checkOuts||0}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{(r.isPast||r.isCurrent)?"-":r.renewalCount}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>{(r.isPast||r.isCurrent)?"-":`+${r.newBooked}`}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newMoveIns>0?C.blue:C.muted}}>{(r.isPast||r.isCurrent)?"-":r.newMoveIns>0?`+${r.newMoveIns}`:<span style={{fontSize:9}}>({salesCycleDays}d wait)</span>}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.purple}}>{(r.isPast||r.isCurrent)?"-":r.carryoverRooms>0?`+${Math.round(r.carryoverRooms)}${r.leavingFromCohorts>0?` / -${Math.round(r.leavingFromCohorts)}`:""}`:"-"}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:600}}>{Math.round(r.predictedDays).toLocaleString()}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>
+                            <span style={{fontWeight:700}}>{Math.round(r.predictedRooms)}</span>
+                            <span style={{color:C.muted,fontWeight:400}}> / {BEDS - offlineRooms}</span>
+                            {!r.isPast && !r.isCurrent && r.predictedRooms !== r.confirmedRooms && (
+                              <span style={{fontSize:9,color:C.muted,marginLeft:4}}>({r.confirmedRooms} confirmed)</span>
+                            )}
+                          </td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontWeight:700,color:r.predictedPct>=90?C.sage:r.predictedPct>=70?C.gold:C.rose}}>
+                            {r.predictedPct}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Predicted bar chart — shows both actual (solid) and predicted (striped overlay) */}
+                <div style={{display:"flex",gap:8,alignItems:"flex-end",height:140,marginTop:16,padding:"0 4px"}}>
+                  {predRows.map((r, i) => {
+                    const actualPct = Math.min(r.actualPct, 100);
+                    const predPct = Math.min(r.predictedPct, 100);
+                    const barColor = predPct >= 90 ? C.sage : predPct >= 70 ? C.gold : C.rose;
+                    const actualColor = actualPct >= 90 ? C.sage : actualPct >= 70 ? C.gold : C.rose;
+                    return (
+                      <div key={r.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                        <span style={{fontSize:11,fontWeight:700,color:barColor,fontFamily:"DM Mono,monospace"}}>{r.predictedPct}%</span>
+                        {i > 0 && r.predictedPct !== r.actualPct && (
+                          <span style={{fontSize:9,color:C.muted}}>({r.actualPct}% confirmed)</span>
+                        )}
+                        <div style={{width:"100%",maxWidth:60,background:C.border,borderRadius:6,height:90,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-end"}}>
+                          {/* Predicted (striped, behind) */}
+                          <div style={{position:"absolute",bottom:0,width:"100%",height:`${predPct}%`,background:`repeating-linear-gradient(45deg,${barColor}44,${barColor}44 3px,${barColor}22 3px,${barColor}22 6px)`,borderRadius:6,transition:"height 0.4s"}}/>
+                          {/* Actual (solid, front) */}
+                          <div style={{position:"relative",width:"100%",height:`${actualPct}%`,background:actualColor,borderRadius:6,transition:"height 0.4s"}}/>
+                        </div>
+                        <span style={{fontSize:10,color:i===0?C.text:C.muted,fontWeight:i===0?700:400}}>{r.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:8}}>
+                  <span style={{fontSize:10,color:C.muted}}>■ Solid = confirmed bookings</span>
+                  <span style={{fontSize:10,color:C.muted}}>▧ Striped = predicted (renewals + new)</span>
+                </div>
+
+                {/* ── PREDICTIVE REVENUE MODEL ── */}
+                {(() => {
+                  const liveAwr = pmsData?.awrByStatus?.all?.awr || pmsData?.globalAwr || 279;
+                  const liveAwrGross = pmsData?.awrByStatus?.all?.awrGross || Math.round(liveAwr * 1.07);
+                  const useAwr = forecastAwrOverride ?? liveAwr;
+                  const useAwrGross = forecastAwrOverride ? Math.round(forecastAwrOverride * 1.07) : liveAwrGross;
+                  const USABLE_REV = BEDS - offlineRooms;
+
+                  // Build revenue rows from predRows — with per-month occupancy overrides
+                  const revRows = predRows.map((pr, i) => {
+                    const dim = pr.daysInMonth || 30;
+                    const confirmedRooms = pr.confirmedRooms || 0;
+                    const modelPredictedRooms = pr.predictedRooms || 0;
+
+                    // Model occupancy % (what the prediction engine computed)
+                    const modelOccPct = USABLE_REV > 0 ? Math.round((modelPredictedRooms / USABLE_REV) * 100) : 0;
+
+                    // Effective occupancy: use override if set, else model prediction
+                    const occOverride = occupancyOverrides[i];
+                    const useOccPct = occOverride != null ? occOverride : modelOccPct;
+                    const effectiveRooms = occOverride != null ? Math.round(USABLE_REV * occOverride / 100) : modelPredictedRooms;
+
+                    const newRooms = Math.max(0, effectiveRooms - confirmedRooms);
+                    const confirmedRevNet = Math.round(confirmedRooms * useAwr * (dim / 7));
+                    const confirmedRevGross = Math.round(confirmedRooms * useAwrGross * (dim / 7));
+                    const newRevNet = Math.round(newRooms * useAwr * (dim / 7));
+                    const newRevGross = Math.round(newRooms * useAwrGross * (dim / 7));
+                    const totalRevNet = confirmedRevNet + newRevNet;
+                    const totalRevGross = confirmedRevGross + newRevGross;
+                    return {
+                      label: pr.label, confirmedRooms, modelPredictedRooms, effectiveRooms, newRooms,
+                      modelOccPct, useOccPct, isOverridden: occOverride != null,
+                      confirmedRevNet, confirmedRevGross, newRevNet, newRevGross,
+                      totalRevNet, totalRevGross, isActual: pr.isPast || pr.isCurrent, isCurrent: pr.isCurrent, isPast: pr.isPast,
+                    };
+                  });
+                  const totalPredRevNet = revRows.reduce((s, r) => s + r.totalRevNet, 0);
+                  const totalPredRevGross = revRows.reduce((s, r) => s + r.totalRevGross, 0);
+                  const totalConfRevNet = revRows.reduce((s, r) => s + r.confirmedRevNet, 0);
+                  const totalNewRevNet = revRows.reduce((s, r) => s + r.newRevNet, 0);
+                  const avgMonthlyNet = revRows.length > 0 ? Math.round(totalPredRevNet / revRows.length) : 0;
+                  const avgOccPct = revRows.length > 0 ? Math.round(revRows.reduce((s, r) => s + r.useOccPct, 0) / revRows.length) : 0;
+                  // At full 95% occupancy monthly revenue
+                  const full95Net = Math.round(TARGET_95 * useAwr * (30 / 7));
+                  const full95Gross = Math.round(TARGET_95 * useAwrGross * (30 / 7));
+                  const hasAnyOccOverride = Object.keys(occupancyOverrides).length > 0;
+
+                  return (
+                    <div style={{marginTop:18,background:C.card,border:`1px solid ${C.gold}44`,borderRadius:14,padding:18}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                        <div>
+                          <p style={{fontSize:11,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Predictive Revenue Model</p>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>Editable occupancy × AWR · live from Lavanda · adjust per month to model scenarios</p>
+                        </div>
+                        <span style={{fontSize:10,color:C.sage,fontWeight:600}}>● LIVE</span>
+                      </div>
+
+                      {/* Controls row: AWR + 95% target + avg predicted */}
+                      <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:16,alignItems:"flex-end"}}>
+                        <div style={{flex:"1 1 280px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                            <span style={{fontSize:12,color:C.muted}}>AWR (net, ex-VAT)</span>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <span style={{fontSize:10,color:C.muted}}>£</span>
+                              <input type="number" min={100} max={600} value={useAwr}
+                                onChange={e=>{const v=Math.max(100,Math.min(600,+e.target.value||0));setForecastAwrOverride(v);}}
+                                style={{width:64,fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 6px",textAlign:"right",outline:"none"}}/>
+                              <span style={{fontSize:10,color:C.muted}}>/week</span>
+                            </div>
+                          </div>
+                          <input type="range" min={100} max={600} value={useAwr}
+                            onChange={e=>setForecastAwrOverride(+e.target.value)}
+                            style={{width:"100%",accentColor:C.gold}}/>
+                          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginTop:4}}>
+                            <span>Live from Lavanda: £{liveAwr}/wk net · £{liveAwrGross}/wk gross</span>
+                            {forecastAwrOverride && <button onClick={()=>setForecastAwrOverride(null)}
+                              style={{background:"none",border:"none",color:C.blue,cursor:"pointer",fontSize:10,padding:0}}>Reset to live</button>}
+                          </div>
+                        </div>
+                        <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>At 95% occupancy ({TARGET_95} rooms)</p>
+                          <p style={{fontSize:20,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>£{full95Net.toLocaleString()}<span style={{fontSize:12,color:C.muted,fontWeight:400}}>/mo net</span></p>
+                          <p style={{fontSize:13,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:2}}>£{full95Gross.toLocaleString()}<span style={{fontSize:11}}>/mo gross</span></p>
+                        </div>
+                        <div style={{flex:"1 1 180px",background:C.bg,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Avg predicted monthly (net)</p>
+                          <p style={{fontSize:20,fontWeight:700,color:C.blue,fontFamily:"DM Mono,monospace"}}>£{avgMonthlyNet.toLocaleString()}</p>
+                          <p style={{fontSize:10,color:C.muted,marginTop:4}}>Avg occupancy: {avgOccPct}% · {revRows.length} months</p>
+                        </div>
+                      </div>
+
+                      {/* Revenue chart */}
+                      <div style={{display:"flex",alignItems:"flex-end",gap:3,height:120,marginBottom:12}}>
+                        {revRows.map((r, i) => {
+                          const maxRev = Math.max(...revRows.map(x=>x.totalRevNet), 1);
+                          const confH = (r.confirmedRevNet / maxRev) * 100;
+                          const newH = (r.newRevNet / maxRev) * 100;
+                          return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                            <span style={{fontSize:9,color:C.text,fontFamily:"DM Mono,monospace",fontWeight:600}}>£{Math.round(r.totalRevNet/1000)}k</span>
+                            <div style={{width:"100%",display:"flex",flexDirection:"column",justifyContent:"flex-end",height:90}}>
+                              <div style={{width:"100%",background:C.blue+"66",borderRadius:"2px 2px 0 0",height:`${newH}%`}} title={`New: £${r.newRevNet.toLocaleString()}`}/>
+                              <div style={{width:"100%",background:C.sage,borderRadius:newH>0?"0":"2px 2px 0 0",height:`${confH}%`}} title={`Confirmed: £${r.confirmedRevNet.toLocaleString()}`}/>
+                            </div>
+                            <span style={{fontSize:9,color:C.muted,marginTop:2}}>{(r.label||"").split(" ")[0]}</span>
+                          </div>;
+                        })}
+                      </div>
+                      <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginBottom:14}}>
+                        <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.sage}}/> Confirmed revenue</span>
+                        <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue+"66"}}/> Predicted new revenue</span>
+                        {hasAnyOccOverride && <button onClick={()=>setOccupancyOverrides({})}
+                          style={{background:"none",border:"none",color:C.blue,cursor:"pointer",fontSize:10,padding:0,marginLeft:"auto"}}>Reset all occupancy overrides</button>}
+                      </div>
+
+                      {/* Revenue table with editable occupancy */}
+                      <div style={{overflowX:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                          <thead>
+                            <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                              <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Month</th>
+                              <th style={{textAlign:"center",padding:"8px 10px",color:C.gold,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Occupancy %</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Predicted</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Conf Rev (net)</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Rev (net)</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Total Rev (net)</th>
+                              <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Total Rev (gross)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {revRows.map((r, i) => (
+                              <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:r.isCurrent?C.gold+"0a":r.isPast?C.bg+"88":"transparent"}}>
+                                <td style={{padding:"8px 10px",color:r.isActual?C.text:C.muted,fontWeight:r.isCurrent?700:400,whiteSpace:"nowrap"}}>{r.label}{r.isCurrent?" (current)":r.isPast?" (actual)":""}</td>
+                                <td style={{padding:"4px 6px",textAlign:"center"}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:4,justifyContent:"center"}}>
+                                    <input type="number" min={0} max={100}
+                                      value={r.useOccPct}
+                                      onChange={e=>{const v=Math.max(0,Math.min(100,+e.target.value||0));setOccupancyOverrides(prev=>({...prev,[i]:v}));}}
+                                      style={{width:42,fontSize:12,fontWeight:700,color:r.isOverridden?C.gold:C.text,fontFamily:"DM Mono,monospace",background:r.isOverridden?C.gold+"12":"transparent",border:`1px solid ${r.isOverridden?C.gold+"66":C.border}`,borderRadius:4,padding:"2px 4px",textAlign:"right",outline:"none"}}/>
+                                    <span style={{fontSize:10,color:C.muted}}>%</span>
+                                    {r.isOverridden && <button onClick={()=>setOccupancyOverrides(prev=>{const n={...prev};delete n[i];return n;})}
+                                      style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:9,padding:0}} title="Reset to model">✕</button>}
+                                  </div>
+                                </td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{r.confirmedRooms}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.isOverridden?C.gold:C.blue,fontWeight:600}}>{Math.round(r.effectiveRooms)}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>£{r.confirmedRevNet.toLocaleString()}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:r.newRevNet>0?C.blue:C.muted}}>{r.newRevNet>0?`+£${r.newRevNet.toLocaleString()}`:"—"}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text,fontWeight:700}}>£{r.totalRevNet.toLocaleString()}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>£{r.totalRevGross.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                            <tr style={{borderTop:`2px solid ${C.gold}44`,background:C.gold+"08",fontWeight:700}}>
+                              <td style={{padding:"10px 10px",color:C.gold,fontSize:13}}>Annual Total</td>
+                              <td style={{padding:"10px 10px",textAlign:"center",fontFamily:"DM Mono,monospace",fontSize:11,color:C.gold}}>{avgOccPct}% avg</td>
+                              <td style={{padding:"10px 10px"}}/>
+                              <td style={{padding:"10px 10px"}}/>
+                              <td style={{padding:"10px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage,fontSize:13}}>£{totalConfRevNet.toLocaleString()}</td>
+                              <td style={{padding:"10px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue,fontSize:13}}>+£{totalNewRevNet.toLocaleString()}</td>
+                              <td style={{padding:"10px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold,fontSize:14}}>£{totalPredRevNet.toLocaleString()}</td>
+                              <td style={{padding:"10px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted,fontSize:13}}>£{totalPredRevGross.toLocaleString()}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                  </>);
+                })()}
+              </div>
+            )}
+
+            {/* ── SECTION C: Rate Adjustment & Revenue Predictor ── */}
+            {pmsConn && pmsData?.roomTypeData && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>Rate Adjustment & Revenue Predictor</h3>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",gap:16}}>
+                  {ROOM_TYPES.map((rt) => {
+                    const data = pmsData.roomTypeData[rt];
+                    if (!data || data.totalUnits === 0) return null;
+
+                    const currentAWR = data.awrGross || TARGET_RATE;
+                    const currentAWRNet = data.awr || 0;
+                    const adjustedRate = rateAdjustments[rt] ?? currentAWR;
+                    const available = data.months[0]?.available ?? 0;
+
+                    return (
+                      <div key={rt} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                        <p style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>{rt}</p>
+                        <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Rate for unsold rooms (gross, inc-VAT)</p>
+                        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                          <input
+                            type="range"
+                            min="150"
+                            max="500"
+                            step="5"
+                            value={adjustedRate}
+                            onChange={(e) => setRateAdjustments(prev => ({...prev, [rt]: parseInt(e.target.value)}))}
+                            style={{flex:1}}
+                          />
+                          <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",minWidth:"45px"}}>{fmt(adjustedRate)}</span>
+                        </div>
+                        <p style={{fontSize:9,color:C.muted,marginBottom:10}}>Current: {fmt(currentAWR)} gross · £{currentAWRNet} net | Gap: {fmt(Math.abs(adjustedRate - currentAWR))}</p>
+                        <div style={{fontSize:10,color:C.muted,lineHeight:1.5}}>
+                          <p>Booked: {data.months[0]?.booked ?? 0} rooms</p>
+                          <p>Available: {available} rooms</p>
+                          <p style={{marginTop:6,color:C.text,fontWeight:600}}>Predicted Monthly Revenue:</p>
+                          <p style={{fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginTop:4}}>
+                            {(() => {
+                              const bookedRevenue = (data.months[0]?.booked ?? 0) * currentAWR * (52 / 12);
+                              const availableRevenue = available * adjustedRate * (52 / 12) * 0.7; // 70% fill assumption
+                              return fmt(bookedRevenue + availableRevenue);
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ── Blended AWR Projection over time ── */}
+                <div style={{marginTop:20,background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+                  <h4 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>Projected Blended AWR — Month by Month</h4>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:14}}>Shows how your rate adjustments affect overall AWR across all room types (70% fill on unsold rooms)</p>
+                  {(() => {
+                    const now = new Date();
+                    const FILL_RATE = 0.7;
+                    const monthProjections = [];
+
+                    for (let m = 0; m < pmsData.forecast.length; m++) {
+                      const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
+                      const label = d.toLocaleString("en-GB", { month: "short", year: "numeric" });
+                      let totalWeightedAWR = 0;
+                      let totalRooms = 0;
+
+                      ROOM_TYPES.forEach(rt => {
+                        const data = pmsData.roomTypeData[rt];
+                        if (!data || data.totalUnits === 0) return;
+                        const currentAWR = data.awrGross || 0;
+                        const adjustedRate = rateAdjustments[rt] ?? currentAWR;
+                        const booked = data.months[m]?.booked ?? 0;
+                        const available = data.months[m]?.available ?? 0;
+                        const newFill = Math.round(available * FILL_RATE);
+
+                        // Booked rooms contribute at current AWR (gross)
+                        totalWeightedAWR += booked * currentAWR;
+                        totalRooms += booked;
+
+                        // Unsold rooms that fill contribute at the adjusted rate
+                        totalWeightedAWR += newFill * adjustedRate;
+                        totalRooms += newFill;
+                      });
+
+                      const blended = totalRooms > 0 ? Math.round(totalWeightedAWR / totalRooms) : 0;
+                      const occupiedRooms = totalRooms;
+                      monthProjections.push({ label, blended, occupiedRooms, month: m });
+                    }
+
+                    const maxAWR = Math.max(TARGET_RATE + 20, ...monthProjections.map(p => p.blended));
+                    const barH = 140;
+
+                    return (
+                      <>
+                        {/* Bar chart */}
+                        <div style={{display:"flex",gap:8,alignItems:"flex-end",justifyContent:"space-around",height:barH + 40,marginBottom:16,position:"relative"}}>
+                          {/* Target line */}
+                          <div style={{position:"absolute",bottom:barH * (TARGET_RATE / maxAWR) + 20,left:0,right:0,borderTop:`2px dashed ${C.rose}`,zIndex:1}}>
+                            <span style={{position:"absolute",right:0,top:-16,fontSize:9,color:C.rose,fontFamily:"DM Mono,monospace"}}>Target £{TARGET_RATE}</span>
+                          </div>
+                          {monthProjections.map((p, i) => {
+                            const h = Math.round(barH * (p.blended / maxAWR));
+                            const meetTarget = p.blended >= TARGET_RATE;
+                            return (
+                              <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1}}>
+                                <span style={{fontSize:11,fontWeight:700,color:meetTarget ? C.sage : C.gold,fontFamily:"DM Mono,monospace",marginBottom:4}}>£{p.blended}</span>
+                                <div style={{width:"60%",height:h,background:meetTarget ? `linear-gradient(to top, ${C.sage}66, ${C.sage}cc)` : `linear-gradient(to top, ${C.gold}44, ${C.gold}aa)`,borderRadius:"6px 6px 0 0",transition:"height 0.3s ease"}} />
+                                <span style={{fontSize:9,color:C.muted,marginTop:6}}>{p.label}</span>
+                                <span style={{fontSize:8,color:C.muted}}>{p.occupiedRooms} rooms</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Detail table */}
+                        <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
+                          <thead>
+                            <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                              <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:500}}>Month</th>
+                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Booked Rooms</th>
+                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>+ New Fill (70%)</th>
+                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Total Occupied</th>
+                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Projected AWR (gross)</th>
+                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>vs Target</th>
+                              <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:500}}>Proj. Monthly Rev</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {monthProjections.map((p, i) => {
+                              // Re-calculate breakdown for table
+                              let totalBooked = 0, totalNewFill = 0, totalWeighted = 0;
+                              ROOM_TYPES.forEach(rt => {
+                                const data = pmsData.roomTypeData[rt];
+                                if (!data || data.totalUnits === 0) return;
+                                const currentAWR = data.awrGross || 0;
+                                const adjustedRate = rateAdjustments[rt] ?? currentAWR;
+                                const booked = data.months[p.month]?.booked ?? 0;
+                                const available = data.months[p.month]?.available ?? 0;
+                                const newFill = Math.round(available * 0.7);
+                                totalBooked += booked;
+                                totalNewFill += newFill;
+                                totalWeighted += booked * currentAWR + newFill * adjustedRate;
+                              });
+                              const diff = p.blended - TARGET_RATE;
+                              const monthlyRev = Math.round(totalWeighted * (52 / 12));
+                              return (
+                                <tr key={i} style={{borderBottom:`1px solid ${C.border}22`,background: i === 0 ? C.card : "transparent"}}>
+                                  <td style={{padding:"8px",color:C.text,fontWeight: i === 0 ? 600 : 400}}>{p.label}{i === 0 ? " (current)" : ""}</td>
+                                  <td style={{textAlign:"right",padding:"8px",color:C.text,fontFamily:"DM Mono,monospace"}}>{totalBooked}</td>
+                                  <td style={{textAlign:"right",padding:"8px",color:C.sage,fontFamily:"DM Mono,monospace"}}>+{totalNewFill}</td>
+                                  <td style={{textAlign:"right",padding:"8px",color:C.gold,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{p.occupiedRooms}</td>
+                                  <td style={{textAlign:"right",padding:"8px",color: p.blended >= TARGET_RATE ? C.sage : C.gold,fontWeight:700,fontFamily:"DM Mono,monospace"}}>£{p.blended}</td>
+                                  <td style={{textAlign:"right",padding:"8px",color: diff >= 0 ? C.sage : C.rose,fontFamily:"DM Mono,monospace"}}>{diff >= 0 ? "+" : ""}{fmt(diff)}</td>
+                                  <td style={{textAlign:"right",padding:"8px",color:C.gold,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{fmt(monthlyRev)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* ── SECTION D: Rate Strategy Advisor ── */}
+                <div style={{marginTop:20,background:C.bg,border:`1px solid ${C.blue}44`,borderRadius:12,padding:18}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <h4 style={{fontSize:13,fontWeight:700,color:C.blue}}>Rate Strategy Advisor</h4>
+                    <span style={{fontSize:9,padding:"3px 10px",borderRadius:10,background:C.blue+"22",color:C.blue}}>AI Analysis</span>
+                  </div>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:16}}>Three strategies to reach £{TARGET_RATE} blended AWR target based on current room type rates & availability</p>
+                  {(() => {
+                    // Gather current state
+                    const roomData = [];
+                    let totalBookedRooms = 0, totalAvailableRooms = 0, currentBlendedWeighted = 0, currentBlendedCount = 0;
+
+                    ROOM_TYPES.forEach(rt => {
+                      const data = pmsData.roomTypeData[rt];
+                      if (!data || data.totalUnits === 0) return;
+                      const currentAWR = data.awrGross || 0;
+                      const currentAWRNet = data.awr || 0;
+                      const booked = data.months[0]?.booked ?? 0;
+                      const available = data.months[0]?.available ?? 0;
+                      if (currentAWR > 0) {
+                        currentBlendedWeighted += booked * currentAWR;
+                        currentBlendedCount += booked;
+                      }
+                      totalBookedRooms += booked;
+                      totalAvailableRooms += available;
+                      roomData.push({ rt, currentAWR, currentAWRNet, booked, available, totalUnits: data.totalUnits });
+                    });
+
+                    const currentBlended = currentBlendedCount > 0 ? Math.round(currentBlendedWeighted / currentBlendedCount) : 0;
+                    const gap = TARGET_RATE - currentBlended;
+
+                    // For each strategy, calculate what rate each unsold room type needs to achieve target
+                    // Target: (sum of booked*currentAWR + sum of fill*newRate) / totalOccupied = TARGET_RATE
+                    // We need: sum of fill*newRate = TARGET_RATE * totalOccupied - sum of booked*currentAWR
+                    const FILL = 0.7;
+                    const totalExpectedFill = roomData.reduce((s, r) => s + Math.round(r.available * FILL), 0);
+                    const totalExpectedOccupied = totalBookedRooms + totalExpectedFill;
+                    const revenueNeeded = TARGET_RATE * totalExpectedOccupied;
+                    const bookedRevenue = roomData.reduce((s, r) => s + r.booked * r.currentAWR, 0);
+                    const unsoldRevenueNeeded = revenueNeeded - bookedRevenue;
+                    const flatUnsoldRate = totalExpectedFill > 0 ? Math.round(unsoldRevenueNeeded / totalExpectedFill) : TARGET_RATE;
+
+                    // Strategy 1: Conservative — small increases spread across all types
+                    const conservative = roomData.map(r => {
+                      const newRate = r.currentAWR > 0 ? Math.round(r.currentAWR + gap * 0.5) : TARGET_RATE;
+                      return { ...r, newRate: Math.max(r.currentAWR, Math.min(500, newRate)), increase: Math.max(0, newRate - r.currentAWR) };
+                    });
+
+                    // Strategy 2: Balanced — increase proportionally, more on underperformers
+                    const balanced = roomData.map(r => {
+                      if (r.available <= 0 || r.currentAWR === 0) return { ...r, newRate: r.currentAWR || TARGET_RATE, increase: 0 };
+                      const typeGap = TARGET_RATE - r.currentAWR;
+                      const newRate = Math.round(r.currentAWR + typeGap * 0.8);
+                      return { ...r, newRate: Math.max(r.currentAWR, Math.min(500, newRate)), increase: Math.max(0, newRate - r.currentAWR) };
+                    });
+
+                    // Strategy 3: Aggressive — push premium rooms hard, price unsold at what's needed
+                    const aggressive = roomData.map(r => {
+                      if (r.available <= 0 || r.currentAWR === 0) return { ...r, newRate: r.currentAWR || TARGET_RATE, increase: 0 };
+                      const newRate = Math.max(r.currentAWR, flatUnsoldRate);
+                      return { ...r, newRate: Math.min(500, newRate), increase: Math.max(0, newRate - r.currentAWR) };
+                    });
+
+                    // Calculate projected blended AWR for each strategy
+                    const calcBlended = (strat) => {
+                      let w = 0, c = 0;
+                      strat.forEach(r => {
+                        w += r.booked * r.currentAWR;
+                        c += r.booked;
+                        const fill = Math.round(r.available * FILL);
+                        w += fill * r.newRate;
+                        c += fill;
+                      });
+                      return c > 0 ? Math.round(w / c) : 0;
+                    };
+                    const calcRevenue = (strat) => {
+                      let w = 0;
+                      strat.forEach(r => {
+                        w += r.booked * r.currentAWR;
+                        const fill = Math.round(r.available * FILL);
+                        w += fill * r.newRate;
+                      });
+                      return Math.round(w * (52 / 12));
+                    };
+
+                    const strategies = [
+                      { name: "Conservative", desc: "Small uplift across all room types — lower risk, gradual improvement", color: C.sage, strat: conservative },
+                      { name: "Balanced", desc: "Close 80% of each type's gap to target — best balance of achievability and impact", color: C.gold, strat: balanced },
+                      { name: "Aggressive", desc: "Price all unsold rooms at the flat rate needed to hit target — maximum impact", color: C.rose, strat: aggressive },
+                    ];
+
+                    return (
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(320px, 1fr))",gap:14}}>
+                        {strategies.map((s, si) => {
+                          const projAWR = calcBlended(s.strat);
+                          const projRev = calcRevenue(s.strat);
+                          const hitsTarget = projAWR >= TARGET_RATE;
+                          return (
+                            <div key={si} style={{background:C.card,border:`1px solid ${s.color}44`,borderRadius:10,padding:14}}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                                <h5 style={{fontSize:12,fontWeight:700,color:s.color,margin:0}}>{si + 1}. {s.name}</h5>
+                                <span style={{fontSize:18,fontWeight:800,color: hitsTarget ? C.sage : s.color,fontFamily:"DM Mono,monospace"}}>£{projAWR}</span>
+                              </div>
+                              <p style={{fontSize:9,color:C.muted,marginBottom:10,lineHeight:1.4}}>{s.desc}</p>
+                              <div style={{fontSize:10,lineHeight:1.8}}>
+                                {s.strat.filter(r => r.increase > 0 && r.available > 0).map((r, ri) => (
+                                  <div key={ri} style={{display:"flex",justifyContent:"space-between",borderBottom:`1px solid ${C.border}22`,padding:"2px 0"}}>
+                                    <span style={{color:C.text}}>{r.rt}</span>
+                                    <span style={{fontFamily:"DM Mono,monospace"}}>
+                                      <span style={{color:C.muted}}>£{r.currentAWR}</span>
+                                      <span style={{color:s.color,margin:"0 4px"}}>→</span>
+                                      <span style={{color:s.color,fontWeight:600}}>£{r.newRate}</span>
+                                      <span style={{color:C.muted,marginLeft:4}}>(+£{r.increase}/wk gross)</span>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{marginTop:10,padding:"8px 10px",background:C.bg,borderRadius:8,display:"flex",justifyContent:"space-between"}}>
+                                <div>
+                                  <p style={{fontSize:9,color:C.muted}}>Projected AWR (gross)</p>
+                                  <p style={{fontSize:14,fontWeight:700,color: hitsTarget ? C.sage : s.color,fontFamily:"DM Mono,monospace",marginBottom:0}}>£{projAWR}</p>
+                                  <p style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:1}}>£{Math.round(projAWR / 1.2)} net</p>
+                                </div>
+                                <div style={{textAlign:"right"}}>
+                                  <p style={{fontSize:9,color:C.muted}}>Monthly Revenue (gross)</p>
+                                  <p style={{fontSize:14,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginBottom:0}}>{fmt(projRev)}</p>
+                                  <p style={{fontSize:9,color:C.muted,fontFamily:"DM Mono,monospace",marginTop:1}}>{fmt(Math.round(projRev / 1.2))} net</p>
+                                </div>
+                              </div>
+                              {hitsTarget && <p style={{fontSize:9,color:C.sage,marginTop:6,textAlign:"center"}}>✓ Hits £{TARGET_RATE} AWR target</p>}
+                              {!hitsTarget && <p style={{fontSize:9,color:C.rose,marginTop:6,textAlign:"center"}}>£{TARGET_RATE - projAWR} short of target — combine with occupancy growth</p>}
+
+                              {/* Apply this strategy button */}
+                              <button
+                                onClick={() => {
+                                  const newAdj = {};
+                                  s.strat.forEach(r => { if (r.increase > 0) newAdj[r.rt] = r.newRate; });
+                                  setRateAdjustments(prev => ({...prev, ...newAdj}));
+                                }}
+                                style={{width:"100%",marginTop:8,padding:"6px 0",fontSize:10,fontWeight:600,color:C.bg,background:s.color,border:"none",borderRadius:6,cursor:"pointer",opacity:0.9}}
+                              >
+                                Apply to sliders ↑
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+
+
+        {/* ════ SHORT STAYS ════ */}
+        {property==="southall"&&tab==="shortstays"&&lavandaData&&(
+          <div style={{padding:"22px 26px"}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Nomad Units · {lavandaData.kpis.units} beds · Booking.com</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"4px 0 16px"}}>Short-Stay Dashboard</h2>
+
+            {/* ── KPI row ── */}
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
+              <KPI label="Occupancy Tonight" value={(() => { const eff = lavandaData.kpis.effective_tonight ?? Math.max(0, lavandaData.kpis.units - lavandaData.kpis.blocked_tonight); return `${lavandaData.kpis.occ_tonight} / ${eff}`; })()} sub={(() => { const eff = lavandaData.kpis.effective_tonight ?? Math.max(0, lavandaData.kpis.units - lavandaData.kpis.blocked_tonight); return `${eff>0?Math.round(lavandaData.kpis.occ_tonight/eff*100):0}% of ${eff} released · ${lavandaData.kpis.blocked_tonight} blocked · ${lavandaData.kpis.units} allocated`; })()} accent={C.blue} delta={pp.point30(history.ssOcc)} spark={history.last30(history.ssOcc)}/>
+              <KPI label="In-House Tonight" value={String(lavandaData.kpis.in_house)} sub="Confirmed stays spanning tonight" accent={C.sage} delta={pp.point30(history.ssOcc)}/>
+              <KPI label="Arrivals (7d)" value={String(lavandaData.kpis.arrivals7)} sub="Check-ins from today" accent={C.gold} delta={mkDelta(ssMove.arrNext7, ssMove.arrPrev7, {label:"prev 7d"})}/>
+              <KPI label="Departures (7d)" value={String(lavandaData.kpis.departures7)} sub="Check-outs from today" accent={C.muted} delta={mkDelta(ssMove.depNext7, ssMove.depPrev7, {label:"prev 7d", invert:true})}/>
+              <KPI label="Revenue Still to Come" value={fmt(lavandaData.kpis.future_rev)} sub="Confirmed future nights" accent={C.gold} spark={history.last30(history.ssRev)}/>
+              <KPI label="Avg Nightly Rate" value={`£${lavandaData.kpis.adr.toFixed(2)}`} sub={`${lavandaData.kpis.confirmed} confirmed · ${lavandaData.kpis.canceled} cancelled${lavandaData.kpis.inquiries?` · ${lavandaData.kpis.inquiries} inquiries`:""}`} accent={C.blue} delta={pp.ratio(history.ssRev, history.ssOcc)} spark={history.last30(history.ssAdr)}/>
+              <KPI label="Total Confirmed Value" value={fmt(lavandaData.kpis.total_conf_value)} sub="All confirmed bookings" accent={C.sage} delta={pp.sum(history.ssRev)}/>
+            </div>
+
+            {/* ── Occupancy Stacked Bar Chart ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <h3 style={{fontSize:14,fontWeight:700,color:C.text,margin:0}}>Short-Stay Occupancy — Nomad Units</h3>
+                  <p style={{fontSize:12,color:C.muted,marginTop:2}}>Booked & blocked per night, out of {lavandaData.kpis.units} rooms</p>
+                </div>
+                <span style={{fontSize:10,color:lavandaConn?C.sage:C.muted,fontWeight:600}}>{lavandaConn?"● LIVE":"○ STATIC"}</span>
+              </div>
+              <div style={{display:"flex",gap:16,fontSize:11,color:C.muted,marginBottom:10}}>
+                <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.blue,display:"inline-block"}}/> Booked</span>
+                <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.muted,display:"inline-block"}}/> Blocked/Maintenance</span>
+                <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:2,background:C.bg,border:`1px solid ${C.border}`,display:"inline-block"}}/> Available</span>
+              </div>
+              {(() => {
+                const days = lavandaData.daily;
+                const todayStr = new Date().toISOString().slice(0,10);
+                const maxUnits = lavandaData.kpis.units;
+                return (
+                  <div style={{overflowX:"auto"}} ref={el => { if (!el || el.dataset.scrolled) return; const ti = days.findIndex(d => d.date === todayStr); if (ti > 0) { el.scrollLeft = Math.max(0, ti * 12 - el.clientWidth * 0.6); el.dataset.scrolled = "1"; } }}>
+                    <div style={{display:"flex",gap:1,alignItems:"flex-end",minWidth:days.length*12,height:160}}>
+                      {days.map((d,i) => {
+                        const bookedH = (d.booked/maxUnits)*140;
+                        const blockedH = (d.blocked/maxUnits)*140;
+                        const isToday = d.date === todayStr;
+                        return (
+                          <div key={i} style={{flex:1,minWidth:8,display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}} title={`${d.date}: ${d.booked} booked, ${d.blocked} blocked, ${d.available} available, £${d.rate}/night`}>
+                            {isToday && <div style={{position:"absolute",top:-2,width:2,height:4,background:C.gold,borderRadius:1}}/>}
+                            <div style={{width:"100%",display:"flex",flexDirection:"column",justifyContent:"flex-end",height:140}}>
+                              {d.blocked > 0 && <div style={{width:"100%",background:C.muted+"66",borderRadius:"2px 2px 0 0",height:blockedH,minHeight:d.blocked>0?1:0}}/>}
+                              {d.booked > 0 && <div style={{width:"100%",background:C.blue,borderRadius:d.blocked>0?"0":"2px 2px 0 0",height:bookedH,minHeight:d.booked>0?2:0}}/>}
+                            </div>
+                            {i%Math.max(1,Math.floor(days.length/8))===0 && (
+                              <span style={{fontSize:8,color:C.muted,marginTop:4,whiteSpace:"nowrap",transform:"rotate(-45deg)",transformOrigin:"top left"}}>{new Date(d.date+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:18}}>
+              {/* ── Nightly Rate Chart ── */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Advertised Nightly Rate — Nomad</h3>
+                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Live Booking.com rate per night (GBP)</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={lavandaData.daily.map(d=>({d:new Date(d.date+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"}),rate:d.rate}))} margin={{top:4,right:8,bottom:0,left:-8}}>
+                    <defs>
+                      <linearGradient id="gLavRate" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.blue} stopOpacity={0.2}/><stop offset="95%" stopColor={C.blue} stopOpacity={0}/></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                    <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                    <Tooltip content={<Tip/>}/>
+                    {annosFor(annoLongDayLabel).map(annoLine)}
+                    <Area type="monotone" dataKey="rate" name="rate" stroke={C.blue} fill="url(#gLavRate)" strokeWidth={2} dot={false}/>
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* ── Monthly Revenue ── */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18}}>
+                <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Booked Revenue by Month</h3>
+                <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Confirmed booking value, spread across nights (GBP)</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={lavandaData.monthly.map(m=>({month:new Date(m.month+"-01T00:00").toLocaleDateString("en-GB",{month:"short",year:"numeric"}),revenue:Math.round(m.revenue)}))} margin={{top:4,right:8,bottom:0,left:-8}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} tickLine={false}/>
+                    <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                    <Tooltip content={<Tip/>}/>
+                    <Bar dataKey="revenue" name="Revenue" fill={C.blue} radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* ── Upcoming Bookings Table ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Arrivals & Departures</h3>
+              <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Current and upcoming confirmed stays (all via Booking.com)</p>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Guest</th>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Check-in</th>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Check-out</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Nights</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Value</th>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lavandaData.upcoming.map((b,i) => {
+                      const todayStr = new Date().toISOString().slice(0,10);
+                      const isArriving = b.start === todayStr;
+                      const isDeparting = b.end === todayStr;
+                      const isInHouse = b.start < todayStr && b.end > todayStr;
+                      return (
+                        <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>{investor ? (b.channel || "Guest") : b.guest}</td>
+                          <td style={{padding:"8px 10px",color:C.text}}>{new Date(b.start+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
+                          <td style={{padding:"8px 10px",color:C.text}}>{new Date(b.end+"T00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{b.nights}</td>
+                          <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.gold}}>£{b.value.toFixed(2)}</td>
+                          <td style={{padding:"8px 10px"}}>
+                            {isArriving && <span style={{fontSize:11,fontWeight:600,padding:"2px 9px",borderRadius:999,border:`1px solid ${C.sage}`,color:C.sage}}>Arriving today</span>}
+                            {isDeparting && <span style={{fontSize:11,fontWeight:600,padding:"2px 9px",borderRadius:999,border:`1px solid ${C.gold}`,color:C.gold}}>Departing today</span>}
+                            {isInHouse && <span style={{fontSize:11,fontWeight:600,padding:"2px 9px",borderRadius:999,border:`1px solid ${C.blue}`,color:C.blue}}>In-house</span>}
+                            {!isArriving && !isDeparting && !isInHouse && <span style={{fontSize:11,color:C.muted}}>Upcoming</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* ── Property Overview (Tiers) ── */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:18}}>
+              <h3 style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>Property Overview</h3>
+              <p style={{fontSize:12,color:C.muted,marginBottom:14}}>Inventory by room tier, tonight</p>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                      <th style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Tier</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Units</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Available</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Blocked</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Booked</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Nightly Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lavandaData.tiers.map((t,i) => (
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}22`,background:t.shortstay?C.blue+"08":"transparent"}}>
+                        <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>{t.tier}{t.shortstay?" · Booking.com":" · membership"}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.text}}>{t.units}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.sage}}>{t.available}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.muted}}>{t.blocked}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:C.blue}}>{t.booked}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",color:t.rate?C.gold:C.muted}}>{t.rate?`£${t.rate}`:"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p style={{fontSize:11,color:C.muted,marginTop:8}}>Total inventory: {lavandaData.kpis.total_inventory} units. Membership tiers are managed outside this feed.</p>
+            </div>
+
+            {/* Combined LS+SS occupancy lives on the Summary tab (single source) */}
+
+            <p style={{fontSize:10,color:C.muted,marginTop:12}}>Source: Lavanda Dev API ({lavandaData.account}) · Data window: {lavandaData.daily[0]?.date} to {lavandaData.daily[lavandaData.daily.length-1]?.date} · Generated: {new Date(lavandaData.generated).toLocaleString("en-GB")}</p>
+          </div>
+        )}
+
+        {/* ════ RENEWALS ════ */}
+        {property==="southall"&&tab==="renewals"&&(
+          <div style={{padding:"22px 26px"}}>
+            <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Contract Management · Lavandaonics{pmsConn?" · live":""}{canopyConn?" · Canopy ✓":""}</p>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Renewals Dashboard</h2>
+
+            {/* ── Renewal Activity Tracker (date-filtered, reconciles with board below) ── */}
+            {pmsConn && pmsData?.weeklyRenewals && (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 22px",marginBottom:18}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10,marginBottom:14}}>
+                  <div>
+                    <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>Renewal Activity</h3>
+                    <p style={{fontSize:11,color:C.muted}}>Renewal activity for in-house contacts · All metrics filtered by date range</p>
+                  </div>
+                  {/* Date range picker */}
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                    {[{l:"Last 7d",k:"7d"},{l:"Last 14d",k:"14d"},{l:"Last 30d",k:"30d"}].map(p => (
+                      <button key={p.k} onClick={() => { const d=new Date(); d.setDate(d.getDate()-(p.k==="7d"?6:p.k==="14d"?13:29)); setRenewalTrackerFrom(d.toISOString().slice(0,10)); setRenewalTrackerTo(new Date().toISOString().slice(0,10)); setRenewalTrackerPreset(p.k); }}
+                        style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${renewalTrackerPreset===p.k?C.gold:C.border}`,background:renewalTrackerPreset===p.k?C.gold+"22":"transparent",color:renewalTrackerPreset===p.k?C.gold:C.muted,fontWeight:renewalTrackerPreset===p.k?700:500,fontSize:11,cursor:"pointer"}}>{p.l}</button>
+                    ))}
+                    <CalendarPicker value={renewalTrackerFrom} onChange={v=>{setRenewalTrackerFrom(v);setRenewalTrackerPreset(null);}} />
+                    <span style={{color:C.muted,fontSize:11}}>→</span>
+                    <CalendarPicker value={renewalTrackerTo} onChange={v=>{setRenewalTrackerTo(v);setRenewalTrackerPreset(null);}} />
+                  </div>
+                </div>
+
+                {(() => {
+                  // Now using REAL status change dates from individual roomStay API:
+                  // - conversionDate = when contract was sent (booking moved to PENDING)
+                  // - confirmedDate = when ops confirmed (booking moved to CONFIRMED)
+                  // - contractSignedDate = when DocuSign/Canopy was signed
+                  const allPendingAll = pmsData.pendingRenewals || [];
+                  const allConfirmedAll = pmsData.confirmedRenewals || [];
+
+                  // Filter CONFIRMED by confirmedDate (when it was actually confirmed)
+                  const filteredConfirmed = allConfirmedAll.filter(ev => {
+                    const d = ev.confirmedDate || ev.contractSignedDate || ev.conversionDate;
+                    if (!d) return false;
+                    return d >= renewalTrackerFrom && d <= renewalTrackerTo;
+                  });
+
+                  // Filter PENDING by conversionDate (when contract was sent out)
+                  const filteredPending = allPendingAll.filter(ev => {
+                    const d = ev.conversionDate;
+                    if (!d) return false;
+                    return d >= renewalTrackerFrom && d <= renewalTrackerTo;
+                  });
+
+                  const filteredAll = [...filteredConfirmed, ...filteredPending];
+
+                  // Departing: entries marked leaving whose expiry falls in the selected period
+                  const allRenewalEntries = (pmsData.renewalMonths || []).flatMap(m => m.entries);
+                  const isDeparting = (e) => leavingSet.has(e.roomStayId) || (e.expired && !e.isRenewed && !e.isPendingRenewal && !pendingSet.has(e.roomStayId));
+                  const departingInPeriod = allRenewalEntries.filter(e => isDeparting(e) && e.endDate >= renewalTrackerFrom && e.endDate <= renewalTrackerTo);
+
+                  // Prior period of equal length for delta chips
+                  const rpF = new Date(renewalTrackerFrom+"T00:00:00Z"), rpT = new Date(renewalTrackerTo+"T00:00:00Z");
+                  const rpDays = Math.round((rpT - rpF)/864e5) + 1;
+                  const rpPrevTo = new Date(rpF.getTime()-864e5).toISOString().slice(0,10);
+                  const rpPrevFrom = new Date(rpF.getTime()-rpDays*864e5).toISOString().slice(0,10);
+                  const rpLabel = `prev ${rpDays}d`;
+                  const prevConfirmedN = allConfirmedAll.filter(ev => { const d = ev.confirmedDate || ev.contractSignedDate || ev.conversionDate; return d && d >= rpPrevFrom && d <= rpPrevTo; }).length;
+                  const prevPendingN = allPendingAll.filter(ev => ev.conversionDate && ev.conversionDate >= rpPrevFrom && ev.conversionDate <= rpPrevTo).length;
+                  const prevDepartingN = allRenewalEntries.filter(e => isDeparting(e) && e.endDate >= rpPrevFrom && e.endDate <= rpPrevTo).length;
+
+                  return (
+                    <div>
+                      {/* KPIs */}
+                      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+                        <KPI label="Renewed" value={filteredAll.length} sub="In selected period" accent={C.gold} delta={mkDelta(filteredAll.length, prevConfirmedN+prevPendingN, {label:rpLabel})}/>
+                        <KPI label="Confirmed" value={filteredConfirmed.length} sub="Signed in period" accent={C.sage} delta={mkDelta(filteredConfirmed.length, prevConfirmedN, {label:rpLabel})}/>
+                        <KPI label="Pending" value={filteredPending.length} sub="Contracts sent in period" accent={C.blue} delta={mkDelta(filteredPending.length, prevPendingN, {label:rpLabel})}/>
+                        <KPI label="Departing" value={departingInPeriod.length} sub="Leaving in period" accent={C.rose} delta={mkDelta(departingInPeriod.length, prevDepartingN, {label:rpLabel, invert:true})}/>
+                      </div>
+
+                      {/* Totals context bar */}
+                      <div style={{display:"flex",gap:16,marginBottom:14,padding:"6px 12px",background:C.bg,borderRadius:8,fontSize:11,color:C.muted}}>
+                        <span>Total in-house renewals: <strong style={{color:C.text}}>{allConfirmedAll.length + allPendingAll.length}</strong></span>
+                        <span>Confirmed: <strong style={{color:C.sage}}>{allConfirmedAll.length}</strong></span>
+                        <span>Pending: <strong style={{color:C.blue}}>{allPendingAll.length}</strong></span>
+                      </div>
+
+                      {/* LoS Breakdown + AWR for confirmed renewals in period */}
+                      {filteredConfirmed.length > 0 && (() => {
+                        const losData = filteredConfirmed.map(ev => {
+                          if (!ev.followOnStart || !ev.followOnEnd) return null;
+                          const days = Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000);
+                          return days > 0 ? days : null;
+                        }).filter(Boolean);
+                        const bucketKeys = ["< 31d","31–91d","92–181d","182–364d","365d+"];
+                        const buckets = {}; const bucketDays = {};
+                        bucketKeys.forEach(k => { buckets[k] = 0; bucketDays[k] = 0; });
+                        losData.forEach(d => {
+                          const k = d < 31 ? "< 31d" : d <= 91 ? "31–91d" : d <= 181 ? "92–181d" : d <= 364 ? "182–364d" : "365d+";
+                          buckets[k]++; bucketDays[k] += d;
+                        });
+                        const totalDays = losData.reduce((s, d) => s + d, 0);
+                        // AWR + PCM: compute from renewal objects using calendar months for accurate PCM
+                        let totalWeeklyGross = 0, totalWeeklyNet = 0, totalPcmGross = 0, rateCount = 0;
+                        filteredConfirmed.forEach(ev => {
+                          const start = ev.followOnStart;
+                          const end = ev.followOnEnd;
+                          if (!start || !end) return;
+                          const days = Math.round((new Date(end) - new Date(start)) / 86400000);
+                          const net = parseFloat(ev.netAmount ?? 0);
+                          const vat = parseFloat(ev.vatAmount ?? 0);
+                          const gross = net + (isNaN(vat) ? 0 : vat);
+                          if (days > 0 && gross > 0) {
+                            totalWeeklyGross += (gross / days) * 7;
+                            totalWeeklyNet += (net / days) * 7;
+                            totalPcmGross += pcmGrossFor(ev, gross, days);
+                            rateCount++;
+                          }
+                        });
+                        const avgAwrGross = rateCount > 0 ? Math.round(totalWeeklyGross / rateCount) : null;
+                        const avgAwrNet = rateCount > 0 ? Math.round(totalWeeklyNet / rateCount) : null;
+                        const avgPcmGross = rateCount > 0 ? Math.round(totalPcmGross / rateCount) : null;
+                        const bucketColors = [C.blue, C.sage, C.gold, "#e09f3e", C.rose];
+                        return (
+                          <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                            <div style={{flex:"1 1 260px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                                <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>LoS Breakdown — Confirmed Renewals</p>
+                                <button onClick={()=>{
+                                  const rows = [["LoS Band","Rooms","Days"]];
+                                  bucketKeys.forEach(k=>{rows.push([k, buckets[k], bucketDays[k]]);});
+                                  rows.push(["Total", losData.length, totalDays]);
+                                  copyTable(rows,"renewalLos");
+                                }} style={{fontSize:9,padding:"2px 8px",borderRadius:6,border:`1px solid ${copiedTable==="renewalLos"?C.sage:C.border}`,background:copiedTable==="renewalLos"?C.sage+"22":"transparent",color:copiedTable==="renewalLos"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                                  {copiedTable==="renewalLos"?"✓ Copied":"Copy"}
+                                </button>
+                              </div>
+                              <div style={{display:"flex",justifyContent:"flex-end",gap:0,marginBottom:4}}>
+                                <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:60,textAlign:"right"}}>Rooms</span>
+                                <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:70,textAlign:"right"}}>Days</span>
+                              </div>
+                              {bucketKeys.map((label, i) => (
+                                <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}}>
+                                  <span style={{fontSize:11,color:C.muted}}>{label}</span>
+                                  <div style={{display:"flex",gap:0}}>
+                                    <span style={{fontSize:12,fontWeight:700,color:buckets[label] > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace",width:60,textAlign:"right"}}>{buckets[label]}</span>
+                                    <span style={{fontSize:12,fontWeight:700,color:bucketDays[label] > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace",width:70,textAlign:"right"}}>{bucketDays[label].toLocaleString()}</span>
+                                  </div>
+                                </div>
+                              ))}
+                              <div style={{borderTop:`1px solid ${C.border}`,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:C.gold}}>Total</span>
+                                <div style={{display:"flex",gap:0}}>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",width:60,textAlign:"right"}}>{losData.length}</span>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",width:70,textAlign:"right"}}>{totalDays.toLocaleString()}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{flex:"0 0 180px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
+                              <p style={{fontSize:10,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>AWR — Confirmed</p>
+                              <p style={{fontSize:24,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>
+                                {avgAwrGross !== null ? `£${avgAwrGross.toLocaleString()}` : "—"}
+                              </p>
+                              <p style={{fontSize:9,color:C.muted,marginTop:2}}>Avg weekly rent (gross) · {rateCount} booking{rateCount!==1?"s":""}</p>
+                              {avgPcmGross !== null && <p style={{fontSize:11,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",marginTop:4}}>≈ £{avgPcmGross.toLocaleString()} PCM</p>}
+                              {avgAwrNet !== null && <p style={{fontSize:9,color:C.muted,marginTop:2}}>£{avgAwrNet} net (ex-VAT)</p>}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Confirmed renewals in period (per-tenant — team only) */}
+                      {!investor && filteredConfirmed.length > 0 && (
+                        <div style={{marginTop:4}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                            <p style={{fontSize:11,fontWeight:700,color:C.sage,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                              Confirmed in Period ({filteredConfirmed.length})
+                            </p>
+                            <button onClick={()=>{
+                              const rows = [["Name","Confirmed","Room","Start","End","PCM (£)","AWR (£)","Status"]];
+                              filteredConfirmed.sort((a,b)=>(b.confirmedDate||"").localeCompare(a.confirmedDate||"")).forEach(ev=>{
+                                const d = (ev.followOnStart && ev.followOnEnd) ? Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000) : 0;
+                                const n = parseFloat(ev.netAmount ?? 0); const v = parseFloat(ev.vatAmount ?? 0);
+                                const g = n + (isNaN(v) ? 0 : v);
+                                const awr = (d > 0 && g > 0) ? Math.round((g / d) * 7) : "";
+                                let pcm = "";
+                                if (ev.followOnStart && ev.followOnEnd && g > 0) {
+                                  const s = new Date(ev.followOnStart), e = new Date(ev.followOnEnd);
+                                  const cm = (e.getFullYear()-s.getFullYear())*12+(e.getMonth()-s.getMonth())+(e.getDate()-s.getDate())/30;
+                                  pcm = Math.round(g / (cm > 0 ? cm : d/30.44));
+                                }
+                                rows.push([ev.name||"—", ev.confirmedDate||ev.contractSignedDate||"—", ev.room, ev.followOnStart, ev.followOnEnd, pcm, awr, "CONFIRMED"]);
+                              });
+                              copyTable(rows,"confirmedRenewals");
+                            }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="confirmedRenewals"?C.sage:C.border}`,background:copiedTable==="confirmedRenewals"?C.sage+"22":"transparent",color:copiedTable==="confirmedRenewals"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                              {copiedTable==="confirmedRenewals"?"✓ Copied":"Copy All"}
+                            </button>
+                          </div>
+                          <div style={{overflowX:"auto",maxHeight:280,overflowY:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead>
+                                <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Confirmed</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
+                                  <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>PCM</th>
+                                  <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>AWR</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredConfirmed.sort((a,b)=>(b.confirmedDate||"").localeCompare(a.confirmedDate||"")).map((ev,i) => {
+                                  const evDays = (ev.followOnStart && ev.followOnEnd) ? Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000) : 0;
+                                  const evNet = parseFloat(ev.netAmount ?? 0);
+                                  const evVat = parseFloat(ev.vatAmount ?? 0);
+                                  const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
+                                  const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
+                                  const evPcmGross = (evDays > 0 && evGross > 0) ? pcmGrossFor(ev, evGross, evDays) : null;
+                                  return (
+                                  <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
+                                        title={ev.email ? `Click to copy: ${ev.email}` : "No email on file"}
+                                        onClick={() => copyEmail(ev.email, `confirmed-${i}`)}>
+                                      {ev.name||"—"}
+                                      {ev.email && (
+                                        <span style={{fontSize:9,marginLeft:5,color:copiedEmail===`confirmed-${i}`?C.sage:C.muted,transition:"color 0.2s"}}>
+                                          {copiedEmail===`confirmed-${i}` ? "✓ copied" : "✉"}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"7px 10px",color:C.sage,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.confirmedDate||ev.contractSignedDate||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
+                                    <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontSize:11,fontWeight:700,color:C.gold}}>{evPcmGross !== null ? `£${evPcmGross.toLocaleString()}` : "—"}</td>
+                                    <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontSize:11,color:C.muted}}>{evAwrGross !== null ? `£${evAwrGross}` : "—"}</td>
+                                    <td style={{padding:"7px 10px"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:C.sage,background:C.sage+"22",padding:"2px 8px",borderRadius:8}}>CONFIRMED</span>
+                                    </td>
+                                  </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Pending (contracts sent) in period (per-tenant — team only) */}
+                      {!investor && filteredPending.length > 0 && (
+                        <div style={{marginTop:14}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                            <p style={{fontSize:11,fontWeight:700,color:C.blue,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                              Contracts Sent in Period ({filteredPending.length})
+                            </p>
+                            <button onClick={()=>{
+                              const rows = [["Name","Sent","Room","Start","End","PCM (£)","AWR (£)","Status"]];
+                              filteredPending.sort((a,b)=>(b.conversionDate||"").localeCompare(a.conversionDate||"")).forEach(ev=>{
+                                const d = (ev.followOnStart && ev.followOnEnd) ? Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000) : 0;
+                                const n = parseFloat(ev.netAmount ?? 0); const v = parseFloat(ev.vatAmount ?? 0);
+                                const g = n + (isNaN(v) ? 0 : v);
+                                const awr = (d > 0 && g > 0) ? Math.round((g / d) * 7) : "";
+                                let pcm = "";
+                                if (ev.followOnStart && ev.followOnEnd && g > 0) {
+                                  const s = new Date(ev.followOnStart), e = new Date(ev.followOnEnd);
+                                  const cm = (e.getFullYear()-s.getFullYear())*12+(e.getMonth()-s.getMonth())+(e.getDate()-s.getDate())/30;
+                                  pcm = Math.round(g / (cm > 0 ? cm : d/30.44));
+                                }
+                                rows.push([ev.name||"—", ev.conversionDate||"—", ev.room, ev.followOnStart, ev.followOnEnd, pcm, awr, "PENDING"]);
+                              });
+                              copyTable(rows,"pendingRenewals");
+                            }} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:`1px solid ${copiedTable==="pendingRenewals"?C.sage:C.border}`,background:copiedTable==="pendingRenewals"?C.sage+"22":"transparent",color:copiedTable==="pendingRenewals"?C.sage:C.muted,cursor:"pointer",fontWeight:600,transition:"all 0.2s"}}>
+                              {copiedTable==="pendingRenewals"?"✓ Copied":"Copy All"}
+                            </button>
+                          </div>
+                          <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead>
+                                <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Sent</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>New Stay</th>
+                                  <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>PCM</th>
+                                  <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>AWR</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredPending.sort((a,b)=>(b.conversionDate||"").localeCompare(a.conversionDate||"")).map((ev,i) => {
+                                  const evDays = (ev.followOnStart && ev.followOnEnd) ? Math.round((new Date(ev.followOnEnd) - new Date(ev.followOnStart)) / 86400000) : 0;
+                                  const evNet = parseFloat(ev.netAmount ?? 0);
+                                  const evVat = parseFloat(ev.vatAmount ?? 0);
+                                  const evGross = evNet + (isNaN(evVat) ? 0 : evVat);
+                                  const evAwrGross = (evDays > 0 && evGross > 0) ? Math.round((evGross / evDays) * 7) : null;
+                                  const evPcmGross = (evDays > 0 && evGross > 0) ? pcmGrossFor(ev, evGross, evDays) : null;
+                                  return (
+                                  <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:ev.email?"pointer":"default"}}
+                                        title={ev.email ? `Click to copy: ${ev.email}` : "No email on file"}
+                                        onClick={() => copyEmail(ev.email, `pending-${i}`)}>
+                                      {ev.name||"—"}
+                                      {ev.email && (
+                                        <span style={{fontSize:9,marginLeft:5,color:copiedEmail===`pending-${i}`?C.sage:C.muted,transition:"color 0.2s"}}>
+                                          {copiedEmail===`pending-${i}` ? "✓ copied" : "✉"}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"7px 10px",color:C.blue,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.conversionDate||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted}}>{ev.room}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{ev.followOnStart} → {ev.followOnEnd}</td>
+                                    <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontSize:11,fontWeight:700,color:C.gold}}>{evPcmGross !== null ? `£${evPcmGross.toLocaleString()}` : "—"}</td>
+                                    <td style={{padding:"7px 10px",textAlign:"right",fontFamily:"DM Mono,monospace",fontSize:11,color:C.muted}}>{evAwrGross !== null ? `£${evAwrGross}` : "—"}</td>
+                                    <td style={{padding:"7px 10px"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:C.blue,background:C.blue+"22",padding:"2px 8px",borderRadius:8}}>PENDING</span>
+                                    </td>
+                                  </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Departing list (per-tenant — team only) */}
+                      {!investor && departingInPeriod.length > 0 && (
+                        <div style={{marginTop:14}}>
+                          <p style={{fontSize:11,fontWeight:700,color:C.rose,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                            Departing in Period ({departingInPeriod.length})
+                          </p>
+                          <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead>
+                                <tr style={{borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Name</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Expiry</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Room</th>
+                                  <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Reason</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {departingInPeriod.sort((a,b)=>a.endDate.localeCompare(b.endDate)).map((e,i) => (
+                                  <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                                    <td style={{padding:"7px 10px",color:C.text,fontWeight:600,cursor:e.email?"pointer":"default"}}
+                                        title={e.email ? `Click to copy: ${e.email}` : "No email on file"}
+                                        onClick={() => copyEmail(e.email, `departing-${i}`)}>
+                                      {e.name||"—"}
+                                      {e.email && (
+                                        <span style={{fontSize:9,marginLeft:5,color:copiedEmail===`departing-${i}`?C.sage:C.muted,transition:"color 0.2s"}}>
+                                          {copiedEmail===`departing-${i}` ? "✓ copied" : "✉"}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontFamily:"DM Mono,monospace",fontSize:11}}>{e.endDate}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted}}>{e.room}</td>
+                                    <td style={{padding:"7px 10px",color:C.muted,fontSize:11}}>{leavingReasons[e.roomStayId]||"—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {filteredAll.length === 0 && departingInPeriod.length === 0 && (
+                        <p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>No renewal activity or departures in this date range.</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Canopy reference checks status bar */}
+            <div style={{background:C.card,border:`1px solid ${canopyConn?C.sage+"44":C.border}`,borderRadius:12,padding:"12px 18px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:14}}>{canopyConn?"✓":"○"}</span>
+                <div>
+                  <p style={{fontSize:12,fontWeight:600,color:canopyConn?C.sage:C.muted,margin:0}}>
+                    {canopyLoad ? "Loading Canopy checks…" : canopyConn ? `Canopy Reference Checks · ${canopyData?.totalRecords||0} records` : "Canopy Reference Checks"}
+                  </p>
+                  {canopyErr && <p style={{fontSize:10,color:C.rose,margin:"2px 0 0"}}>{canopyErr}</p>}
+                  {!canopyConn && !canopyLoad && !canopyErr && <p style={{fontSize:10,color:C.muted,margin:"2px 0 0"}}>Webhook data will appear here once Canopy is connected</p>}
+                </div>
+              </div>
+              <button onClick={fetchCanopy} disabled={canopyLoad}
+                style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontWeight:600,fontSize:11,cursor:canopyLoad?"wait":"pointer",whiteSpace:"nowrap"}}>
+                {canopyLoad?"Loading…":"↻ Refresh"}
+              </button>
+            </div>
+
+            {!pmsConn ? (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px 20px",textAlign:"center"}}>
+                <p style={{color:C.muted,fontSize:13}}>Waiting for Lavanda bookings to load.</p>
+              </div>
+            ) : !pmsData?.renewalMonths ? (
+              <p style={{color:C.muted,fontSize:13}}>Loading renewal data…</p>
+            ) : (() => {
+              const months = pmsData.renewalMonths;
+              // Compute stats with leaving markers factored in
+              // Statuses: Renewed (CONFIRMED/CHECKED_IN follow-on), Pending (PENDING follow-on),
+              //           Not Yet Started (no follow-on, not expired), Left (expired, no follow-on), Leaving (manual override)
+              const monthStats = months.map(m => {
+                // Categories are mutually exclusive with clear priority:
+                // 1. leavingSet (manual override) → leaving
+                // 2. isRenewed (auto-detected follow-on) → renewed
+                // 3. isPendingRenewal or pendingSet → pending
+                // 4. expired (past end date, no follow-on) → leaving
+                // 5. everything else → not started
+                const leaving = m.entries.filter(e => {
+                  if (leavingSet.has(e.roomStayId)) return true;
+                  if (e.isRenewed || e.isPendingRenewal || pendingSet.has(e.roomStayId)) return false;
+                  return e.expired;
+                });
+                const renewed = m.entries.filter(e => e.isRenewed && !leavingSet.has(e.roomStayId));
+                const pendingRenewal = m.entries.filter(e => (e.isPendingRenewal || pendingSet.has(e.roomStayId)) && !e.isRenewed && !leavingSet.has(e.roomStayId));
+                const notStarted = m.entries.filter(e => !e.isRenewed && !e.isPendingRenewal && !e.expired && !leavingSet.has(e.roomStayId) && !pendingSet.has(e.roomStayId));
+                const critical = notStarted.filter(e => e.critical);
+                const total = m.entries.length;
+                const renewedPct = total > 0 ? Math.round((renewed.length / total) * 100) : 0;
+                const leavingPct = total > 0 ? Math.round((leaving.length / total) * 100) : 0;
+                const pendingPct = total > 0 ? Math.round((pendingRenewal.length / total) * 100) : 0;
+                return { ...m, leaving, renewed, pendingRenewal, notStarted, critical, renewedPct, leavingPct, pendingPct };
+              });
+              const totalAll = monthStats.reduce((s, m) => s + m.total, 0);
+              const totalRenewed = monthStats.reduce((s, m) => s + m.renewed.length, 0);
+              const totalLeaving = monthStats.reduce((s, m) => s + m.leaving.length, 0);
+              const totalPending = monthStats.reduce((s, m) => s + m.pendingRenewal.length, 0);
+              const totalNotStarted = monthStats.reduce((s, m) => s + m.notStarted.length, 0);
+              const totalCritical = monthStats.reduce((s, m) => s + m.critical.length, 0);
+              const totalEarlyTerm = monthStats.reduce((s, m) => s + m.leaving.filter(e => earlyTermSet.has(e.roomStayId)).length, 0);
+              const overallRenewedPct = totalAll > 0 ? Math.round((totalRenewed / totalAll) * 100) : 0;
+              const overallLeavingPct = totalAll > 0 ? Math.round((totalLeaving / totalAll) * 100) : 0;
+              const selected = renewalSelectedMonth !== null ? monthStats.find(m => m.key === renewalSelectedMonth) : null;
+
+              return (
+                <div>
+                  {/* Summary KPIs + Export button */}
+                  <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap",alignItems:"flex-start"}}>
+                    <KPI label="Expiring (12mo)" value={totalAll} sub="All contracts ending" accent={C.gold}/>
+                    <KPI label="Renewed" value={`${totalRenewed} (${overallRenewedPct}%)`} sub="Contract signed" accent={C.sage}/>
+                    <KPI label="Pending" value={totalPending} sub="Contract sent, awaiting signature" accent={C.blue}/>
+                    <KPI label="Not Yet Started" value={totalNotStarted} sub="No renewal action yet" accent={C.gold}/>
+                    <KPI label="Departing" value={`${totalLeaving} (${overallLeavingPct}%)`} sub={`Left or marked leaving${totalEarlyTerm > 0 ? ` · ${totalEarlyTerm} early term` : ""}`} accent={C.rose}/>
+                    <KPI label="Critical (≤14d)" value={totalCritical} sub="Expiring soon, no action" accent={C.rose}/>
+                  </div>
+                  {!investor && <div style={{display:"flex",gap:10,marginBottom:16}}>
+                    <button onClick={() => exportRenewalsToExcel(monthStats, leavingSet, pendingSet, leavingReasons, customerRefs, earlyTermSet)}
+                      style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.sage}`,background:C.sage+"22",color:C.sage,fontWeight:700,fontSize:11,cursor:"pointer",letterSpacing:"0.04em",display:"flex",alignItems:"center",gap:6}}>
+                      ↓ Export Renewed + Pending (.xlsx)
+                    </button>
+                  </div>}
+
+                  {/* ── Leaving Reasons Breakdown: Overall + Per-Month ── */}
+                  {(() => {
+                    const allLeavingEntries = monthStats.flatMap(m => m.leaving);
+                    if (allLeavingEntries.length === 0) return null;
+                    const pieColors = ["#e55", "#e09f3e", "#4ea8de", "#c8a455", "#9b59b6", "#e07c5a", "#888"];
+
+                    // Helper: build reason data from an array of leaving entries
+                    const buildReasonData = (entries) => {
+                      const reasonCounts = {};
+                      let noReasonCount = 0;
+                      let earlyTermCount = 0;
+                      entries.forEach(e => {
+                        const reason = leavingReasons[e.roomStayId];
+                        if (reason) { reasonCounts[reason] = (reasonCounts[reason] || 0) + 1; }
+                        else { noReasonCount++; }
+                        if (earlyTermSet.has(e.roomStayId)) earlyTermCount++;
+                      });
+                      const reasonEntries = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]);
+                      if (noReasonCount > 0) reasonEntries.push(["No Reason Set", noReasonCount]);
+                      const total = entries.length;
+                      const pieData = reasonEntries.map(([label, count], i) => ({
+                        label, count, pct: total > 0 ? Math.round((count / total) * 100) : 0,
+                        color: pieColors[i % pieColors.length]
+                      }));
+                      return { pieData, total, earlyTermCount };
+                    };
+
+                    // Helper: build SVG pie slices
+                    const buildSlices = (pieData, total) => {
+                      let cumAngle = 0;
+                      return pieData.map(d => {
+                        const angle = (d.count / total) * 360;
+                        const startAngle = cumAngle;
+                        cumAngle += angle;
+                        const endAngle = cumAngle;
+                        const startRad = (startAngle - 90) * Math.PI / 180;
+                        const endRad = (endAngle - 90) * Math.PI / 180;
+                        const largeArc = angle > 180 ? 1 : 0;
+                        const x1 = 80 + 70 * Math.cos(startRad);
+                        const y1 = 80 + 70 * Math.sin(startRad);
+                        const x2 = 80 + 70 * Math.cos(endRad);
+                        const y2 = 80 + 70 * Math.sin(endRad);
+                        if (pieData.length === 1) return { ...d, path: null, fullCircle: true };
+                        return { ...d, path: `M80,80 L${x1},${y1} A70,70 0 ${largeArc},1 ${x2},${y2} Z`, fullCircle: false };
+                      });
+                    };
+
+                    // Helper: render a single pie + legend column
+                    const renderPieColumn = (title, data, slices) => (
+                      <div style={{flex:"1 1 300px",minWidth:280}}>
+                        <h4 style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>{title}</h4>
+                        <div style={{display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
+                          <svg width="140" height="140" viewBox="0 0 160 160">
+                            {slices.map((s, i) => s.fullCircle ? (
+                              <circle key={i} cx="80" cy="80" r="70" fill={s.color}/>
+                            ) : (
+                              <path key={i} d={s.path} fill={s.color} stroke={C.card} strokeWidth="1.5"/>
+                            ))}
+                            <circle cx="80" cy="80" r="35" fill={C.card}/>
+                            <text x="80" y="76" textAnchor="middle" fill={C.text} fontSize="18" fontWeight="700">{data.total}</text>
+                            <text x="80" y="92" textAnchor="middle" fill={C.muted} fontSize="9">departing</text>
+                          </svg>
+                          <div style={{display:"flex",flexDirection:"column",gap:6,flex:1}}>
+                            {data.pieData.map((d, i) => (
+                              <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
+                                <div style={{width:10,height:10,borderRadius:2,background:d.color,flexShrink:0}}/>
+                                <div style={{flex:1}}>
+                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                                    <span style={{fontSize:11,color:C.text,fontWeight:600}}>{d.label}</span>
+                                    <span style={{fontSize:10,color:C.muted,fontFamily:"DM Mono,monospace"}}>{d.count} ({d.pct}%)</span>
+                                  </div>
+                                  <div style={{height:3,borderRadius:2,background:C.border,marginTop:2}}>
+                                    <div style={{height:"100%",borderRadius:2,background:d.color,width:`${d.pct}%`,transition:"width 0.3s"}}/>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            {data.earlyTermCount > 0 && (
+                              <div style={{marginTop:4,fontSize:10,color:C.rose,fontWeight:600}}>
+                                ⚡ {data.earlyTermCount} early termination{data.earlyTermCount!==1?"s":""}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                    // Overall data
+                    const overallData = buildReasonData(allLeavingEntries);
+                    const overallSlices = buildSlices(overallData.pieData, overallData.total);
+
+                    // Per-month data (for selected month)
+                    const selMonth = selected;
+                    const monthData = selMonth ? buildReasonData(selMonth.leaving) : null;
+                    const monthSlices = monthData && monthData.total > 0 ? buildSlices(monthData.pieData, monthData.total) : null;
+
+                    return (
+                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 22px",marginBottom:18}}>
+                        <h3 style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:14}}>Departure Reasons Breakdown</h3>
+                        <div style={{display:"flex",gap:30,flexWrap:"wrap"}}>
+                          {renderPieColumn("Overall (all months)", overallData, overallSlices)}
+                          {monthSlices && renderPieColumn(`${selMonth.label}`, monthData, monthSlices)}
+                          {!selMonth && <p style={{fontSize:11,color:C.muted,alignSelf:"center"}}>Click a month below to see its breakdown</p>}
+                          {selMonth && monthData.total === 0 && <p style={{fontSize:11,color:C.muted,alignSelf:"center"}}>No departures in {selMonth.label}</p>}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Month grid */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:10,marginBottom:20}}>
+                    {monthStats.map(m => {
+                      const isSel = renewalSelectedMonth === m.key;
+                      const hasCritical = m.critical.length > 0;
+                      return (
+                        <button key={m.key} onClick={() => { setRenewalSelectedMonth(isSel ? null : m.key); setRenewalSearch(""); }}
+                          style={{background:isSel?C.gold+"22":C.card,border:`1px solid ${isSel?C.gold:hasCritical?C.rose+"88":C.border}`,borderRadius:12,padding:"14px 12px",cursor:"pointer",textAlign:"left",transition:"all 0.2s"}}>
+                          <p style={{fontSize:12,fontWeight:700,color:isSel?C.gold:C.text,marginBottom:6}}>{m.label}</p>
+                          <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.total} contracts up for renewal</p>
+                          <div style={{display:"flex",gap:4,marginBottom:6,flexWrap:"wrap"}}>
+                            {m.renewed.length > 0 && <span style={{fontSize:9,color:C.sage,background:C.sage+"22",padding:"1px 5px",borderRadius:8}}>✓ {m.renewed.length} renewed</span>}
+                            {m.pendingRenewal.length > 0 && <span style={{fontSize:9,color:C.blue,background:C.blue+"22",padding:"1px 5px",borderRadius:8}}>◎ {m.pendingRenewal.length} pending</span>}
+                            {m.notStarted.length > 0 && <span style={{fontSize:9,color:C.gold,background:C.gold+"22",padding:"1px 5px",borderRadius:8}}>○ {m.notStarted.length} not started</span>}
+                            {m.leaving.length > 0 && <span style={{fontSize:9,color:C.rose,background:C.rose+"22",padding:"1px 5px",borderRadius:8}}>✗ {m.leaving.length} left</span>}
+                            {m.critical.length > 0 && <span style={{fontSize:9,color:C.rose,background:C.rose+"22",padding:"1px 5px",borderRadius:8}}>⚠ {m.critical.length} critical</span>}
+                          </div>
+                          {m.total > 0 && (
+                            <div style={{marginTop:2}}>
+                              <div style={{display:"flex",height:6,borderRadius:3,overflow:"hidden",background:C.border,marginBottom:4}}>
+                                {m.renewedPct > 0 && <div style={{width:`${m.renewedPct}%`,background:C.sage,transition:"width 0.3s"}}/>}
+                                {m.pendingPct > 0 && <div style={{width:`${m.pendingPct}%`,background:C.blue,transition:"width 0.3s"}}/>}
+                                {m.leavingPct > 0 && <div style={{width:`${m.leavingPct}%`,background:C.rose,transition:"width 0.3s"}}/>}
+                              </div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted}}>
+                                <span style={{color:C.sage}}>{m.renewedPct}%</span>
+                                {m.pendingPct > 0 && <span style={{color:C.blue}}>{m.pendingPct}% pending</span>}
+                                <span style={{color:C.rose}}>{m.leavingPct}%</span>
+                              </div>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Expanded month detail */}
+                  {selected && (
+                    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",marginBottom:18}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                        <div>
+                          <h3 style={{fontSize:16,fontWeight:700,color:C.text}}>{selected.label} — {selected.total} contract{selected.total!==1?"s":""} expiring</h3>
+                          <p style={{fontSize:12,color:C.muted,marginTop:2}}>
+                            <span style={{color:C.sage}}>{selected.renewed.length} renewed ({selected.renewedPct}%)</span>
+                            {" · "}
+                            <span style={{color:C.blue}}>{selected.pendingRenewal.length} pending</span>
+                            {" · "}
+                            <span style={{color:C.gold}}>{selected.notStarted.length} not started</span>
+                            {" · "}
+                            <span style={{color:C.rose}}>{selected.leaving.length} left/leaving ({selected.leavingPct}%)</span>
+                          </p>
+                        </div>
+                        <button onClick={() => setRenewalSelectedMonth(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,padding:"4px 12px",borderRadius:8,cursor:"pointer",fontSize:11}}>Close</button>
+                      </div>
+
+                      {/* Per-month leaving reasons summary */}
+                      {selected.leaving.length > 0 && (() => {
+                        const monthReasonCounts = {};
+                        let monthNoReason = 0;
+                        selected.leaving.forEach(e => {
+                          const reason = leavingReasons[e.roomStayId];
+                          if (reason) { monthReasonCounts[reason] = (monthReasonCounts[reason] || 0) + 1; }
+                          else { monthNoReason++; }
+                        });
+                        const monthReasonEntries = Object.entries(monthReasonCounts).sort((a,b) => b[1] - a[1]);
+                        const pieColors = ["#e55", "#e09f3e", "#4ea8de", "#c8a455", "#9b59b6", "#e07c5a", "#888"];
+                        return (
+                          <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+                            <p style={{fontSize:11,fontWeight:700,color:C.rose,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                              Departure Reasons - {selected.label} ({selected.leaving.length} departed)
+                            </p>
+                            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                              {monthReasonEntries.map(([reason, count], i) => (
+                                <span key={reason} style={{fontSize:10,background:pieColors[i % pieColors.length]+"22",color:pieColors[i % pieColors.length],padding:"3px 10px",borderRadius:8,fontWeight:600}}>
+                                  {reason}: {count}
+                                </span>
+                              ))}
+                              {monthNoReason > 0 && (
+                                <span style={{fontSize:10,background:C.muted+"22",color:C.muted,padding:"3px 10px",borderRadius:8,fontWeight:600}}>
+                                  No Reason Set: {monthNoReason}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* LoS Breakdown for renewed contracts in this month */}
+                      {selected.renewed.length > 0 && (() => {
+                        const renewedWithLos = selected.renewed.filter(e => e.followOnLosDays > 0);
+                        if (renewedWithLos.length === 0) return null;
+                        const losBucketKeys = ["< 31d","31–91d","92–181d","182–364d","365d+"];
+                        const losCounts = {}; const losDaysSum = {};
+                        losBucketKeys.forEach(k => { losCounts[k] = 0; losDaysSum[k] = 0; });
+                        renewedWithLos.forEach(e => {
+                          const d = e.followOnLosDays;
+                          const k = d < 31 ? "< 31d" : d <= 91 ? "31–91d" : d <= 181 ? "92–181d" : d <= 364 ? "182–364d" : "365d+";
+                          losCounts[k]++; losDaysSum[k] += d;
+                        });
+                        const totalRenewalDays = renewedWithLos.reduce((s, e) => s + e.followOnLosDays, 0);
+                        const avgLos = renewedWithLos.length > 0 ? Math.round(totalRenewalDays / renewedWithLos.length) : 0;
+                        const bucketColors = [C.blue, C.sage, C.gold, "#e09f3e", C.rose];
+                        return (
+                          <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                            <div style={{flex:"1 1 300px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
+                              <p style={{fontSize:10,color:C.sage,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>
+                                Renewal Stay Length — {selected.label} ({renewedWithLos.length} renewed)
+                              </p>
+                              <div style={{display:"flex",justifyContent:"flex-end",gap:0,marginBottom:4}}>
+                                <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:60,textAlign:"right"}}>Rooms</span>
+                                <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",width:70,textAlign:"right"}}>Days</span>
+                              </div>
+                              {losBucketKeys.map((label, i) => (
+                                <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}}>
+                                  <span style={{fontSize:11,color:C.muted}}>{label}</span>
+                                  <div style={{display:"flex",gap:0}}>
+                                    <span style={{fontSize:12,fontWeight:700,color:losCounts[label] > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace",width:60,textAlign:"right"}}>{losCounts[label]}</span>
+                                    <span style={{fontSize:12,fontWeight:700,color:losDaysSum[label] > 0 ? bucketColors[i] : C.muted,fontFamily:"DM Mono,monospace",width:70,textAlign:"right"}}>{losDaysSum[label].toLocaleString()}</span>
+                                  </div>
+                                </div>
+                              ))}
+                              <div style={{borderTop:`1px solid ${C.border}`,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:C.gold}}>Total</span>
+                                <div style={{display:"flex",gap:0}}>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",width:60,textAlign:"right"}}>{renewedWithLos.length}</span>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",width:70,textAlign:"right"}}>{totalRenewalDays.toLocaleString()}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{flex:"0 0 160px",background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
+                              <p style={{fontSize:10,color:C.sage,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:8}}>Avg Stay Length</p>
+                              <p style={{fontSize:24,fontWeight:700,color:C.sage,fontFamily:"DM Mono,monospace"}}>
+                                {avgLos}d
+                              </p>
+                              <p style={{fontSize:9,color:C.muted,marginTop:2}}>Avg renewal LoS · {renewedWithLos.length} booking{renewedWithLos.length!==1?"s":""}</p>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Search within this month + per-tenant table (team only) */}
+                      {investor && <p style={{fontSize:11,color:C.muted}}>Per-tenant detail is available in team view.</p>}
+                      {!investor && <div style={{marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{position:"relative",flex:"0 0 300px"}}>
+                          <input
+                            value={renewalSearch}
+                            onChange={e => setRenewalSearch(e.target.value)}
+                            placeholder="Search this month by name, room, ref…"
+                            style={{padding:"8px 14px 8px 32px",borderRadius:8,border:`1px solid ${renewalSearch?C.gold:C.border}`,background:C.bg,color:C.text,fontSize:12,width:"100%",fontFamily:"inherit",outline:"none"}}
+                          />
+                          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.muted,pointerEvents:"none"}}>🔍</span>
+                          {renewalSearch && <button onClick={() => setRenewalSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button>}
+                        </div>
+                        {renewalSearch.trim().length >= 2 && (
+                          <span style={{fontSize:11,color:C.gold}}>
+                            {selected.entries.filter(e => {
+                              const q = renewalSearch.trim().toLowerCase();
+                              return (e.name||"").toLowerCase().includes(q) || (e.room||"").toLowerCase().includes(q) || (e.bookingReference||"").toLowerCase().includes(q) || (e.customerReference||"").toLowerCase().includes(q);
+                            }).length} of {selected.entries.length} shown
+                          </span>
+                        )}
+                      </div>}
+
+                      {!investor && (selected.entries.length === 0 ? (
+                        <p style={{color:C.muted,fontSize:13}}>No contracts expiring this month.</p>
+                      ) : (
+                        <div style={{overflowX:"auto"}}>
+                          {(() => {
+                            // Sort entries based on current sort state
+                            const statusRank = (e) => {
+                              if (leavingSet.has(e.roomStayId)) return 4; // manual leaving
+                              if (e.isRenewed) return 3; // renewed
+                              const mp = pendingSet.has(e.roomStayId);
+                              if (e.isPendingRenewal || mp) return 2; // pending
+                              if (e.expired) return 4; // auto-expired/left
+                              return 1; // not started (highest priority)
+                            };
+                            const sorted = [...selected.entries].sort((a, b) => {
+                              let cmp = 0;
+                              switch (renewalSort.col) {
+                                case "name": cmp = (a.name || "").localeCompare(b.name || ""); break;
+                                case "expiry": cmp = (a.endDate || "").localeCompare(b.endDate || ""); break;
+                                case "los": cmp = (a.losDays || 0) - (b.losDays || 0); break;
+                                case "room": cmp = (a.room || "").localeCompare(b.room || "", undefined, {numeric:true}); break;
+                                case "pcm": {
+                                  const aPcm = a.renewalPcm && a.isRenewed ? a.renewalPcm : a.pcm;
+                                  const bPcm = b.renewalPcm && b.isRenewed ? b.renewalPcm : b.pcm;
+                                  cmp = aPcm - bPcm; break;
+                                }
+                                case "status": cmp = statusRank(a) - statusRank(b); break;
+                                default: cmp = (a.endDate || "").localeCompare(b.endDate || "");
+                              }
+                              return renewalSort.dir === "desc" ? -cmp : cmp;
+                            });
+                            // Apply search filter
+                            const q = renewalSearch.trim().toLowerCase();
+                            const filtered = q.length >= 2 ? sorted.filter(e =>
+                              (e.name||"").toLowerCase().includes(q) || (e.room||"").toLowerCase().includes(q) ||
+                              (e.bookingReference||"").toLowerCase().includes(q) || (e.customerReference||"").toLowerCase().includes(q)
+                            ) : sorted;
+                            const sortCols = [
+                              {key:"name",label:"Name"},{key:null,label:"Booking Ref"},{key:null,label:"Cust Ref"},{key:"expiry",label:"Expiry"},
+                              {key:"los",label:"LoS"},{key:"room",label:"Room"},{key:"pcm",label:"PCM"},
+                              {key:"status",label:"Status"},{key:null,label:"Ref Check"},
+                              {key:null,label:""},{key:null,label:"Reason"},{key:null,label:""},{key:null,label:"SMS"},{key:null,label:"Email"}
+                            ];
+                            const arrow = (col) => renewalSort.col === col ? (renewalSort.dir === "asc" ? " ▲" : " ▼") : "";
+                            const handleSort = (col) => {
+                              if (!col) return;
+                              setRenewalSort(prev => prev.col === col ? {col, dir: prev.dir === "asc" ? "desc" : "asc"} : {col, dir: "asc"});
+                            };
+                            return (
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                            <thead>
+                              <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                                {sortCols.map((h, idx) => (
+                                  <th key={h.label||idx} onClick={() => handleSort(h.key)}
+                                    style={{padding:"8px 10px",textAlign:"left",color:renewalSort.col===h.key?C.gold:C.muted,fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap",cursor:h.key?"pointer":"default",userSelect:"none"}}>
+                                    {h.label}{h.key ? arrow(h.key) : ""}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filtered.map((e, i) => {
+                                const isManualPending = pendingSet.has(e.roomStayId);
+                                const isLeaving = leavingSet.has(e.roomStayId) || (e.expired && !e.isRenewed && !e.isPendingRenewal && !isManualPending);
+                                const isPending = (e.isPendingRenewal || isManualPending) && !e.isRenewed && !leavingSet.has(e.roomStayId);
+                                const rowBg = isLeaving ? C.rose + "0a" : isPending ? C.blue + "0a" : (e.critical && !e.isRenewed ? C.rose + "12" : "transparent");
+                                const expiryColor = e.critical && !e.isRenewed && !isLeaving && !isPending ? C.rose : C.text;
+                                // Determine display status
+                                const displayStatus = leavingSet.has(e.roomStayId) ? "leaving"
+                                  : e.isRenewed ? "renewed"
+                                  : isPending ? "pending"
+                                  : e.expired ? "left"
+                                  : "not_started";
+                                return (
+                                  <tr key={e.roomStayId || i} style={{borderBottom:`1px solid ${C.border}22`,background:rowBg}}>
+                                    <td style={{padding:"10px 10px",color:isLeaving?C.muted:C.text,fontWeight:600,whiteSpace:"nowrap",textDecoration:isLeaving?"line-through":"none",cursor:e.email?"pointer":"default"}}
+                                        title={e.email ? `Click to copy: ${e.email}` : "No email on file"}
+                                        onClick={() => copyEmail(e.email, e.roomStayId)}>
+                                      {e.name || "—"}
+                                      {e.email && (
+                                        <span style={{fontSize:9,marginLeft:5,color:copiedEmail===e.roomStayId?C.sage:C.muted,transition:"color 0.2s"}}>
+                                          {copiedEmail===e.roomStayId ? "✓ copied" : "✉"}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",fontSize:11}}>
+                                      {e.bookingId ? (
+                                        <a href={`https://app.resharmonics.com/bookings/${e.bookingId}`} target="_blank" rel="noopener noreferrer"
+                                          style={{color:C.gold,textDecoration:"none",borderBottom:`1px dashed ${C.gold}55`}}
+                                          onMouseEnter={ev=>ev.target.style.borderBottomColor=C.gold}
+                                          onMouseLeave={ev=>ev.target.style.borderBottomColor=C.gold+"55"}>
+                                          {e.bookingReference || e.bookingId}
+                                        </a>
+                                      ) : (
+                                        <span style={{color:C.muted}}>{e.bookingReference || "—"}</span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 6px",minWidth:110}}>
+                                      <input type="text"
+                                        value={customerRefs[e.roomStayId] ?? e.customerReference ?? ""}
+                                        onChange={ev => setCustomerRefs(prev => ({...prev, [e.roomStayId]: ev.target.value}))}
+                                        onBlur={ev => saveCustomerRef(e.roomStayId, e.bookingId, ev.target.value)}
+                                        onKeyDown={ev => { if (ev.key === "Enter") { ev.target.blur(); } }}
+                                        placeholder="Add ref..."
+                                        style={{width:"100%",background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 6px",fontSize:10,color:C.text,fontFamily:"DM Mono,monospace",outline:"none"}}
+                                        onFocus={ev => ev.target.style.borderColor = C.gold}
+                                        onBlurCapture={ev => ev.target.style.borderColor = C.border}
+                                      />
+                                    </td>
+                                    <td style={{padding:"10px 10px",color:expiryColor,fontWeight:e.critical&&displayStatus==="not_started"?700:400,whiteSpace:"nowrap"}}>
+                                      {new Date(e.endDate).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}
+                                      {e.daysUntilExpiry >= 0 && e.daysUntilExpiry <= 14 && displayStatus === "not_started" && (
+                                        <span style={{marginLeft:6,fontSize:9,background:C.rose,color:"#fff",padding:"1px 5px",borderRadius:4,fontWeight:700}}>{e.daysUntilExpiry}d</span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 10px",color:C.muted}}>{e.losDays}d{e.cumulDays && e.cumulDays !== e.losDays ? <span style={{fontSize:9,color:C.gold,marginLeft:4}} title={`Cumulative stay: ${e.cumulDays}d`}>({e.cumulDays}d)</span> : ""}</td>
+                                    <td style={{padding:"10px 10px",color:C.muted,whiteSpace:"nowrap"}}>{e.room}</td>
+                                    <td style={{padding:"10px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>
+                                      {e.renewalPcm && e.isRenewed ? (
+                                        <span title={`Expiring: £${e.pcm.toLocaleString()} → Renewal: £${e.renewalPcm.toLocaleString()}`}>
+                                          £{e.renewalPcm.toLocaleString()}
+                                          {e.renewalPcm !== e.pcm && <span style={{fontSize:9,color:e.renewalPcm>e.pcm?C.sage:C.rose,marginLeft:4}}>{e.renewalPcm>e.pcm?"▲":"▼"}</span>}
+                                        </span>
+                                      ) : (
+                                        <span>£{e.pcm.toLocaleString()}</span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 10px"}}>
+                                      {displayStatus === "renewed" ? (
+                                        <span style={{fontSize:10,background:C.sage+"22",color:C.sage,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Renewed</span>
+                                      ) : displayStatus === "pending" ? (
+                                        <span style={{fontSize:10,background:C.blue+"22",color:C.blue,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Pending</span>
+                                      ) : displayStatus === "left" ? (
+                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Left</span>
+                                      ) : displayStatus === "leaving" ? (
+                                        <span style={{fontSize:10,background:C.rose+"22",color:C.rose,padding:"2px 8px",borderRadius:8,fontWeight:600}}>
+                                          {earlyTermSet.has(e.roomStayId) ? "Early Term" : "Leaving"}
+                                        </span>
+                                      ) : (
+                                        <span style={{fontSize:10,background:C.gold+"22",color:C.gold,padding:"2px 8px",borderRadius:8,fontWeight:600}}>Not Yet Started</span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 8px"}}>
+                                      {(() => {
+                                        if (!canopyConn) return <span style={{fontSize:10,color:C.muted}}>—</span>;
+                                        const check = canopyData?.byEmail?.[e.email];
+                                        if (!check) return <span style={{fontSize:9,color:C.muted,background:C.muted+"18",padding:"2px 6px",borderRadius:6}}>No Check</span>;
+                                        const colors = { PASS: C.sage, FAIL: C.rose, CONDITIONAL: "#e09f3e", PENDING: C.gold, NOT_STARTED: C.muted, UNKNOWN: C.muted };
+                                        const icons = { PASS: "✓", FAIL: "✗", CONDITIONAL: "⚠", PENDING: "◌", NOT_STARTED: "○", UNKNOWN: "?" };
+                                        const labels = { PASS: "Pass", FAIL: "High Risk", CONDITIONAL: "Consider", PENDING: "In Progress", NOT_STARTED: "Not Started", UNKNOWN: "Unknown" };
+                                        const c = colors[check.signal] || C.muted;
+                                        return (
+                                          <span title={`Canopy: ${check.rawStatus}${check.updatedAt ? ` (${new Date(check.updatedAt).toLocaleDateString("en-GB")})` : ""}`}
+                                            style={{fontSize:10,background:c+"22",color:c,padding:"2px 8px",borderRadius:8,fontWeight:600,whiteSpace:"nowrap",cursor:"help"}}>
+                                            {icons[check.signal]} {labels[check.signal]}
+                                          </span>
+                                        );
+                                      })()}
+                                    </td>
+                                    <td style={{padding:"10px 6px"}}>
+                                      <button onClick={() => toggleLeaving(e.roomStayId)} title={leavingSet.has(e.roomStayId) ? "Undo leaving" : "Mark as leaving"}
+                                        style={{background:leavingSet.has(e.roomStayId)?C.sage+"22":C.rose+"22",color:leavingSet.has(e.roomStayId)?C.sage:C.rose,border:`1px solid ${leavingSet.has(e.roomStayId)?C.sage:C.rose}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
+                                        {leavingSet.has(e.roomStayId) ? "↩ Undo" : "✗ Leaving"}
+                                      </button>
+                                    </td>
+                                    <td style={{padding:"10px 6px",minWidth:140}}>
+                                      {(leavingSet.has(e.roomStayId) || (e.expired && !e.isRenewed && !e.isPendingRenewal && !isManualPending)) ? (
+                                        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                                          <select
+                                            value={leavingReasons[e.roomStayId] || ""}
+                                            onChange={(ev) => setLeavingReason(e.roomStayId, ev.target.value)}
+                                            style={{background:C.bg,color:leavingReasons[e.roomStayId]?C.text:C.muted,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 6px",fontSize:10,cursor:"pointer",maxWidth:160,width:"100%",appearance:"auto"}}>
+                                            <option value="">Select reason...</option>
+                                            {LEAVING_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                          </select>
+                                          <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:9,color:earlyTermSet.has(e.roomStayId)?C.rose:C.muted}}>
+                                            <input type="checkbox" checked={earlyTermSet.has(e.roomStayId)} onChange={() => toggleEarlyTerm(e.roomStayId)}
+                                              style={{width:12,height:12,accentColor:C.rose,cursor:"pointer"}}/>
+                                            Early termination
+                                          </label>
+                                        </div>
+                                      ) : (
+                                        <span style={{fontSize:10,color:C.muted}}>—</span>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 6px"}}>
+                                      <button onClick={() => togglePending(e.roomStayId)} title={pendingSet.has(e.roomStayId) ? "Undo pending" : "Mark as pending renewal"}
+                                        style={{background:pendingSet.has(e.roomStayId)?C.sage+"22":C.blue+"22",color:pendingSet.has(e.roomStayId)?C.sage:C.blue,border:`1px solid ${pendingSet.has(e.roomStayId)?C.sage:C.blue}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>
+                                        {pendingSet.has(e.roomStayId) ? "↩ Undo" : "◎ Pending"}
+                                      </button>
+                                    </td>
+                                    <td style={{padding:"10px 6px"}}>
+                                      {displayStatus !== "renewed" && displayStatus !== "left" && displayStatus !== "leaving" && (
+                                        <button onClick={() => openSmsModal(e, "sms")} title="Send renewal SMS"
+                                          style={{background:C.purple+"22",color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                          💬
+                                        </button>
+                                      )}
+                                    </td>
+                                    <td style={{padding:"10px 6px"}}>
+                                      {displayStatus !== "renewed" && displayStatus !== "left" && displayStatus !== "leaving" && (
+                                        <button onClick={() => openSmsModal(e, "email")} title="Send renewal email"
+                                          style={{background:C.gold+"22",color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                          ✉
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                            );
+                          })()}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* SMS / Email Modal (team only) */}
+                  {!investor && smsModal && (
+                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+                      onClick={(ev) => { if (ev.target === ev.currentTarget) setSmsModal(null); }}>
+                      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px 26px",maxWidth:560,width:"100%",maxHeight:"80vh",overflow:"auto"}} onClick={e => e.stopPropagation()}>
+                        <h3 style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>Send Renewal Message</h3>
+                        <p style={{fontSize:12,color:C.muted,marginBottom:12}}>To: {smsModal.name} {smsModal.phone ? `(${smsModal.phone})` : ""} {smsModal.email ? `(${smsModal.email})` : ""}</p>
+
+                        {/* Channel tabs */}
+                        <div style={{display:"flex",gap:0,marginBottom:16,borderBottom:`1px solid ${C.border}`}}>
+                          {[{k:"sms",label:"SMS",icon:"💬"},{k:"email",label:"Email",icon:"✉"}].map(ch => (
+                            <button key={ch.k} onClick={() => { setMsgChannel(ch.k); setSmsResult(null); }}
+                              style={{background:"transparent",border:"none",borderBottom:msgChannel===ch.k?`2px solid ${C.gold}`:"2px solid transparent",
+                                color:msgChannel===ch.k?C.gold:C.muted,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:600,transition:"all 0.2s"}}>
+                              {ch.icon} {ch.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {msgChannel === "sms" ? (
+                          <textarea value={smsText} onChange={e => setSmsText(e.target.value)} placeholder="SMS message..."
+                            style={{width:"100%",minHeight:120,background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"'DM Sans',system-ui,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+                        ) : (
+                          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                            <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="Subject line..."
+                              style={{width:"100%",background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"'DM Sans',system-ui,sans-serif",boxSizing:"border-box"}}/>
+                            <textarea value={emailBody} onChange={e => setEmailBody(e.target.value)} placeholder="Email body..."
+                              style={{width:"100%",minHeight:180,background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"'DM Sans',system-ui,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+                          </div>
+                        )}
+
+                        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",alignItems:"center"}}>
+                          {smsResult === "sms_sent" && <span style={{fontSize:12,color:C.sage,marginRight:"auto"}}>✓ SMS sent successfully</span>}
+                          {smsResult === "email_sent" && <span style={{fontSize:12,color:C.sage,marginRight:"auto"}}>✓ Email sent successfully</span>}
+                          {smsResult && smsResult.startsWith("error:") && <span style={{fontSize:12,color:C.rose,marginRight:"auto"}}>{smsResult.slice(6)}</span>}
+                          <button onClick={() => setSmsModal(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,padding:"8px 16px",borderRadius:8,cursor:"pointer",fontSize:12}}>Cancel</button>
+                          <button onClick={sendMessage} disabled={smsSending || (msgChannel==="sms" ? !smsText.trim() : !emailBody.trim() || !emailSubject.trim())}
+                            style={{background:msgChannel==="sms"?C.purple:C.gold,color:"#fff",border:"none",padding:"8px 20px",borderRadius:8,cursor:smsSending?"wait":"pointer",fontSize:12,fontWeight:600,opacity:smsSending?0.6:1}}>
+                            {smsSending ? "Sending…" : msgChannel==="sms" ? "Send SMS" : "Send Email"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+      {/* ════ REPUTATION · SOUTHALL ════ */}
+      {property==="southall"&&tab==="reputation"&&(
+        <ReputationTab data={repData.southall} loading={repLoading} propertyName="Southall &Soul" investor={investor}/>
+      )}
+      {/* ════ REPUTATION · SHOREDITCH ════ */}
+      {property==="shoreditch"&&sdTab==="reputation"&&(
+        <ReputationTab data={repData.shoreditch} loading={repLoading} propertyName="Shoreditch &Soul Villas" investor={investor}/>
+      )}
+
+      {/* setSdTab("crm"), setSdTab("occupancy") - handled in button map above */}
+
+      {/* SHOREDITCH MARKETING */}
+      {property==="shoreditch"&&sdTab==="marketing"&&(
+        <div style={{padding:"22px 26px"}}>
+          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}{(sdGoogleIsLive||sdMetaIsLive)?" · live data":""}</p>
+          <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Marketing Performance</h2>
+
+          <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+            <KPI label="Total Spend" value={fmt(sdTotalSpend)} sub="Meta + Google" accent={C.gold} delta={sdMetaIsLive?mkDelta(sdTotalSpend, pm.total, {label:prior.label}):null} spark={sdMetaIsLive?mSpark.total:null}/>
+            <KPI label="Avg CPL (Blended)" value={fmt(sdBlendedCpl,"£",2)} sub={`${sdTotalLeads} total leads`} accent={C.sage} badge="KEY" delta={sdMetaIsLive?mkDelta(sdBlendedCpl, pm.blended, {label:prior.label, invert:true}):null}/>
+            <KPI label="Google Spend" value={fmt(sdGSpend)} sub={`${sdGConvs} conversions`} accent={C.blue} delta={sdMetaIsLive?mkDelta(sdGSpend, pm.gs, {label:prior.label}):null} spark={sdMetaIsLive?mSpark.gSpend:null}/>
+            <KPI label="Google Cost/Conv" value={fmt(sdGCPC,"£",2)} sub="Per conversion" accent={C.blue} delta={sdMetaIsLive?mkDelta(sdGCPC, pm.gCps, {label:prior.label, invert:true}):null}/>
+            <KPI label="Meta Spend" value={fmt(sdMetaSpend)} sub={`${sdMetaLeads} leads`} accent={C.gold} delta={sdMetaIsLive?mkDelta(sdMetaSpend, pm.ms, {label:prior.label}):null} spark={sdMetaIsLive?mSpark.metaSpend:null}/>
+            <KPI label="Meta CPL" value={fmt(sdMetaCpl,"£",2)} sub="Per lead" accent={C.sage} delta={sdMetaIsLive?mkDelta(sdMetaCpl, pm.mCpl, {label:prior.label, invert:true}):null} spark={sdMetaIsLive?mSpark.metaCpl:null}/>
+          </div>
+
+          <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 280px",minWidth:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 16px 8px",overflowX:"auto"}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Daily Google Spend — Shoreditch (£){sdGoogleIsLive?" · live (excl. GMB)":""}</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={sdGoogleDaily.map(r=>({d:r.date.slice(5),spend:r.spend,convs:r.convs}))} margin={{top:2,right:6,bottom:0,left:-8}}>
+                  <defs>
+                    <linearGradient id="gSD" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.blue} stopOpacity={0.25}/><stop offset="95%" stopColor={C.blue} stopOpacity={0}/></linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                  <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                  <YAxis tick={{fill:C.muted,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`£${v}`}/>
+                  <Tooltip content={<Tip/>}/>
+                  <Area type="monotone" dataKey="spend" name="Spend" stroke={C.blue} fill="url(#gSD)" strokeWidth={2} dot={false}/>
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Meta Ad Set Breakdown — Shoreditch */}
+          {sdMetaIsLive && liveMetaData?.adsets && liveMetaData.adsets.length > 0 && (
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Meta · Ad Set Breakdown · {rangeLabel} · live</p>
+                <div style={{display:"flex",gap:6}}>
+                  <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,background:C.sage+"22",color:C.sage}}>Website Leads: {liveMetaData.totalWebsiteLeads ?? 0}</span>
+                  <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,background:C.gold+"22",color:C.gold}}>Meta Leads: {liveMetaData.totalMetaLeads ?? 0}</span>
+                </div>
+              </div>
+              <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    {["Ad Set","Spend","Website Leads","Meta Leads","Counted Leads","Lead Source","CPL"].map(h=>(
+                      <th key={h} style={{textAlign:h==="Ad Set"?"left":"right",padding:"8px 10px",color:C.muted,fontWeight:500,fontSize:11}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...liveMetaData.adsets].sort((a,b)=>b.spend-a.spend).map((a,i)=>{
+                    const isMetaOnly = a.leadType === "meta_leads_only";
+                    return(
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                        <td style={{padding:"8px 10px",color:C.text,maxWidth:220,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                          {a.name}
+                          {isMetaOnly && <span style={{display:"block",fontSize:9,color:C.gold,background:C.gold+"18",padding:"1px 6px",borderRadius:6,width:"fit-content",marginTop:2}}>Meta leads only</span>}
+                        </td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.text}}>{fmt(a.spend)}</td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:isMetaOnly?C.muted:C.text}}>
+                          {isMetaOnly ? <span>{a.websiteLeads} <span style={{fontSize:9,color:C.rose}}>excluded</span></span> : a.websiteLeads}
+                        </td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:isMetaOnly?C.gold:C.muted}}>{a.metaLeads}</td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",fontWeight:600,color:C.sage}}>{a.leads}</td>
+                        <td style={{textAlign:"right",padding:"8px 10px"}}>
+                          <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:isMetaOnly?C.gold+"22":C.sage+"22",color:isMetaOnly?C.gold:C.sage}}>{isMetaOnly?"Meta form":"Website"}</span>
+                        </td>
+                        <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:a.cpl>15?C.rose:C.sage}}>{fmt(a.cpl,"£",2)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px 10px",color:C.muted,fontWeight:600}}>Total</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.gold,fontWeight:600}}>{fmt(sdMetaSpend)}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{liveMetaData.totalWebsiteLeads ?? 0}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.muted}}>{liveMetaData.totalMetaLeads ?? 0}</td>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",fontWeight:600,color:C.sage}}>{sdMetaLeads}</td>
+                    <td/>
+                    <td style={{textAlign:"right",padding:"8px 10px",fontFamily:"DM Mono,monospace",color:C.sage,fontWeight:600}}>{fmt(sdMetaCpl,"£",2)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Static Meta fallback when not live */}
+          {!sdMetaIsLive && (
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:16}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Meta · {SD_META.campaign} · static</p>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:12}}>
+                {[{l:"Campaign Spend",v:fmt(SD_META.spend),c:C.gold},{l:"Leads (period)",v:SD_META.leads,c:C.sage},{l:"Total Leads",v:SD_META.totalLeads,c:C.text},{l:"Link Clicks",v:SD_META.linkClicks,c:C.purple}].map((m,i)=>(
+                  <div key={i} style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                    <p style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.l}</p>
+                    <p style={{fontSize:16,fontWeight:700,color:m.c,fontFamily:"DM Mono,monospace"}}>{m.v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Performance Insights — Shoreditch (period comparison, source mix, device split, expert playbook) */}
+          <PerformanceInsights analytics={sdAnalyticsData} propertyLabel="Shoreditch" />
+
+          {/* Weekly Recommendations — Shoreditch */}
+          {sdAnalyticsData?.weeklyInsights?.actions?.length > 0 && (
+            <div style={{background:C.card,border:`1px solid ${C.sage}44`,borderRadius:12,padding:16,marginTop:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Weekly Landing Page Recommendations · Shoreditch</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>Data-driven actions based on this week vs last week performance</p>
+                </div>
+                <span style={{fontSize:9,padding:"2px 10px",borderRadius:10,background:C.sage+"22",color:C.sage}}>
+                  {sdAnalyticsData.weeklyInsights.actions.filter(a=>a.priority==="high").length} high priority
+                </span>
+              </div>
+
+              {sdAnalyticsData.weeklyInsights.trends && (
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                  {Object.entries(sdAnalyticsData.weeklyInsights.trends).filter(([,t])=>t.change!==null).map(([key, t]) => {
+                    const labels = {sessions:"Sessions",confirmations:"Applications",bounceRate:"Bounce",engagementRate:"Engagement",convRate:"Conv Rate"};
+                    const isGood = key==="bounceRate" ? t.change<0 : t.change>0;
+                    const arrow = t.change > 2 ? "↑" : t.change < -2 ? "↓" : "→";
+                    const color = t.change > 2 ? (isGood ? C.sage : C.rose) : t.change < -2 ? (isGood ? C.sage : C.rose) : C.muted;
+                    return (
+                      <div key={key} style={{background:color+"12",border:`1px solid ${color}33`,borderRadius:8,padding:"4px 10px",fontSize:10}}>
+                        <span style={{color:C.muted}}>{labels[key] || key}</span>{" "}
+                        <span style={{color,fontWeight:600}}>{arrow} {t.change > 0 ? "+" : ""}{t.change.toFixed(0)}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {sdAnalyticsData.weeklyInsights.actions.map((item, i) => {
+                  const priorityColors = { high: C.rose, medium: C.gold, low: C.muted, success: C.sage };
+                  const priorityIcons = { high: "🔴", medium: "🟡", low: "💡", success: "✅" };
+                  const bc = priorityColors[item.priority] || C.muted;
+                  return (
+                    <div key={i} style={{background:C.bg,border:`1px solid ${bc}33`,borderLeft:`3px solid ${bc}`,borderRadius:8,padding:"10px 14px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:12}}>{priorityIcons[item.priority]}</span>
+                          <span style={{fontSize:12,color:C.text,fontWeight:600}}>{item.title}</span>
+                        </div>
+                        <div style={{display:"flex",gap:6,flexShrink:0}}>
+                          <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:bc+"18",color:bc}}>{item.priority}</span>
+                          <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:C.blue+"18",color:C.blue}}>{item.category}</span>
+                        </div>
+                      </div>
+                      <p style={{fontSize:11,color:C.muted,lineHeight:1.5,marginBottom:4}}>{item.action}</p>
+                      <p style={{fontSize:10,color:bc,fontFamily:"DM Mono,monospace"}}>{item.metric}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Google Ads Campaign Table — Shoreditch (live, excl GMB) */}
+          {sdGoogleIsLive && sdLiveCampaigns.length > 0 && (
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginTop:16}}>
+              <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Google Ads · Shoreditch Campaigns · {rangeLabel} · live (excl. GMB)</p>
+              <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    {["Campaign","Type","Spend","Conversions","Avg CPC","Cost/Conv"].map(h=>(
+                      <th key={h} style={{textAlign:h==="Campaign"?"left":"right",padding:"8px",color:C.muted,fontWeight:500,fontSize:11}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...sdLiveCampaigns].sort((a,b)=>b.spend-a.spend).map((c,i)=>{
+                    const cpc = c.clicks > 0 ? c.spend/c.clicks : c.avgCPC || 0;
+                    const costConv = c.convs > 0 ? c.spend/c.convs : 0;
+                    return(
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                        <td style={{padding:"8px",color:C.text,maxWidth:200,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name}</td>
+                        <td style={{textAlign:"right",padding:"8px"}}><span style={{fontSize:10,background:c.type==="Search"?C.sage+"22":c.type==="Pmax"?C.gold+"22":C.purple+"22",color:c.type==="Search"?C.sage:c.type==="Pmax"?C.gold:C.purple,padding:"2px 8px",borderRadius:10}}>{c.type}</span></td>
+                        <td style={{textAlign:"right",padding:"8px",color:C.text,fontFamily:"DM Mono,monospace"}}>{fmt(c.spend)}</td>
+                        <td style={{textAlign:"right",padding:"8px",color:C.text,fontFamily:"DM Mono,monospace"}}>{c.convs}</td>
+                        <td style={{textAlign:"right",padding:"8px",color:C.text,fontFamily:"DM Mono,monospace"}}>{fmt(cpc,"£",2)}</td>
+                        <td style={{textAlign:"right",padding:"8px",color:costConv>20?C.rose:C.sage,fontFamily:"DM Mono,monospace"}}>{fmt(costConv,"£",2)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px",color:C.muted,fontWeight:600}}>Total</td>
+                    <td/>
+                    <td style={{textAlign:"right",padding:"8px",color:C.gold,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{fmt(sdGSpend)}</td>
+                    <td style={{textAlign:"right",padding:"8px",color:C.gold,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{sdGConvs}</td>
+                    <td colSpan={2} style={{textAlign:"right",padding:"8px",color:C.muted,fontFamily:"DM Mono,monospace"}}>Avg: {fmt(sdGCPC,"£",2)}/conv</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Landing Page Performance — Shoreditch */}
+          {sdAnalyticsData && (
+            <div style={{background:C.card,border:`1px solid ${C.blue}44`,borderRadius:12,padding:16,marginTop:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Landing Page Performance · {rangeLabel} · live</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.landingPage}</p>
+                </div>
+                <span style={{fontSize:9,padding:"2px 10px",borderRadius:10,background:C.blue+"22",color:C.blue}}>GA4</span>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:10,marginBottom:16}}>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.blue}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Sessions</p>
+                  <p style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"DM Mono,monospace"}}>{sdAnalyticsData.summary.totalSessions.toLocaleString()}</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.avgDailySessions.toFixed(0)}/day avg</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.avgBounceRate>0.4?C.rose:sdAnalyticsData.summary.avgBounceRate>0.3?C.gold:C.sage}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Bounce Rate</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.avgBounceRate>0.4?C.rose:sdAnalyticsData.summary.avgBounceRate>0.3?C.gold:C.sage,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.avgBounceRate*100).toFixed(1)}%</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.avgEngagementRate>=0.7?C.sage:sdAnalyticsData.summary.avgEngagementRate>=0.6?C.gold:C.rose}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Engagement Rate</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.avgEngagementRate>=0.7?C.sage:C.gold,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.avgEngagementRate*100).toFixed(1)}%</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.overallConversionRate>=0.1?C.sage:sdAnalyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Conversion Rate</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.overallConversionRate>=0.1?C.sage:sdAnalyticsData.summary.overallConversionRate>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.overallConversionRate*100).toFixed(1)}%</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.totalConfirmations} applications</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${C.purple}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Unique Visitors</p>
+                  <p style={{fontSize:22,fontWeight:700,color:C.purple,fontFamily:"DM Mono,monospace"}}>{sdAnalyticsData.summary.totalUsers.toLocaleString()}</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.sessionsPerUser?.toFixed(1)} sessions/user</p>
+                </div>
+                <div style={{background:C.bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${sdAnalyticsData.summary.applicationsPerUser>=0.08?C.sage:sdAnalyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose}`}}>
+                  <p style={{fontSize:10,color:C.muted,marginBottom:4}}>Applications/Visitor</p>
+                  <p style={{fontSize:22,fontWeight:700,color:sdAnalyticsData.summary.applicationsPerUser>=0.08?C.sage:sdAnalyticsData.summary.applicationsPerUser>=0.05?C.gold:C.rose,fontFamily:"DM Mono,monospace"}}>{(sdAnalyticsData.summary.applicationsPerUser*100).toFixed(1)}%</p>
+                  <p style={{fontSize:10,color:C.muted,marginTop:2}}>{sdAnalyticsData.summary.totalConfirmations} from {sdAnalyticsData.summary.totalUsers.toLocaleString()} visitors</p>
+                </div>
+              </div>
+
+              {sdAnalyticsData.daily && sdAnalyticsData.daily.length > 0 && (
+                <div style={{height:180,marginBottom:16}}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={sdAnalyticsData.daily.map(d=>{const dt=new Date(d.date);return{d:`${dt.getDate()}/${dt.getMonth()+1}`,sessions:d.sessions,bounceRate:Math.round(d.bounceRate*100),convRate:Math.round(d.conversionRate*1000)/10,confirmations:d.confirmations};})} margin={{top:5,right:20,left:0,bottom:5}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                      <XAxis dataKey="d" tick={{fill:C.muted,fontSize:9}} tickLine={false} interval="preserveStartEnd"/>
+                      <YAxis yAxisId="l" tick={{fill:C.blue,fontSize:9}} tickLine={false} axisLine={false}/>
+                      <YAxis yAxisId="r" orientation="right" tick={{fill:C.sage,fontSize:9}} tickLine={false} axisLine={false} tickFormatter={v=>`${v}%`}/>
+                      <Tooltip content={({active,payload,label})=>{
+                        if(!active||!payload?.length) return null;
+                        return <div style={{background:"#13161b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12}}>
+                          <p style={{color:C.muted,marginBottom:6,fontFamily:"monospace"}}>{label}</p>
+                          {payload.map((p,i)=><p key={i} style={{color:p.color,margin:"2px 0"}}>{p.name}: <strong>{p.name.includes("Rate")?`${p.value}%`:p.value}</strong></p>)}
+                        </div>;
+                      }}/>
+                      <Bar yAxisId="l" dataKey="sessions" name="Sessions" fill={C.blue} radius={[2,2,0,0]} opacity={0.6}/>
+                      <Line yAxisId="r" type="monotone" dataKey="convRate" name="Conv Rate" stroke={C.sage} strokeWidth={2} dot={false}/>
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {sdAnalyticsData.recommendations && sdAnalyticsData.recommendations.length > 0 && (
+                <div>
+                  <p style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Recommendations</p>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {sdAnalyticsData.recommendations.map((rec,i) => {
+                      const icon = rec.type==="warning" ? "⚠️" : rec.type==="success" ? "✅" : "💡";
+                      const borderColor = rec.type==="warning" ? C.rose : rec.type==="success" ? C.sage : C.gold;
+                      return (
+                        <div key={i} style={{background:C.bg,border:`1px solid ${borderColor}33`,borderLeft:`3px solid ${borderColor}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                            <span style={{color:C.text,fontWeight:600}}>{icon} {rec.metric}: {rec.value}</span>
+                            <span style={{fontSize:9,color:borderColor,background:borderColor+"18",padding:"1px 6px",borderRadius:8}}>{rec.priority}</span>
+                          </div>
+                          <p style={{color:C.muted,lineHeight:1.4}}>{rec.message}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SHOREDITCH CRM */}
+      {property==="shoreditch"&&sdTab==="crm"&&(
+        <div style={{padding:"22px 26px"}}>
+          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {rangeLabel}</p>
+          <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Pipeline — Villa Applications</h2>
+          {!sdGhlConn&&sdGhlLoading&&<p style={{fontSize:13,color:C.muted}}>Connecting to GHL…</p>}
+          {!sdGhlConn&&!sdGhlLoading&&!sdGhlError&&<p style={{fontSize:13,color:C.muted}}>Loading pipeline data…</p>}
+          {sdGhlError&&<div style={{color:C.rose,marginTop:8,padding:"10px 14px",background:C.rose+"18",border:`1px solid ${C.rose}33`,borderRadius:8,fontSize:12}}>{sdGhlError}</div>}
+          {sdGhlConn&&sdGhlData&&(
+            <div>
+              <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+                <KPI label="Total Opportunities" value={sdGhlData.totalOpps} sub="All stages" accent={C.purple}/>
+                <KPI label="Applied" value={sdGhlData.applied} sub={sdGhlData.appliedStageName||"Applied stage"} accent={C.sage}/>
+                <KPI label="Pipeline" value={sdGhlData.pipelineName} sub="Active pipeline" accent={C.gold}/>
+              </div>
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+                <p style={{fontSize:11,color:C.muted,marginBottom:6}}>Stages: {sdGhlData.stages.map(s=>s.name).join(" → ")}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SHOREDITCH OCCUPANCY */}
+      {property==="shoreditch"&&sdTab==="occupancy"&&(()=>{
+        const STATUS_COLORS={
+          OCCUPIED:{bg:C.sage+"33",color:C.sage,border:C.sage+"55"},
+          AVAILABLE:{bg:C.rose+"33",color:C.rose,border:C.rose+"55"},
+          LEAVING:{bg:C.gold+"33",color:C.gold,border:C.gold+"55"},
+          INCOMING:{bg:C.blue+"33",color:C.blue,border:C.blue+"55"},
+        };
+        const sdUpdateField=(fi,ri,field,val)=>{
+          setSdFlats(p=>{
+            const n=p.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))}));
+            if(ri===null){n[fi]={...n[fi],[field]:val};}
+            else{
+              n[fi].rooms[ri]={...n[fi].rooms[ri],[field]:val};
+              // Auto-derive weekly from monthly
+              if(field==="m"){n[fi].rooms[ri].w=pcmToAwr(val);}
+            }
+            return n;
+          });
+        };
+        const FlatPlan=({flat})=>{
+          const beds=flat.rooms.length;
+          const W=280,rowH=44,gap=4,pad=6;
+          let topRow,botRow,midRow=[];
+          if(beds<=4){topRow=flat.rooms.slice(0,2);botRow=flat.rooms.slice(2,4);}
+          else if(beds===5){topRow=flat.rooms.slice(0,2);midRow=flat.rooms.slice(2,3);botRow=flat.rooms.slice(3,5);}
+          else{topRow=flat.rooms.slice(0,3);botRow=flat.rooms.slice(3,6);}
+          const totalH=pad*2+rowH*2+rowH+gap*2;
+          const renderRow=(rooms,y,startIdx)=>{
+            const rw=(W-pad*2-(rooms.length-1)*gap)/rooms.length;
+            return rooms.map((r,i)=>{
+              const sc=STATUS_COLORS[r.s]||STATUS_COLORS.AVAILABLE;
+              const x=pad+i*(rw+gap);
+              return <g key={r.id}><rect x={x} y={y} width={rw} height={rowH} rx={4} fill={sc.bg} stroke={sc.color} strokeWidth={1}/><text x={x+rw/2} y={y+18} textAnchor="middle" fill={sc.color} fontSize={10} fontWeight={700} fontFamily="DM Mono,monospace">{"B"+(startIdx+i+1)}</text><text x={x+rw/2} y={y+32} textAnchor="middle" fill={C.muted} fontSize={8} fontFamily="DM Mono,monospace">{r.size||""}</text></g>;
+            });
+          };
+          const livingY=pad+rowH+gap;
+          const midRooms=midRow.length>0;
+          const livingW=midRooms?(W-pad*2)*0.6:(W-pad*2);
+          const midW=midRooms?(W-pad*2)*0.4-gap:0;
+          return <svg width={W} height={totalH} viewBox={`0 0 ${W} ${totalH}`} style={{display:"block",marginTop:8}}>
+            <rect x={0} y={0} width={W} height={totalH} rx={8} fill={C.card} stroke={C.border} strokeWidth={1}/>
+            {renderRow(topRow,pad,0)}
+            <rect x={pad} y={livingY} width={livingW} height={rowH} rx={4} fill={C.border+"66"} stroke={C.border} strokeWidth={1}/>
+            <text x={pad+livingW/2} y={livingY+rowH/2+4} textAnchor="middle" fill={C.muted} fontSize={9} fontFamily="DM Mono,monospace">Living / Kitchen</text>
+            {midRooms&&(()=>{const r=midRow[0];const sc=STATUS_COLORS[r.s]||STATUS_COLORS.AVAILABLE;const mx=pad+livingW+gap;const midLabel="B"+(topRow.length+1);return <g><rect x={mx} y={livingY} width={midW} height={rowH} rx={4} fill={sc.bg} stroke={sc.color} strokeWidth={1}/><text x={mx+midW/2} y={livingY+18} textAnchor="middle" fill={sc.color} fontSize={10} fontWeight={700} fontFamily="DM Mono,monospace">{midLabel}</text><text x={mx+midW/2} y={livingY+32} textAnchor="middle" fill={C.muted} fontSize={8} fontFamily="DM Mono,monospace">{r.size||""}</text></g>;})()}
+            {renderRow(botRow,pad+rowH*2+gap*2,topRow.length+(midRow.length||0))}
+          </svg>;
+        };
+        const floor1=sdFlats.filter((_,i)=>i<8);
+        const floor2=sdFlats.filter((_,i)=>i>=8);
+        const renderFlats=(flats,baseIdx,floorLabel)=>(
+          <div key={floorLabel} style={{marginBottom:20}}>
+            <p style={{fontSize:12,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${C.border}`}}>{floorLabel}</p>
+            {flats.map((flat,localIdx)=>{
+              const fi=baseIdx+localIdx;
+              const expanded=!!sdExpanded[fi];
+              const occCount=flat.rooms.filter(r=>r.s==="OCCUPIED"||r.s==="LEAVING").length;
+              const availCount=flat.rooms.filter(r=>r.s==="AVAILABLE").length;
+              const incomingCount=flat.rooms.filter(r=>r.s==="INCOMING").length;
+              const leavingCount=flat.rooms.filter(r=>r.s==="LEAVING").length;
+              const weeklyTotal=flat.rooms.reduce((s,r)=>(r.s==="OCCUPIED"||r.s==="LEAVING")?s+pcmToAwr(r.m):s,0);
+              return <div key={fi} style={{background:C.card,border:`1px solid ${expanded?C.gold+"55":C.border}`,borderRadius:12,marginBottom:8,overflow:"hidden",transition:"border-color 0.2s"}}>
+                {/* COLLAPSED HEADER */}
+                <div onClick={()=>setSdExpanded(p=>({...p,[fi]:!p[fi]}))} style={{padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <div style={{flex:"1 1 140px",minWidth:140}}>
+                    <span style={{fontSize:14,fontWeight:700,color:C.text}}>{flat.name}</span>
+                    <span style={{fontSize:11,color:C.muted,marginLeft:8}}>Floor {flat.floor||"?"} · {flat.wing||"?"} · {flat.beds||flat.rooms.length} beds</span>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.sage+"22",color:C.sage,fontWeight:600}}>{occCount} occ</span>
+                    {availCount>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.rose+"22",color:C.rose,fontWeight:600}}>{availCount} avail</span>}
+                    {leavingCount>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.gold+"22",color:C.gold,fontWeight:600}}>{leavingCount} leaving</span>}
+                    {incomingCount>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.blue+"22",color:C.blue,fontWeight:600}}>{incomingCount} inc</span>}
+                  </div>
+                  <div style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"DM Mono,monospace",minWidth:70,textAlign:"right"}}>
+                    {occCount>0?`£${Math.round(weeklyTotal/occCount)} AWR`:"—"}
+                  </div>
+                  <span style={{fontSize:14,color:C.muted,transition:"transform 0.2s",transform:expanded?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                </div>
+                {/* EXPANDED DETAILS */}
+                {expanded&&(
+                  <div style={{padding:"0 16px 16px",borderTop:`1px solid ${C.border}`}}>
+                    {/* Badges row */}
+                    <div style={{display:"flex",gap:8,marginTop:12,marginBottom:12,flexWrap:"wrap"}}>
+                      {flat.viewDays&&<span style={{fontSize:10,color:C.muted,background:C.border,padding:"2px 8px",borderRadius:10}}>Views: {flat.viewDays}</span>}
+                      {flat.pref&&<span style={{fontSize:10,color:C.purple,background:C.purple+"22",padding:"2px 8px",borderRadius:10}}>{flat.pref}</span>}
+                    </div>
+                    {/* Room table */}
+                    <div style={{overflowX:"auto",marginBottom:12}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"DM Mono,monospace"}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Room</th>
+                            <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>AWR</th>
+                            <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>PCM</th>
+                            <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Member</th>
+                            <th style={{textAlign:"center",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flat.rooms.map((room,ri)=>{
+                            const sc=STATUS_COLORS[room.s]||STATUS_COLORS.AVAILABLE;
+                            const isEditingM=sdEditing&&sdEditing.fi===fi&&sdEditing.ri===ri&&sdEditing.field==="m";
+                            const isEditingMember=sdEditing&&sdEditing.fi===fi&&sdEditing.ri===ri&&sdEditing.field==="member";
+                            const derivedW=pcmToAwr(room.m);
+                            return <tr key={ri} style={{borderBottom:`1px solid ${C.border}22`}}>
+                              <td style={{padding:"6px 8px",color:C.text,whiteSpace:"nowrap"}}>
+                                {room.label||room.id} <span style={{color:C.muted,fontSize:9}}>{room.size||""}</span>
+                              </td>
+                              <td style={{padding:"6px 8px",textAlign:"right",color:C.muted}}>
+                                £{derivedW}
+                              </td>
+                              <td style={{padding:"6px 8px",textAlign:"right"}}>
+                                {isEditingM
+                                  ?<input autoFocus type="number" defaultValue={room.m||0} onBlur={(e)=>{sdUpdateField(fi,ri,"m",Number(e.target.value)||0);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:70,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,textAlign:"right",fontFamily:"DM Mono,monospace"}}/>
+                                  :<span onClick={()=>setSdEditing({fi,ri,field:"m"})} style={{cursor:"pointer",color:C.text}}>£{room.m||0}</span>
+                                }
+                              </td>
+                              <td style={{padding:"6px 8px"}}>
+                                {isEditingMember
+                                  ?<input autoFocus type="text" defaultValue={room.member||""} onBlur={(e)=>{sdUpdateField(fi,ri,"member",e.target.value);setSdEditing(null);}} onKeyDown={(e)=>{if(e.key==="Enter"){e.target.blur();}}} style={{width:140,background:C.bg,color:C.text,border:`1px solid ${C.gold}`,borderRadius:4,padding:"2px 4px",fontSize:11,fontFamily:"DM Mono,monospace"}}/>
+                                  :<span onClick={()=>setSdEditing({fi,ri,field:"member"})} style={{cursor:"pointer",color:room.member?C.text:C.muted}}>
+                                    {room.member||"—"}
+                                  </span>
+                                }
+                              </td>
+                              <td style={{padding:"6px 8px",textAlign:"center"}}>
+                                <button onClick={()=>sdToggleRoom(fi,ri)} style={{padding:"2px 10px",background:sc.bg,color:sc.color,border:`1px solid ${sc.border}`,borderRadius:10,cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"DM Mono,monospace"}}>{room.s}</button>
+                              </td>
+                            </tr>;
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Notes */}
+                    <div style={{marginBottom:12}}>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>Notes</p>
+                      <textarea value={flat.notes||""} onChange={(e)=>sdUpdateField(fi,null,"notes",e.target.value)} rows={2} style={{width:"100%",background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",fontSize:11,fontFamily:"DM Mono,monospace",resize:"vertical",lineHeight:1.5}}/>
+                    </div>
+                    {/* Floor plan */}
+                    <div>
+                      <p style={{fontSize:10,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>Floor Plan</p>
+                      <FlatPlan flat={flat}/>
+                    </div>
+                  </div>
+                )}
+              </div>;
+            })}
+          </div>
+        );
+        return (
+        <div style={{padding:"22px 26px"}}>
+          <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Shoreditch · {SD_VILLAS} villas · {SD_BEDROOMS} bedrooms</p>
+          <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:18}}>Room Occupancy</h2>
+
+          <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+            <KPI label="Total Rooms" value={sdOcc.t} accent={C.gold}/>
+            <KPI label="Occupied" value={sdOcc.o} accent={C.sage}/>
+            <KPI label="Available" value={sdOcc.v} accent={C.rose}/>
+            <KPI label="Incoming" value={sdOcc.i} accent={C.blue}/>
+            <KPI label="Current Occupancy" value={`${sdOcc.pct}%`} accent={C.gold}/>
+            <KPI label="Future Occupancy" value={`${sdOcc.fut}%`} sub="incl. incoming" accent={C.sage}/>
+            <KPI label="AWR (Occupied)" value={`£${sdOcc.awrOcc}`} sub={`${sdOcc.o} rooms · £${sdOcc.occWeeklySum}/w total`} accent={C.gold}/>
+            <KPI label="AWR (Occ + Inc)" value={`£${sdOcc.awrOccInc}`} sub={`${sdOcc.o+sdOcc.i} rooms · £${sdOcc.occIncWeeklySum}/w total`} accent={C.sage}/>
+          </div>
+
+          {/* OCCUPANCY PREDICTION */}
+          {(()=>{
+            const avail=sdOcc.v;
+            const bpw=sdBookingsPerWeek||1;
+            const weeksToFill=avail>0?Math.ceil(avail/bpw):0;
+            const today=new Date();
+            const fillDate=new Date(today.getTime()+weeksToFill*7*24*60*60*1000);
+            const fillDateStr=fillDate.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+            // Calculate AWR at each milestone
+            const sortedAvail=sdOcc.availRooms.slice().sort((a,b)=>b-a); // fill highest AWR rooms first
+            let runningWeekly=sdOcc.occIncWeeklySum;
+            let runningCount=sdOcc.o+sdOcc.i;
+            const total=sdOcc.t;
+            const milestones=[70,80,90,95,100].map(pct=>{
+              const needed=Math.ceil(total*pct/100);
+              return{pct,needed};
+            });
+            let filledSoFar=0;
+            const results=milestones.map(ms=>{
+              while(runningCount<ms.needed&&filledSoFar<sortedAvail.length){
+                runningWeekly+=sortedAvail[filledSoFar];
+                runningCount++;
+                filledSoFar++;
+              }
+              const weeksToThis=runningCount<=sdOcc.o+sdOcc.i?0:Math.ceil((runningCount-(sdOcc.o+sdOcc.i))/bpw);
+              const dateAt=new Date(today.getTime()+weeksToThis*7*24*60*60*1000);
+              const awr=runningCount>0?Math.round(runningWeekly/runningCount):0;
+              const hit=runningCount>=ms.needed;
+              return{...ms,awr,weeks:weeksToThis,date:dateAt.toLocaleDateString("en-GB",{day:"numeric",month:"short"}),hit,count:Math.min(runningCount,ms.needed)};
+            });
+            return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 20px",marginBottom:18}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <p style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Occupancy Prediction</p>
+                  <p style={{fontSize:16,fontWeight:700,color:C.text}}>When will we hit targets?</p>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:11,color:C.muted}}>Bookings/week:</span>
+                  <input type="number" min={1} max={20} value={sdBookingsPerWeek} onChange={(e)=>setSdBookingsPerWeek(Math.max(1,Number(e.target.value)||1))} style={{width:50,background:C.bg,color:C.gold,border:`1px solid ${C.gold}`,borderRadius:6,padding:"4px 8px",fontSize:14,fontWeight:700,textAlign:"center",fontFamily:"DM Mono,monospace"}}/>
+                </div>
+              </div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"DM Mono,monospace"}}>
+                <thead>
+                  <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    <th style={{textAlign:"left",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Target</th>
+                    <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Rooms</th>
+                    <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Weeks</th>
+                    <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>Date</th>
+                    <th style={{textAlign:"right",padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10}}>AWR at Target</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map(r=>(
+                    <tr key={r.pct} style={{borderBottom:`1px solid ${C.border}22`,background:r.pct===95?C.gold+"11":"transparent"}}>
+                      <td style={{padding:"6px 8px",color:r.hit?C.sage:C.text,fontWeight:r.pct===95?700:400}}>{r.pct}%{r.pct===95?" ★":""}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{r.count} / {total}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:r.weeks===0?C.sage:C.text}}>{r.weeks===0?"Now":r.weeks+"w"}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{r.weeks===0?"—":r.date}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.gold,fontWeight:700}}>£{r.awr}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{fontSize:10,color:C.muted,marginTop:8}}>Based on {avail} available rooms filling at {bpw}/week. AWR assumes rooms fill in order of highest rate first. Adjust bookings/week to model different scenarios.</p>
+            </div>;
+          })()}
+
+          <div style={{display:"flex",gap:24,justifyContent:"center",marginBottom:24}}>
+            <OccRing pct={sdOcc.pct} color={C.gold} label="Current Occupancy"/>
+            <OccRing pct={sdOcc.fut} color={C.sage} label="Future Occupancy"/>
+          </div>
+
+          {/* FLAT CARDS BY FLOOR */}
+          {renderFlats(floor1,0,"1st Floor · Flats 1–8")}
+          {renderFlats(floor2,8,"2nd Floor · Flats 9–16")}
+
+          <div style={{display:"flex",gap:12,marginTop:16,justifyContent:"center",alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:10,color:C.sage,background:C.sage+"22",padding:"3px 10px",borderRadius:12}}>● Occupied</span>
+            <span style={{fontSize:10,color:C.rose,background:C.rose+"22",padding:"3px 10px",borderRadius:12}}>● Available</span>
+            <span style={{fontSize:10,color:C.gold,background:C.gold+"22",padding:"3px 10px",borderRadius:12}}>● Leaving</span>
+            <span style={{fontSize:10,color:C.blue,background:C.blue+"22",padding:"3px 10px",borderRadius:12}}>● Incoming</span>
+            <span style={{fontSize:10,color:sdFlatsSync==="cloud"?C.sage:sdFlatsSync==="saving"?C.gold:sdFlatsSync==="error"?C.rose:C.muted,marginLeft:12}}>
+              {sdFlatsSync==="loading"&&"◌ Loading…"}
+              {sdFlatsSync==="cloud"&&`● Synced${sdFlatsUpdatedAt?" · "+new Date(sdFlatsUpdatedAt).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):""}`}
+              {sdFlatsSync==="saving"&&"◌ Saving…"}
+              {sdFlatsSync==="error"&&"⚠ Sync failed (using local)"}
+              {sdFlatsSync==="local"&&"◌ Local only (KV not configured)"}
+            </span>
+            <button onClick={()=>{if(confirm("Reset Shoreditch occupancy to defaults? This will clear saved changes across all devices.")){localStorage.removeItem("sd_flats_v1");setSdFlats(SD_FLATS.map(f=>({...f,rooms:f.rooms.map(r=>({...r}))})));setSdExpanded({});}}} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,padding:"3px 10px",borderRadius:12,cursor:"pointer"}}>Reset to defaults</button>
+          </div>
+        </div>
+        );
+      })()}
+
+      <div style={{padding:"10px 26px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
+          <p style={{fontSize:10,color:C.muted}}>Meta 296625156418426 · Google Ads 635-731-8686 · GHL {GHL_LOCATION} · Lavanda</p>
+          <p style={{fontSize:10,color:C.muted}}>Southall &soul · {new Date().toLocaleDateString("en-GB")}</p>
+        </div>
+      </div>
+    </>
+  );
+}
