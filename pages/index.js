@@ -53,23 +53,46 @@ const rn = (r) => (/^\d+$/.test(String(r)) ? String(+r) : String(r));
 const isLive = (s) => !s.canceled && s.status !== "canceled" && s.status !== "inquiry" && !s.status.endsWith("_expired");
 const isConfirmed = (s) => !s.canceled && s.status === "confirmed";
 const isShort = (s) => s.nomad || s.days < 28;
+const SALE_KINDS = ["Long stay — new", "Long stay — renewal", "Short stay"];
+const KIND_LABEL = { "Long stay — new": "New", "Long stay — renewal": "Renewal", "Short stay": "Short stay", "Room move": "Room move", "Rebooked": "Rebooked" };
 
 // Follow-on stays: same guest, next stay starts 30 days before → 14 days after
-// the previous one ends (same rule as the renewals tracker).
+// the previous one ends. Same guest = same email OR same full name (OTA bookings
+// arrive with a new alias email each time).
+//   • same room, both long-stay rooms → RENEWAL
+//   • different room                  → ROOM MOVE (not a new booking, not a renewal)
+//   • a confirmed booking that re-enters an earlier cancelled one (same guest,
+//     room and start date) → REBOOKED (not counted again)
+// Matches the Southall weekly sales report (agreed with Leyth, 17 Nov 2026).
+const nameKey = (s) => { const n = (s.guest || "").toLowerCase().replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim(); return n.split(" ").length >= 2 ? "n:" + n : null; };
+const mailKey = (s) => (s.contact && s.contact !== "|" ? "e:" + String(s.contact).toLowerCase() : null);
 function buildChains(sales) {
-  const byContact = {};
-  sales.filter(isLive).forEach((s) => { if (s.contact && s.contact !== "|") (byContact[s.contact] = byContact[s.contact] || []).push(s); });
-  const isRenewal = new Set(), isContinuation = new Set(), followOn = {};
+  const live = sales.filter(isLive);
+  const groups = {}; const add = (k, s) => { if (k) (groups[k] = groups[k] || []).push(s); };
+  live.forEach((s) => { add(mailKey(s), s); add(nameKey(s), s); });
+  const isRenewal = new Set(), isMove = new Set(), isRebook = new Set(), isContinuation = new Set(), followOn = {}, pred = {}, moveFrom = {};
   const rank = (x) => (isConfirmed(x) ? 2 : x.status === "tentative" ? 1 : 0);
-  Object.values(byContact).forEach((list) => list.forEach((a) => list.forEach((b) => {
-    if (a === b || b.start <= a.start) return;
+  Object.values(groups).forEach((list) => list.forEach((a) => list.forEach((b) => {
+    if (a === b || a.id === b.id || b.start <= a.start) return;
     const gap = dayDiff(a.end, b.start);
     if (gap < -30 || gap > 14) return;
     isContinuation.add(b.id);
-    if (!a.nomad && !b.nomad) isRenewal.add(b.id);
     if (!followOn[a.id] || rank(b) > rank(followOn[a.id])) followOn[a.id] = b;
+    // previous stay = the one ending closest to this start
+    const p = pred[b.id], pg = p ? Math.abs(dayDiff(p.end, b.start)) : Infinity;
+    if (Math.abs(gap) < pg || (Math.abs(gap) === pg && a.start > p.start)) pred[b.id] = a;
   })));
-  return { isRenewal, isContinuation, followOn };
+  live.forEach((b) => {
+    const a = pred[b.id]; if (!a) return;
+    if (rn(a.room) !== rn(b.room)) { isMove.add(b.id); moveFrom[b.id] = a.room; }
+    else if (!a.nomad && !b.nomad) isRenewal.add(b.id);
+  });
+  const canc = {};
+  sales.filter((s) => s.canceled || s.status === "canceled").forEach((s) => [mailKey(s), nameKey(s)].forEach((k) => {
+    if (!k) return; const kk = k + "|" + rn(s.room) + "|" + s.start; if (!canc[kk] || s.created < canc[kk]) canc[kk] = s.created;
+  }));
+  sales.filter(isConfirmed).forEach((b) => { if ([mailKey(b), nameKey(b)].some((k) => { const c = k && canc[k + "|" + rn(b.room) + "|" + b.start]; return c && c < b.created; })) isRebook.add(b.id); });
+  return { isRenewal, isMove, isRebook, moveFrom, isContinuation, followOn };
 }
 
 // Same list as the main dashboard's renewals tracker
@@ -314,20 +337,22 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
 
   // ─── Sales for a date range ──────────────────────────────────────────────
   const salesFor = (r) => {
-    const kind = (s) => (isShort(s) ? "Short stay" : ch.isRenewal.has(s.id) ? "Long stay — renewal" : "Long stay — new");
+    const kind = (s) => (ch.isRebook.has(s.id) ? "Rebooked" : ch.isMove.has(s.id) ? "Room move" : isShort(s) ? "Short stay" : ch.isRenewal.has(s.id) ? "Long stay — renewal" : "Long stay — new");
     const statusOf = (s) => (s.canceled || s.status === "canceled" ? "Cancelled" : s.status === "inquiry" ? "Enquiry" : s.status.endsWith("_expired") ? "Expired hold" : s.status === "tentative" ? "Pending" : "Confirmed");
     // Expired holds are ignored entirely. £0 confirmed records are listed separately
     // (blocks / free nights entered in Lavanda) and are not counted as sales.
     const inP = sales.filter((s) => s.created && s.created >= r.from && s.created <= r.to && !s.status.endsWith("_expired"));
     const isZero = (s) => s.status === "confirmed" && !s.canceled && !(s.total > 0);
-    const tag = (s) => ({ ...s, kind: kind(s), st: statusOf(s), late: s.start && s.created > s.start });
+    const tag = (s) => ({ ...s, kind: kind(s), from: ch.moveFrom[s.id] || null, st: statusOf(s), late: s.start && s.created > s.start });
     const zero = inP.filter(isZero).map(tag).sort((a, b) => b.created.localeCompare(a.created));
     const recs = inP.filter((s) => !isZero(s)).map(tag).sort((a, b) => b.created.localeCompare(a.created));
     const made = recs.filter((x) => x.st !== "Enquiry"), confd = made.filter((x) => x.st === "Confirmed");
     return { recs, made, confd, enq: recs.length - made.length, pend: made.filter((x) => x.st === "Pending").length, canc: made.filter((x) => x.st === "Cancelled").length, zero, late: confd.filter((x) => x.late).length,
       newLong: confd.filter((x) => x.kind === "Long stay — new").length, renew: confd.filter((x) => x.kind === "Long stay — renewal").length, short: confd.filter((x) => x.kind === "Short stay").length,
-      value: confd.reduce((a, x) => a + (badRecord(x) ? 0 : x.total), 0),
-      by: Object.fromEntries(["Long stay — new", "Long stay — renewal", "Short stay"].map((k) => [k, {
+      moves: confd.filter((x) => x.kind === "Room move").length, rebook: confd.filter((x) => x.kind === "Rebooked").length,
+      // booking value = new + renewal + short stay (room moves and rebooked duplicates are not sales)
+      value: confd.filter((x) => SALE_KINDS.includes(x.kind)).reduce((a, x) => a + (badRecord(x) ? 0 : x.total), 0),
+      by: Object.fromEntries(["Long stay — new", "Long stay — renewal", "Short stay", "Room move", "Rebooked"].map((k) => [k, {
         made: made.filter((x) => x.kind === k).length, conf: confd.filter((x) => x.kind === k).length,
         value: confd.filter((x) => x.kind === k).reduce((a, x) => a + (badRecord(x) ? 0 : x.total), 0) }])) };
   };
@@ -531,10 +556,11 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
             total={mk ? ["Total", gbp(mk.spend), L(mk.leads), gbp(mk.cpl), mkP ? gbp(mkP.cpl) : "…"] : null} />
           <div style={{ height: 12 }} />
           <Grid>
-            <Stat label="New long-stay bookings" value={num(sale.newLong)} sub="Confirmed, excl. renewals" delta={<Delta cur={sale.newLong} prev={saleP.newLong} />} />
+            <Stat label="New long-stay bookings" value={num(sale.newLong)} sub="Confirmed, excl. renewals & room moves" delta={<Delta cur={sale.newLong} prev={saleP.newLong} />} />
             <Stat label="Lead → booking" value={mk ? pct(mk.conv, 1) : "…"} sub="New long-stay ÷ CRM leads" delta={mk && mkP && <Delta cur={mk.conv} prev={mkP.conv} fmt={(v) => pct(v, 1)} />} />
-            <Stat label="Renewal bookings" value={num(sale.renew)} sub="Confirmed long-stay renewals" delta={<Delta cur={sale.renew} prev={saleP.renew} />} />
+            <Stat label="Renewal bookings" value={num(sale.renew)} sub="Same guest, same room" delta={<Delta cur={sale.renew} prev={saleP.renew} />} />
             <Stat label="Short-stay bookings" value={num(sale.short)} sub={cfg.nomad ? "Confirmed, Nomad & < 28 nights" : "Confirmed, < 28 nights"} delta={<Delta cur={sale.short} prev={saleP.short} />} />
+            <Stat label="Room moves" value={num(sale.moves)} sub="Not counted as new or renewal" delta={<Delta cur={sale.moves} prev={saleP.moves} />} />
           </Grid>
         </>)}
 
@@ -542,23 +568,25 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
           <H right={pills}>Bookings made</H>
           <Grid min={140}>
             <Stat label="Enquiries" value={num(sale.enq)} delta={<Delta cur={sale.enq} prev={saleP.enq} />} />
-            <Stat label="Bookings made" value={num(sale.made.length)} sub={`New ${sale.by["Long stay — new"].made} · Renewal ${sale.by["Long stay — renewal"].made} · Short ${sale.by["Short stay"].made}`} delta={<Delta cur={sale.made.length} prev={saleP.made.length} />} />
-            <Stat label="Confirmed" value={num(sale.confd.length)} color={C.good} sub={`New ${sale.by["Long stay — new"].conf} · Renewal ${sale.by["Long stay — renewal"].conf} · Short ${sale.by["Short stay"].conf}`} delta={<Delta cur={sale.confd.length} prev={saleP.confd.length} />} />
+            <Stat label="Bookings made" value={num(sale.made.length)} sub={`New ${sale.by["Long stay — new"].made} · Renewal ${sale.by["Long stay — renewal"].made} · Short ${sale.by["Short stay"].made} · Moves ${sale.by["Room move"].made}${sale.by["Rebooked"].made ? ` · Rebooked ${sale.by["Rebooked"].made}` : ""}`} delta={<Delta cur={sale.made.length} prev={saleP.made.length} />} />
+            <Stat label="Confirmed" value={num(sale.confd.length)} color={C.good} sub={`New ${sale.by["Long stay — new"].conf} · Renewal ${sale.by["Long stay — renewal"].conf} · Short ${sale.by["Short stay"].conf} · Moves ${sale.by["Room move"].conf}${sale.by["Rebooked"].conf ? ` · Rebooked ${sale.by["Rebooked"].conf}` : ""}`} delta={<Delta cur={sale.confd.length} prev={saleP.confd.length} />} />
             <Stat label="Pending" value={num(sale.pend)} color={C.warn} delta={<Delta cur={sale.pend} prev={saleP.pend} />} />
             <Stat label="Cancelled" value={num(sale.canc)} color={C.bad} delta={<Delta cur={sale.canc} prev={saleP.canc} lowerIsBetter />} />
             <Stat label="£0 bookings" value={num(sale.zero.length)} sub="Listed below · not counted" />
           </Grid>
 
-          <H>New vs renewal (confirmed)</H>
-          <Grid min={180}>
+          <H>New, renewals and room moves (confirmed)</H>
+          <Grid min={170}>
+            <Stat label="New bookings" value={num(sale.newLong + sale.short)} sub={`${sale.newLong} long stay + ${sale.short} short stay · ${gbp(sale.by["Long stay — new"].value + sale.by["Short stay"].value)}`} delta={<Delta cur={sale.newLong + sale.short} prev={saleP.newLong + saleP.short} />} />
             <Stat label="New long-stay bookings" value={num(sale.newLong)} sub={`${sale.by["Long stay — new"].made} made · ${gbp(sale.by["Long stay — new"].value)}`} delta={<Delta cur={sale.newLong} prev={saleP.newLong} />} />
             <Stat label="Renewal bookings" value={num(sale.renew)} sub={`${sale.by["Long stay — renewal"].made} made · ${gbp(sale.by["Long stay — renewal"].value)}`} delta={<Delta cur={sale.renew} prev={saleP.renew} />} />
             <Stat label="Short-stay bookings" value={num(sale.short)} sub={`${sale.by["Short stay"].made} made · ${gbp(sale.by["Short stay"].value)}`} delta={<Delta cur={sale.short} prev={saleP.short} />} />
+            <Stat label="Room moves" value={num(sale.moves)} sub={`Not new, not renewal · ${gbp(sale.by["Room move"].value)}`} delta={<Delta cur={sale.moves} prev={saleP.moves} />} />
           </Grid>
 
           <H>Long stay vs short stay</H>
           <Table cols={["", "Made", "Confirmed", "Prev confirmed", "Pending", "Cancelled", "Avg length", "Avg £/week", "Value"]}
-            rows={["Long stay — new", "Long stay — renewal", "Short stay"].map((k) => {
+            rows={["Long stay — new", "Long stay — renewal", "Short stay", "Room move"].map((k) => {
               const m = sale.made.filter((r) => r.kind === k), c = m.filter((r) => r.st === "Confirmed"), w = c.map(weekly).filter((x) => x);
               return [k, m.length, c.length, saleP.confd.filter((r) => r.kind === k).length, m.filter((r) => r.st === "Pending").length, m.filter((r) => r.st === "Cancelled").length,
                 c.length ? Math.round(c.reduce((a, r) => a + r.days, 0) / c.length) + " nights" : "—", w.length ? gbp(w.reduce((a, b) => a + b, 0) / w.length) : "—", gbp(c.reduce((a, r) => a + (badRecord(r) ? 0 : r.total), 0))];
@@ -567,18 +595,19 @@ function PropertyView({ tab, setTab, period, setPeriod, property, setProperty })
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
             <div>
               <H>Long stay — length (confirmed)</H>
-              {(() => { const cl = sale.confd.filter((r) => !isShort(r)); const rows = LOS.map((b) => { const x = cl.filter((r) => losBand(r.days) === b.key); return [b.key, x.filter((r) => r.kind === "Long stay — new").length, x.filter((r) => r.kind === "Long stay — renewal").length, x.length]; });
+              {(() => { const cl = sale.confd.filter((r) => r.kind === "Long stay — new" || r.kind === "Long stay — renewal"); const rows = LOS.map((b) => { const x = cl.filter((r) => losBand(r.days) === b.key); return [b.key, x.filter((r) => r.kind === "Long stay — new").length, x.filter((r) => r.kind === "Long stay — renewal").length, x.length]; });
                 return <Table cols={["Length", "New", "Renewal", "Total"]} rows={rows} total={["Total", rows.reduce((a, r) => a + r[1], 0), rows.reduce((a, r) => a + r[2], 0), cl.length]} />; })()}
             </div>
             <div>
-              <H>Room type (confirmed)</H>
-              {(() => { const rows = TYPES.map((t) => [tl(t), sale.confd.filter((r) => r.type === t).length]).filter((r) => r[1]); return <Table cols={["Room type", "Bookings"]} rows={rows.length ? rows : [["—", 0]]} total={["Total", sale.confd.length]} />; })()}
+              <H>Room type (new, renewal and short stay)</H>
+              {(() => { const sc = sale.confd.filter((r) => SALE_KINDS.includes(r.kind)); const rows = TYPES.map((t) => [tl(t), sc.filter((r) => r.type === t).length]).filter((r) => r[1]); return <Table cols={["Room type", "Bookings"]} rows={rows.length ? rows : [["—", 0]]} total={["Total", sc.length]} />; })()}
             </div>
           </div>
 
-          <H right={<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{[["All", "All"], ["Long stay — new", "New"], ["Long stay — renewal", "Renewal"], ["Short stay", "Short stay"]].map(([k, l]) => <Pill key={k} on={kindF === k} onClick={() => setKindF(k)}>{l}</Pill>)}</div>}>All bookings in period</H>
+          <H right={<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{[["All", "All"], ["Long stay — new", "New"], ["Long stay — renewal", "Renewal"], ["Short stay", "Short stay"], ["Room move", "Room moves"]].map(([k, l]) => <Pill key={k} on={kindF === k} onClick={() => setKindF(k)}>{l}</Pill>)}</div>}>All bookings in period</H>
           <Table cols={["Booked", "Guest", "Room", "Type", "Arrives", "Nights", "£/week", "Kind", "Status"]}
-            rows={sale.recs.filter((r) => kindF === "All" || r.kind === kindF).map((r) => [<span key="b">{fmtDate(r.created)}{r.late ? <span style={{ fontSize: 11, color: C.warn }}> · entered after arrival</span> : null}</span>, r.guest || "—", r.room, tl(r.type), fmtDate(r.start), r.days, weekly(r) ? gbp(weekly(r)) : "—", ({ "Long stay — new": "New", "Long stay — renewal": "Renewal", "Short stay": "Short stay" })[r.kind], <Tag key={r.id} s={r.st} />])} />
+            rows={sale.recs.filter((r) => kindF === "All" || r.kind === kindF).map((r) => [<span key="b">{fmtDate(r.created)}{r.late ? <span style={{ fontSize: 11, color: C.warn }}> · entered after arrival</span> : null}</span>, r.guest || "—", r.room, tl(r.type), fmtDate(r.start), r.days, weekly(r) ? gbp(weekly(r)) : "—", r.kind === "Room move" && r.from ? `Room move (from ${rn(r.from)})` : KIND_LABEL[r.kind], <Tag key={r.id} s={r.st} />])} />
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Room move = an existing guest changing room: not counted as a new booking or a renewal. Renewal = same guest staying on in the same room. Rebooked = a booking re-entered after an earlier cancellation of the same stay: not counted again.</div>
           {sale.late > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{sale.late} confirmed booking{sale.late > 1 ? "s were" : " was"} entered in Lavanda after the guest arrived — included in the counts.</div>}
 
           <H right={<span style={{ fontSize: 12, color: C.muted }}>Confirmed in Lavanda with no charge · not counted as sales</span>}>£0 bookings in period</H>
